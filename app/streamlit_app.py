@@ -17,7 +17,7 @@ from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
 from mel.data import load_insights, errors, load_golden
-from mel.evaluation import score_golden
+from mel.evaluation import score_golden, run_scorecard, load_history
 from mel.pipeline import run_insight, clean
 from mel.schedule.handoff import CapLedger
 from mel.simulator import simulate, cases_for
@@ -385,7 +385,7 @@ with tab_follow:
                 "Flagged answer": f"{t['prompt']} → {t['answer']}",
                 "Why": FU_REASON.get(t["reason"], t["reason"]),
                 "Answered": t["recorded_at"],
-            } for t in view]), use_container_width=True, hide_index=True, height=280)
+            } for t in view]), width="stretch", hide_index=True, height=280)
 
             st.subheader("Open a ticket")
             opts = {t["response_key"]: f"{t['farmer_id']} · {t['asset']} · {FU_REASON[t['reason']]}"
@@ -426,6 +426,11 @@ def _eval_full():
         return None
     return score_golden(load_golden(path))
 
+@st.cache_data(show_spinner="Checking every survey in the full dataset…")
+def _scorecard():
+    path = PACK_DATA / "insights.jsonl"
+    return run_scorecard(load_insights(path if path.exists() else None))
+
 with tab_eval:
     r_mock = _eval_mock()
     r_full = _eval_full()
@@ -447,21 +452,51 @@ with tab_eval:
         else:
             st.info("Full pack not found. Copy the participant pack into the project to see 150-row scores.")
 
+    card = _scorecard()
+    st.subheader("Every survey we write")
+    st.caption(f"Checks on all {card['n_survey_files']:,} survey files (Hindi + English) from "
+               f"{card['n_insights']:,} insights → {card['n_surveyed']:,} surveys. No answer key needed.")
+    q = st.columns(5)
+    q[0].metric("Format", f"{card['format_pass']:.1%}", "schema, 1–3 tap items, right language", delta_color="off")
+    q[1].metric("Safety", f"{card['safety_pass']:.1%}", "no new advice, no personal info", delta_color="off")
+    q[2].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off")
+    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}", "P4 baseline score, 0–1", delta_color="off")
+    q[4].metric("Speed", f"{card['ms_per_insight']} ms", f"per insight · {card['batch_seconds']} s batch", delta_color="off")
+    if card["examples"]:
+        with st.expander(f"Surveys that failed a check (first {len(card['examples'])})"):
+            st.dataframe(pd.DataFrame(card["examples"]), width="stretch", hide_index=True)
+
+    st.subheader("Run history")
+    hist = load_history()
+    if not hist:
+        st.info('No recorded runs yet. Run `python scripts/readme_numbers.py --write --record "what changed"`.')
+    else:
+        st.caption("Each row is one recorded eval run: what we changed and what it did to the scores.")
+        hd = pd.DataFrame(hist)
+        if len(hd) > 1:
+            st.line_chart(hd.set_index("run")[["decision_acc", "rule_acc", "window_acc", "item_similarity_avg"]],
+                          height=200)
+        st.dataframe(hd[["run", "at", "commit", "label", "decision_acc", "rule_acc", "window_acc",
+                         "item_similarity_avg", "misses"]],
+                     width="stretch", hide_index=True,
+                     column_config={k: st.column_config.NumberColumn(format="percent")
+                                    for k in ("decision_acc", "rule_acc", "window_acc")})
+
     src = r_full or r_mock
     st.subheader("Per-rule confusion matrix")
     st.caption("Rows = expected rule, columns = our prediction. Diagonal = correct.")
     rules = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
     df = pd.DataFrame(src["confusion"], index=rules)[rules]
     df.index.name = "expected → predicted"
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
     if src["item_similarities"]:
         st.subheader("Item similarity")
         st.caption(f"Keyword overlap between our questions and the golden set's expected questions (avg {src['item_similarity_avg']:.2f})")
-        st.dataframe(pd.DataFrame(src["item_similarities"]), use_container_width=True, height=150)
+        st.dataframe(pd.DataFrame(src["item_similarities"]), width="stretch", height=150)
 
     st.subheader("Misses")
     if src["misses"]:
-        st.dataframe(pd.DataFrame(src["misses"]), use_container_width=True, height=200)
+        st.dataframe(pd.DataFrame(src["misses"]), width="stretch", height=200)
     else:
         st.success("No misses — every decision and rule matches.")

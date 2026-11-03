@@ -29,11 +29,14 @@ streamlit run app/streamlit_app.py
 Full pack: `MEL_DATA_DIR=<pack>/data python -m mel.cli eval`. Write scratch output with `MEL_OUT_DIR=...`.
 
 ## Status (mock data)
-- 16 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey.
+- 20 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey. Full pack: 6,999 insights →
+  2,551 surveys (5,102 files), format 100%, safety 100%, 0 failing-but-scheduled, ~0.9 ms/insight.
 - Golden eval — mock subset (35 rows): decision 97.1%, rule 97.1%, channel 100%, **window 0%**, item-sim 0.62
   (1 miss). Full pack (150 rows): decision 96.0%, rule 96.0%, channel 100%, **window 0%**, item-sim 0.50
   (6 misses). The Evaluation tab also shows a per-rule confusion matrix and item-similarity (keyword overlap)
-  vs the golden set's expected items; `scripts/readme_numbers.py` prints the same baseline numbers for the README.
+  vs the golden set's expected items, plus the batch scorecard (`mel/evaluation/scorecard.py`) and run history
+  (`docs/results/eval_history.jsonl`, run 1 = baseline). `python scripts/readme_numbers.py --write [--record "label"]`
+  regenerates the README results block and `docs/results/scorecard.md` (offline backup); never type numbers.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app: Overview, Survey Studio (insight card, bilingual question cards, phone preview, hand-off strip),
   Simulate answers, Follow-up queue, Evaluation. Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
@@ -56,10 +59,14 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   app/web sent once; channel fallback; reproduce the 183 reference answer records.
 - P4: concern-specific templates; native-speaker Hindi review; stronger guards; better relevance score;
   LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude table.
-- P5: demo script drafted (`docs/demo_script.md`); fill its "Rules we changed on purpose" table when P2's
-  storage exception / window setting land; backup screenshots + AWS slide for the deck.
+- P5: plan in `docs/p5_plan.md`. 3-minute script done (`docs/demo_script.md`). Next: record a run per P2/P3 change
+  and fill "Rules we changed"; switch follow-up queue to P3 outcomes; slides; clean-checkout rehearsals; video.
+  Note: the pipeline does not itself block failing surveys from the hand-off; the scorecard only counts them (P1/P4).
 - P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
-- Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing.
+- Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing;
+  does the MEL team have a relevance rubric (for an LLM-as-judge)?
+- Team decision needed (P1 + P4): DG's technical doc says Bedrock is *required* for models; contract says AWS is
+  optional. Contract also states R7 misses backwards (we say no-survey, key says survey); tell P2.
 
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.

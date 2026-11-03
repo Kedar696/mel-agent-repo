@@ -70,7 +70,9 @@ mel.evaluation.score_golden(golden=None) -> metrics                             
   Claude retries/cache/logs, templates-vs-Claude table.
 - **P5:** Streamlit app with Overview, Survey Studio (phone preview), Simulate, Follow-up queue, Evaluation; all
   numbers from the pipeline. Done: per-rule confusion matrix, item similarity, README numbers by script,
-  follow-up queue (per-reason counts, filters, suggested action), demo script (`docs/demo_script.md`). Not yet: slides, backup screenshots.
+  follow-up queue (per-reason counts, filters, suggested action), batch scorecard (format, safety, speed on all
+  6,999), run history, README + offline scorecard by script, 3-minute demo script. Plan: `docs/p5_plan.md`.
+  Not yet: slides, rehearsals, backup video, queue on P3 outcomes.
 
 **Channel order (P3), as the brief and code define it:** 1) the farmer's preferred channel, 2) the channel the
 advice's check method names, if different, 3) WhatsApp, 4) voice, only for high priority. Wait 6 h (high),
