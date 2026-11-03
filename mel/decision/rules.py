@@ -3,11 +3,11 @@
 Golden-set rule ids (inferred from data/golden_set.jsonl, rules.json does not list them):
   R1 junk_insight              quality_flag == junk, or fails insight schema
   R2 critical_needs_human_call severity == critical  (a human should call, not a survey)
-  R3 nothing_to_verify         resolution generic_information (or null)
+  R3 nothing_to_verify         resolution generic_information
   R4 waiting_for_details       resolution needs_more_context
   R5 no_check_needed           verification.needed is false
-  R6 window_after_season       window would open after 31 March
-  R7 crop_already_harvested    crop past harvest on the send date
+  R6 window_after_season       no usable window before season end
+  R7 crop_already_harvested    standing-crop advice after harvest (not storage advice)
   R8 survey
 """
 from dataclasses import dataclass, field
@@ -30,7 +30,7 @@ REASON_TEXT = {
     "nothing_to_verify": "General information only. No action was advised, so there is nothing to check.",
     "waiting_for_details": "FarmerChat asked for more details; no advice was given yet.",
     "no_check_needed": "The insight says this advice does not need verification.",
-    "window_after_season": "The send window would open after the rabi season ends (31 March).",
+    "window_after_season": "No usable send window remains before the rabi season ends (31 March).",
     "crop_already_harvested": "The crop will already be harvested by the time the survey would go out.",
 }
 
@@ -44,9 +44,13 @@ class Decision:
     notes: list[str] = field(default_factory=list)
 
     def no_survey_record(self, insight: dict) -> dict:
+        def record_id(key):
+            value = insight.get(key)
+            return value[:64] if isinstance(value, str) and value else "unknown"
+
         return {
-            "insight_id": insight.get("insight_id", "unknown"),
-            "farmer_id": insight.get("farmer_id", "unknown"),
+            "insight_id": record_id("insight_id"),
+            "farmer_id": record_id("farmer_id"),
             "decision": "no_survey",
             "reason_code": SCHEMA_REASON[self.reason_code],
             "reason": f"[{self.rule} {self.reason_code}] {REASON_TEXT[self.reason_code]}"[:300],
@@ -60,6 +64,12 @@ def _no(rule, code):
 def decide(insight: dict) -> Decision:
     if insight.get("quality_flag") == "junk" or not is_valid("insight", insight):
         return _no("R1", "junk_insight")
+    # The shared schema validator checks patterns but does not enable date-time
+    # format validation. Impossible calendar dates must still become R1, not crash.
+    try:
+        parse_ist(insight["created_at"])
+    except (ValueError, OverflowError):
+        return _no("R1", "junk_insight")
     if insight.get("severity") == "critical":
         return _no("R2", "critical_needs_human_call")
     res = insight.get("resolution_type")
@@ -71,6 +81,7 @@ def decide(insight: dict) -> Decision:
     if win is None:
         return _no("R6", "window_after_season")
     asset = insight.get("asset") or {}
-    if asset.get("category") == "crop" and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
+    post_harvest = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
+    if asset.get("category") == "crop" and not post_harvest and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
         return _no("R7", "crop_already_harvested")
     return Decision(True, "R8", None, win)
