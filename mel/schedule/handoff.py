@@ -1,4 +1,4 @@
-"""Builds schedule_handoff.json from an insight + survey. Owner: P4."""
+"""Builds schedule_handoff.json from an insight + survey. Owner: P3."""
 import uuid
 from datetime import timedelta
 
@@ -63,9 +63,9 @@ def build_handoff(insight: dict, survey: dict) -> dict:
 
 
 class OptOutList:
-    """Farmers who asked for no more surveys (Do not ask me again, STOP, /stop, or 9 on a call). Owner: P4.
+    """Farmers who asked for no more surveys (Do not ask me again, STOP, /stop, or 9 on a call). Owner: P3.
     The brief: 'Stop all future surveys to this farmer.' Feed it every answer record; check it before sending.
-    TODO(P4): persist across runs (a file now; a database such as DynamoDB if this ever goes to AWS)."""
+    TODO(P3): persist across runs (a file now; a database such as DynamoDB if this ever goes to AWS)."""
 
     def __init__(self):
         self._farmers: set[str] = set()
@@ -80,8 +80,8 @@ class OptOutList:
 
 
 class CapLedger:
-    """Per-farmer 1-survey-per-7-days cap across all surveys and channels. Owner: P4.
-    TODO(P4): decide whether a capped normal/low survey is dropped or shifted to the next free day."""
+    """Per-farmer 1-survey-per-7-days cap across all surveys and channels. Owner: P3.
+    TODO(P3): decide whether a capped normal/low survey is dropped or shifted to the next free day."""
 
     def __init__(self):
         self._sent: dict[str, list] = {}

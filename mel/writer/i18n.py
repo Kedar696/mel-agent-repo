@@ -1,5 +1,5 @@
-"""Hindi / English vocabulary for assets and shared UI strings. Owner: P5.
-TODO(P5): native-speaker review of every Hindi string; add gender agreement for asset nouns."""
+"""Hindi / English vocabulary for assets and shared UI strings. Owner: P4.
+TODO(P4): native-speaker review of every Hindi string; add gender agreement for asset nouns."""
 
 ASSET_HI = {
     "wheat": "गेहूँ", "mustard": "सरसों", "potato": "आलू", "lentil": "मसूर", "gram": "चना",

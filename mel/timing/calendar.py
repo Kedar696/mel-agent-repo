@@ -1,4 +1,4 @@
-"""Crop-calendar checks (golden rule R7: crop_already_harvested). Owner: P3."""
+"""Crop-calendar checks (golden rule R7: crop_already_harvested). Owner: P2."""
 from datetime import date
 from functools import lru_cache
 
@@ -19,7 +19,7 @@ def _harvest_end() -> dict[str, date]:
 
 def is_past_harvest(crop: str | None, on: date) -> bool:
     """True when the send date falls after the crop's harvest stage ends.
-    TODO(P3): crops missing from the calendar (e.g. cauliflower) currently return False;
+    TODO(P2): crops missing from the calendar (e.g. cauliflower) currently return False;
     golden R7 row I-... is cauliflower, so add a fallback (vegetable default / season end)."""
     if not crop:
         return False

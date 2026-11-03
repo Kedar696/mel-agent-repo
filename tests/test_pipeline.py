@@ -1,4 +1,4 @@
-"""P8: end-to-end and eval smoke test."""
+"""P5: end-to-end and eval smoke test."""
 from mel.evaluation import score_golden
 
 

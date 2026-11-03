@@ -1,4 +1,4 @@
-"""Turn a survey into a channel payload (mirrors data/mock/scenarios/*/render). Owner: P7.
+"""Turn a survey into a channel payload (mirrors data/mock/scenarios/*/render). Owner: P3.
 Payloads are simulation-only; real delivery is out of scope."""
 
 UI = {

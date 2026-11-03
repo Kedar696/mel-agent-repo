@@ -1,6 +1,13 @@
 # Prompts
 
-Reusable prompts for the team. Copy the part below the `---` line into Claude, fill the brackets.
+Reusable prompts for the team.
+
+> The team is now **5 people** (3 Nov). The team/individual contract prompts were written for the old
+> 8-person split; the signed contract replaces them. Use `update_team_contracts_prompt.md` for later changes
+> and tell Claude the roles are P1 Data, P2 Decision & Timing, P3 Scheduler/Channels/Simulator,
+> P4 Survey Writing & Safety, P5 Evaluation & Demo.
+
+ Copy the part below the `---` line into Claude, fill the brackets.
 
 | File | Use it to |
 |---|---|

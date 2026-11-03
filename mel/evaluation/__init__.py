@@ -1,2 +1,2 @@
-"""P8 - Evaluation: golden-set scoring, schema pass rates, report."""
+"""P5 - Evaluation & Demo: golden-set scoring, schema pass rates, report."""
 from .golden import score_golden

@@ -1,4 +1,4 @@
-"""Shared paths and constants. Owner: P1 (Data & Contracts). Everyone imports from here."""
+"""Shared paths and constants. Owner: P1 (Data & Integration). Everyone imports from here."""
 import json
 import os
 from datetime import timedelta, timezone

@@ -1,4 +1,4 @@
-"""P4: hand-off fields match worked scenarios."""
+"""P3: hand-off fields match worked scenarios."""
 from mel.data import load_scenario, list_scenarios, errors
 from mel.schedule import build_handoff
 

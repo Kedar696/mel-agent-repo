@@ -1,4 +1,4 @@
-"""P7: every channel x case record is schema-valid; reference grid records validate."""
+"""P3: every channel x case record is schema-valid; reference grid records validate."""
 import json
 
 from mel.config import FIXTURES, CHANNELS

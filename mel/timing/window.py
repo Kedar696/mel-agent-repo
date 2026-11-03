@@ -1,6 +1,6 @@
-"""Send-window maths from rules.json. Owner: P3.
+"""Send-window maths from rules.json. Owner: P2.
 
-Verified against all 5 worked scenarios (tests/test_timing.py). Open question for P3:
+Verified against all 5 worked scenarios (tests/test_timing.py). Open question for P2:
 golden R8 rows sometimes start at 09:00, not 07:00 - investigate with `python -m mel.cli eval`.
 """
 from datetime import date, datetime, time, timedelta

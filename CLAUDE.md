@@ -36,16 +36,23 @@ Full pack: `MEL_DATA_DIR=<pack>/data python -m mel.cli eval`. Write scratch outp
   Simulate answers, Evaluation. Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
 - Added beyond the scaffold: `OptOutList` (mel/schedule), basic `relevance_score` (mel/writer/guards.py).
 
+## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
+P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
+P5 Evaluation & Demo. Old 8-person numbers (P6–P8) no longer exist; map old P2+P3→P2, P4+P7→P3, P5+P6→P4, P8→P5.
+Owners/files: `docs/TEAM.md`, `.github/CODEOWNERS` (usernames still `@p1..@p5` placeholders).
+Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recommendation: keep code names, add
+`run_pipeline`, `CapLedger.admit`, `simulate_handoff`, `item_similarity`).
+
 ## Open items (owner)
-- P3: window accuracy 0%. Golden opens 09:00; brief + scenarios say 07:00 after action window. Decision so far:
-  follow the brief, ask Digital Green. Missing-crop fallback in `mel/timing/calendar.py`.
-- P2: one miss (G-0131, expected R8, got R7). R1–R8 are inferred from golden, not the brief; confirm R2.
-- P4: wire `OptOutList` + `CapLedger` into batch run; choose cap policy (drop/defer/merge).
-- P5: concern-specific templates; native-speaker Hindi review.
-- P6: better relevance score; LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude eval.
-- P7: late answers marked late; reproduce the 183 reference answer records; channel fallback.
-- P8: follow-up queue page, per-rule confusion, item similarity, demo script.
-- P1: Excel loader + parity check; CODEOWNERS still has `@p1..@p8` placeholders; no CI yet.
+- P2: window accuracy 0%. Golden opens 09:00; brief + scenarios say 07:00 after action window. Plan: brief rule
+  default, answer-key rule behind a setting, ask Digital Green. Missing-crop fallback in `mel/timing/calendar.py`.
+  One decision miss (G-0131, expected R8, got R7). R1–R8 are inferred from golden, not the brief; confirm R2.
+- P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
+  app/web sent once; channel fallback; reproduce the 183 reference answer records.
+- P4: concern-specific templates; native-speaker Hindi review; stronger guards; better relevance score;
+  LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude table.
+- P5: follow-up queue page, per-rule confusion, item similarity, README numbers by script, demo script.
+- P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
 - Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing.
 
 ## Decisions already made (don't re-litigate)

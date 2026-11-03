@@ -1,4 +1,4 @@
-"""P5/P6: every survey we write is schema-valid and passes guardrails, in both languages."""
+"""P4: every survey we write is schema-valid and passes guardrails, in both languages."""
 from mel.data import load_insights
 from mel.decision import decide
 from mel.writer import write_surveys, check_survey

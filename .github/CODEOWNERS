@@ -1,4 +1,8 @@
-# Replace @p1..@p8 with GitHub usernames.
+# Who must review changes to each part of the repo (5-person team, 3 Nov).
+# Replace @p1..@p5 with real GitHub usernames, e.g. @michvinh-7.
+# P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator
+# P4 Survey Writing & Safety · P5 Evaluation & Demo
+
 /mel/config.py            @p1
 /mel/data/                @p1
 /mel/pipeline.py          @p1
@@ -6,16 +10,29 @@
 /config/                  @p1
 /data/                    @p1
 /scripts/                 @p1
+/.github/                 @p1
+/requirements.txt         @p1
+/tests/test_data.py       @p1
+
 /mel/decision/            @p2
-/mel/timing/              @p3
-/mel/schedule/            @p4
-/mel/writer/templates.py  @p5
-/mel/writer/i18n.py       @p5
-/mel/writer/compose.py    @p5 @p6
-/mel/writer/llm.py        @p6
-/mel/writer/guards.py     @p6
-/mel/channels/            @p7
-/mel/simulator/           @p7
-/mel/evaluation/          @p8
-/app/                     @p8
-/docs/                    @p1 @p8
+/mel/timing/              @p2
+/tests/test_decision.py   @p2
+/tests/test_timing.py     @p2
+
+/mel/schedule/            @p3
+/mel/channels/            @p3
+/mel/simulator/           @p3
+/tests/test_schedule.py   @p3
+/tests/test_simulator.py  @p3
+
+/mel/writer/              @p4
+/tests/test_writer.py     @p4
+
+/mel/evaluation/          @p5
+/app/                     @p5
+/.streamlit/              @p5
+/tests/test_pipeline.py   @p5
+
+/docs/                    @p1 @p5
+/README.md                @p1 @p5
+/CLAUDE.md                @p1 @p5

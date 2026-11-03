@@ -25,20 +25,17 @@ insight ─► decision (R1–R8) ─► timing (window, expiry) ─► writer (
                                                                                            └─► evaluation / Streamlit
 ```
 
-## Layout
+## Layout (5-person team)
 | Path | What | Owner |
 |---|---|---|
-| `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/` | paths, loaders, schema validation, glue, CLI | P1 |
-| `mel/decision/` | survey / no-survey cascade R1–R8 | P2 |
-| `mel/timing/` | send window, expiry, season + crop calendar | P3 |
-| `mel/schedule/` | hand-off: priority, channel order, cap, flow ids | P4 |
-| `mel/writer/templates.py`, `i18n.py`, `compose.py` | question templates, Hindi/English | P5 |
-| `mel/writer/llm.py`, `guards.py` | Claude writer, safety + format guardrails | P6 |
-| `mel/channels/`, `mel/simulator/` | channel payloads, answer simulator | P7 |
-| `mel/evaluation/`, `app/` | golden scoring, Streamlit demo | P8 |
-| `data/mock/` | sampled insights/golden/farmers + worked scenarios + outcome grid | P1 (regenerate with `scripts/make_mock_data.py`) |
+| `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/`, `scripts/`, `data/mock/` | paths, loaders, schema checks, glue, CLI, mock data | P1 Data & Integration |
+| `mel/decision/`, `mel/timing/` | survey / no-survey rules R1–R8, send window, crop calendar | P2 Decision & Timing |
+| `mel/schedule/`, `mel/channels/`, `mel/simulator/` | hand-off, weekly limit, opt-outs, channel messages, simulated answers | P3 Scheduler, Channels & Simulator |
+| `mel/writer/` | question templates, Hindi/English, Claude writer, safety guards | P4 Survey Writing & Safety |
+| `mel/evaluation/`, `app/` | golden scoring, Streamlit demo | P5 Evaluation & Demo |
 
-See `docs/TEAM.md` for the full breakdown and `docs/prompts/` for the team and individual contract prompts.
+The signed Team Contracts document is the source of truth. `docs/TEAM.md` is the short version;
+`docs/h4_interface_decisions.md` lists the function names to settle at H+4; `docs/prompts/` holds reusable prompts.
 
 ## Baseline (scaffold, full pack)
-decision 96.0% · rule 96.0% · channel 100% · window 0% (see open question in docs/TEAM.md, P3).
+decision 96.0% · rule 96.0% · channel 100% · window 0% (see open question in docs/TEAM.md, P2).

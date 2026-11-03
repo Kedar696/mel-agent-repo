@@ -1,4 +1,4 @@
-"""P3: send window reproduces every worked scenario."""
+"""P2: send window reproduces every worked scenario."""
 from mel.data import load_scenario, list_scenarios
 from mel.timing import send_window, expires_at
 

@@ -1,8 +1,8 @@
-"""Deterministic question templates per resolution_type, in en-IN and hi-IN. Owner: P5.
+"""Deterministic question templates per resolution_type, in en-IN and hi-IN. Owner: P4.
 
 Each template returns survey `items` (survey.schema.json $defs/item). `follow_up` marks answers
 that mean the advice failed or harm happened. Keep option values identical across languages.
-TODO(P5): concern-specific variants (pest count, yellow leaves, seed availability) like the worked scenarios.
+TODO(P4): concern-specific variants (pest count, yellow leaves, seed availability) like the worked scenarios.
 """
 from .i18n import asset_word
 

@@ -1,7 +1,7 @@
-"""Score our decisions against data/*/golden_set.jsonl. Owner: P8.
+"""Score our decisions against data/*/golden_set.jsonl. Owner: P5.
 
 Metrics: decision accuracy (survey yes/no), rule match, channel match (expected.channel vs our
-first channel), send-window exact match. TODO(P8): item similarity vs expected.items, per-rule confusion.
+first channel), send-window exact match. TODO(P5): item similarity vs expected.items, per-rule confusion.
 """
 from collections import Counter
 

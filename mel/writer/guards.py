@@ -1,4 +1,4 @@
-"""Safety and format guardrails every survey must pass before hand-off. Owner: P6."""
+"""Safety and format guardrails every survey must pass before hand-off. Owner: P4."""
 import re
 
 from mel.data.validate import errors
@@ -32,7 +32,7 @@ def check_survey(survey: dict) -> list[str]:
 
 def relevance_score(survey: dict, insight: dict | None) -> float:
     """Share of questions that name the crop/animal or a word from the advice (0..1).
-    Baseline only. TODO(P6): replace with a better measure (e.g. a Claude judge) and report it."""
+    Baseline only. TODO(P4): replace with a better measure (e.g. a Claude judge) and report it."""
     if not insight or not survey.get("items"):
         return 0.0
     from .i18n import asset_word

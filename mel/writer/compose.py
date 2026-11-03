@@ -1,4 +1,4 @@
-"""Assemble a full survey document per language. Owner: P5 (shared with P6)."""
+"""Assemble a full survey document per language. Owner: P4."""
 import re
 
 from mel.config import LANGS

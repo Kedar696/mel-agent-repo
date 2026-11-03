@@ -1,4 +1,4 @@
-"""Optional Claude-written questions, with template fallback. Owner: P6.
+"""Optional Claude-written questions, with template fallback. Owner: P4.
 
 Enabled when ANTHROPIC_API_KEY is set and MEL_USE_LLM=1. Output is parsed JSON items and must
 pass guards.check_survey, otherwise compose.py falls back to templates. Never sends PII:

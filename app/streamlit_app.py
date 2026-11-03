@@ -1,4 +1,4 @@
-"""MEL Survey Agent demo. Owner: P8.  Run: streamlit run app/streamlit_app.py
+"""MEL Survey Agent demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
 Layout borrowed from the v0 sketch (v0-sketch/): Overview, Survey Studio, Simulate, Evaluation.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
 import sys
@@ -126,7 +126,7 @@ with tab_over:
         st.markdown("**Survey source**")
         st.caption(f"Template: {len(surveyed) * 2 - llm} · Claude: {llm}"
                    + ("  (LLM writer off: set MEL_USE_LLM=1)" if not llm else ""))
-    st.caption(f"{len(capped)} survey(s) would be held back by the cap; drop vs defer policy is still open (P4).")
+    st.caption(f"{len(capped)} survey(s) would be held back by the cap; skip, move or merge policy is still open (P3).")
 
 # ---------------------------------------------------------------- Survey Studio
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
