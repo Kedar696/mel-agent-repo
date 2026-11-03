@@ -92,7 +92,7 @@ def batch():
 
 rows, capped = batch()
 st.title("MEL Survey Agent")
-tab_over, tab_studio, tab_sim, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Evaluation"])
+tab_over, tab_studio, tab_sim, tab_follow, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Follow-up queue", "Evaluation"])
 
 # ---------------------------------------------------------------- Overview
 with tab_over:
@@ -271,6 +271,148 @@ with tab_sim:
         (st.error if e else st.success)(f"status={rec['status']} failure={rec['failure_code']} "
                                         f"follow_up={rec['follow_up_reasons']} schema={'FAIL' if e else 'ok'}")
         st.json(rec)
+
+# ---------------------------------------------------------------- Follow-up queue
+# A ⚑ answer means the advice failed, harm happened, or the farmer couldn't act on it. Those answers
+# don't just get recorded — they route back to FarmerChat so staff can follow up with the farmer.
+# Owner: P5. Mock data only flags q1 on a few surveys, so each survey is simulated with its first ⚑
+# answer forced (other questions held to a safe answer) to show the full queue the system can produce.
+FU_REASON = {
+    "advice_did_not_work": "Advice didn't work",
+    "crop_or_animal_damaged": "Crop / animal damaged",
+    "could_not_get_input": "Couldn't get inputs",
+    "could_not_reach_expert": "Couldn't reach expert",
+}
+FU_ACTION = {
+    "advice_did_not_work": "Re-check the advice and send a corrected recommendation.",
+    "crop_or_animal_damaged": "Assess the damage; connect the farmer to a vet or extension worker.",
+    "could_not_get_input": "Share the nearest input supplier or an available subsidy.",
+    "could_not_reach_expert": "Book a call with the nearest agriculture expert.",
+}
+
+
+def _answer_label(item_def, value):
+    if item_def["type"] == "survey-scale":
+        return f"{value}/{item_def.get('scale_max', '?')}"
+    return next((o["label"] for o in item_def.get("options", []) if o["value"] == value), str(value))
+
+
+def _safe_value(item_def):
+    """A non-follow-up answer, so a ticket stays focused on the one flagged answer."""
+    if item_def["type"] == "survey-scale":
+        return item_def.get("scale_max", 5)
+    for o in item_def.get("options", []):
+        if not o.get("follow_up"):
+            return o["value"]
+    return item_def.get("options", [{}])[0].get("value")
+
+
+def _first_trigger(survey):
+    """First (item_id, value, reason) that flags follow-up, scanning questions in order."""
+    for it in survey["items"]:
+        if it["type"] == "survey-scale":
+            lim = it.get("follow_up_at_or_below")
+            if lim is not None:
+                return it["item_id"], lim, it.get("follow_up_reason")
+        else:
+            for o in it.get("options", []):
+                if o.get("follow_up"):
+                    return it["item_id"], o["value"], o["follow_up"]
+    return None
+
+
+@st.cache_data(show_spinner="Building follow-up queue…")
+def _follow_queue():
+    """One follow-up ticket per survey: force the survey's first ⚑ answer (others kept safe), so the
+    queue shows every trouble answer the system routes back to FarmerChat. Deterministic: seed 0."""
+    tickets = []
+    for ins, out in rows:
+        if not (out["decision"].survey and "handoff" in out):
+            continue
+        h, survey = out["handoff"], out["handoff"]["survey"]
+        ch = h["channel_order"][0]["channel"]
+        trig = _first_trigger(survey)
+        if not trig:
+            continue
+        t_item, t_val, t_reason = trig
+        answers = {it["item_id"]: t_val if it["item_id"] == t_item else _safe_value(it)
+                   for it in survey["items"]}
+        rec = simulate(survey, ch, "completed", seed=0, answers=answers)
+        if not rec["needs_follow_up"]:
+            continue
+        t_def = next(it for it in survey["items"] if it["item_id"] == t_item)
+        a = ins.get("asset") or {}
+        tickets.append({
+            "response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
+            "asset": a.get("name"), "concern": ins.get("concern"),
+            "survey_id": rec["survey_id"], "channel": ch, "recorded_at": rec["recorded_at"],
+            "reason": t_reason, "item_id": t_item, "prompt": t_def.get("prompt", ""),
+            "answer": _answer_label(t_def, t_val), "rec": rec, "insight": ins,
+        })
+    return tickets
+
+
+with tab_follow:
+    tickets = _follow_queue()
+    st.subheader("Follow-up queue")
+    st.caption("Answers that came back flagged ⚑ — the advice failed, harm happened, or the farmer couldn't "
+               "act on it. FarmerChat staff work this queue and get back to the farmer. Each row is one "
+               "survey's trouble answer (simulated); in production only the answers a farmer actually gives land here.")
+    if not tickets:
+        st.info("No survey in this run can produce a follow-up flag.")
+    else:
+        rc = Counter(t["reason"] for t in tickets)
+        m = st.columns(len(FU_REASON) + 1)
+        m[0].metric("Flagged surveys", len(tickets))
+        for col, (k, lab) in zip(m[1:], FU_REASON.items()):
+            col.metric(lab, rc.get(k, 0))
+
+        fr, fc = st.columns(2)
+        sel_reasons = fr.multiselect("Reason", list(FU_REASON), default=list(FU_REASON),
+                                      format_func=FU_REASON.get)
+        chans = sorted({t["channel"] for t in tickets})
+        sel_chans = fc.multiselect("Channel", chans, default=chans, format_func=CH_NAME.get)
+        view = [t for t in tickets if t["reason"] in sel_reasons and t["channel"] in sel_chans]
+
+        if not view:
+            st.warning("No tickets match these filters.")
+        else:
+            st.dataframe(pd.DataFrame([{
+                "Farmer": t["farmer_id"],
+                "Crop / animal": t["asset"],
+                "Survey": t["survey_id"],
+                "Channel": CH_NAME.get(t["channel"], t["channel"]),
+                "Flagged answer": f"{t['prompt']} → {t['answer']}",
+                "Why": FU_REASON.get(t["reason"], t["reason"]),
+                "Answered": t["recorded_at"],
+            } for t in view]), use_container_width=True, hide_index=True, height=280)
+
+            st.subheader("Open a ticket")
+            opts = {t["response_key"]: f"{t['farmer_id']} · {t['asset']} · {FU_REASON[t['reason']]}"
+                    for t in view}
+            key = st.selectbox("Ticket", list(opts), format_func=lambda k: opts.get(k, k),
+                               label_visibility="collapsed")
+            t = next((x for x in view if x["response_key"] == key), None)
+            if t:
+                ins, a = t["insight"], t["insight"].get("asset") or {}
+                col_d, col_a = st.columns([1.4, 1])
+                with col_d:
+                    html(f'''<div class="mel-card"><span class="mel-k">Farmer</span><b>{escape(t["farmer_id"])}</b>
+                    <span class="mel-id" style="margin-left:10px">{ins.get("insight_id")}</span><br>
+                    <span class="mel-k">Crop / animal</span>{escape(str(a.get("name") or "—").title())} · {escape(str(ins.get("concern") or "").replace("_", " "))}<br>
+                    <span class="mel-k">Survey</span><span class="mel-id">{t["survey_id"]}</span>
+                    <span class="mel-k" style="margin-left:10px">Sent via</span>{CH_NAME.get(t["channel"], t["channel"])}<br>
+                    <span class="mel-k">Advice given</span>“{escape(ins.get("advice_summary") or "—")}”
+                    </div>''')
+                    html(f'''<div class="mel-card"><span class="mel-k">Flagged answer · {t["item_id"]}</span>
+                    <p style="font-size:15px;margin:4px 0">{escape(t["prompt"])}</p>
+                    <p>Answer: <b>{escape(str(t["answer"]))}</b> &nbsp; {badge("⚑ " + FU_REASON[t["reason"]], "red")}</p></div>''')
+                with col_a:
+                    st.markdown("**Suggested follow-up**")
+                    st.info(FU_ACTION[t["reason"]])
+                    st.caption(f"Recorded {short(t['recorded_at'])} · status {t['rec']['status']}")
+                with st.expander("Full answer record (response.schema.json)"):
+                    st.json(t["rec"])
 
 # ---------------------------------------------------------------- Evaluation
 @st.cache_data(show_spinner="Scoring mock golden set…")

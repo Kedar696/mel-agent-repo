@@ -68,8 +68,9 @@ mel.evaluation.score_golden(golden=None) -> metrics                             
 - **P4:** generic templates in both languages pass the guards; opt-in Claude writer with template fallback;
   basic relevance score on every survey. Not yet: problem-specific templates, Hindi review, stronger guards,
   Claude retries/cache/logs, templates-vs-Claude table.
-- **P5:** Streamlit app with Overview, Survey Studio (phone preview), Simulate, Evaluation; all numbers from
-  the pipeline. Not yet: per-rule confusion, item similarity, follow-up queue, README numbers by script.
+- **P5:** Streamlit app with Overview, Survey Studio (phone preview), Simulate, Follow-up queue, Evaluation; all
+  numbers from the pipeline. Done: per-rule confusion matrix, item similarity, README numbers by script,
+  follow-up queue (per-reason counts, filters, suggested action), demo script (`docs/demo_script.md`). Not yet: slides, backup screenshots.
 
 **Channel order (P3), as the brief and code define it:** 1) the farmer's preferred channel, 2) the channel the
 advice's check method names, if different, 3) WhatsApp, 4) voice, only for high priority. Wait 6 h (high),
