@@ -7,14 +7,16 @@ from datetime import datetime
 from html import escape
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
 from mel.channels import render
 from mel.channels.render import choices
-from mel.config import CHANNELS
-from mel.data import load_insights, errors
+from mel.config import CHANNELS, PACK_DATA
+from mel.data import load_insights, errors, load_golden
 from mel.evaluation import score_golden
 from mel.pipeline import run_insight, clean
 from mel.schedule.handoff import CapLedger
@@ -271,10 +273,53 @@ with tab_sim:
         st.json(rec)
 
 # ---------------------------------------------------------------- Evaluation
+@st.cache_data(show_spinner="Scoring mock golden set…")
+def _eval_mock():
+    return score_golden()
+
+@st.cache_data(show_spinner="Scoring full 150-row golden set…")
+def _eval_full():
+    path = PACK_DATA / "golden_set.jsonl"
+    if not path.exists():
+        return None
+    return score_golden(load_golden(path))
+
 with tab_eval:
-    if st.button("Score golden set"):
-        r = score_golden()
-        m = st.columns(4)
-        for col, k in zip(m, ["decision_acc", "rule_acc", "channel_acc", "window_acc"]):
-            col.metric(k, f"{r[k]:.1%}")
-        st.dataframe(r["misses"])
+    r_mock = _eval_mock()
+    r_full = _eval_full()
+    st.subheader("Golden set scores")
+    keys = ["decision_acc", "rule_acc", "channel_acc", "window_acc", "item_similarity_avg"]
+    labs = ["Decision", "Rule", "Channel", "Window", "Item sim"]
+    cm, cf = st.columns(2)
+    with cm:
+        st.caption(f"Mock subset ({r_mock['n']} rows)")
+        cols = st.columns(len(keys))
+        for c, k, lab in zip(cols, keys, labs):
+            c.metric(lab, f"{r_mock[k]:.1%}" if k != "item_similarity_avg" else f"{r_mock[k]:.2f}")
+    with cf:
+        if r_full:
+            st.caption(f"Full pack ({r_full['n']} rows)")
+            cols = st.columns(len(keys))
+            for c, k, lab in zip(cols, keys, labs):
+                c.metric(lab, f"{r_full[k]:.1%}" if k != "item_similarity_avg" else f"{r_full[k]:.2f}")
+        else:
+            st.info("Full pack not found. Copy the participant pack into the project to see 150-row scores.")
+
+    src = r_full or r_mock
+    st.subheader("Per-rule confusion matrix")
+    st.caption("Rows = expected rule, columns = our prediction. Diagonal = correct.")
+    rules = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
+    df = pd.DataFrame(src["confusion"], index=rules)[rules]
+    df.index.name = "expected → predicted"
+    st.dataframe(df, use_container_width=True)
+
+    if src["item_similarities"]:
+        st.subheader("Item similarity")
+        st.caption(f"Keyword overlap between our questions and the golden set's expected questions (avg {src['item_similarity_avg']:.2f})")
+        st.dataframe(pd.DataFrame(src["item_similarities"]), use_container_width=True, height=150)
+
+    st.subheader("Misses")
+    if src["misses"]:
+        st.dataframe(pd.DataFrame(src["misses"]), use_container_width=True, height=200)
+    else:
+        st.success("No misses — every decision and rule matches.")
