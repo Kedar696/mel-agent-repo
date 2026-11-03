@@ -12,10 +12,10 @@ en-IN, builds a scheduler hand-off, renders per channel (app, web, WhatsApp, Tel
 answers. Scored against a 150-row golden set. Synthetic data only. Real delivery is out of scope.
 
 - Repo: https://github.com/michvinh-7/mel-agent-repo (branch `main`)
-- Organisers' brief: `participant-pack/index.html` (full pack lives in ~/Downloads, which macOS blocks for Claude;
-  the user must move files into the project). Mock subset: `data/mock/`.
+- Organisers' brief: `mel-survey-agent-participant-pack/index.html`. Full pack is in the repo at
+  `mel-survey-agent-participant-pack/participant-pack/` (the eval reads it). Mock subset: `data/mock/`.
 - Team plan, owners P1–P8, interfaces, brief gaps, AWS notes, glossary: `docs/TEAM.md`
-- Reusable prompts: `docs/prompts/` (team contract, individual contracts, update contracts, v0 sketch)
+- Reusable prompts: `docs/prompts/` (team contract, individual contracts, update contracts, v0 sketch, update status)
 
 ## How to run (give users commands WITHOUT trailing `# comments`: their zsh treats `#` as an argument)
 ```
@@ -29,11 +29,17 @@ streamlit run app/streamlit_app.py
 Full pack: `MEL_DATA_DIR=<pack>/data python -m mel.cli eval`. Write scratch output with `MEL_OUT_DIR=...`.
 
 ## Status (mock data)
-- 16 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey.
-- Golden eval (35 rows): decision 97.1%, rule 97.1%, channel 100%, **window 0%**.
+- 20 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey. Full pack: 6,999 insights →
+  2,551 surveys (5,102 files), format 100%, safety 100%, 0 failing-but-scheduled, ~0.9 ms/insight.
+- Golden eval — mock subset (35 rows): decision 97.1%, rule 97.1%, channel 100%, **window 0%**, item-sim 0.62
+  (1 miss). Full pack (150 rows): decision 96.0%, rule 96.0%, channel 100%, **window 0%**, item-sim 0.50
+  (6 misses). The Evaluation tab also shows a per-rule confusion matrix and item-similarity (keyword overlap)
+  vs the golden set's expected items, plus the batch scorecard (`mel/evaluation/scorecard.py`) and run history
+  (`docs/results/eval_history.jsonl`, run 1 = baseline). `python scripts/readme_numbers.py --write [--record "label"]`
+  regenerates the README results block and `docs/results/scorecard.md` (offline backup); never type numbers.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app: Overview, Survey Studio (insight card, bilingual question cards, phone preview, hand-off strip),
-  Simulate answers, Evaluation. Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
+  Simulate answers, Follow-up queue, Evaluation. Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
 - Added beyond the scaffold: `OptOutList` (mel/schedule), basic `relevance_score` (mel/writer/guards.py).
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
@@ -46,14 +52,21 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 ## Open items (owner)
 - P2: window accuracy 0%. Golden opens 09:00; brief + scenarios say 07:00 after action window. Plan: brief rule
   default, answer-key rule behind a setting, ask Digital Green. Missing-crop fallback in `mel/timing/calendar.py`.
-  One decision miss (G-0131, expected R8, got R7). R1–R8 are inferred from golden, not the brief; confirm R2.
+  Decision misses: all 6 full-pack misses (G-0125/0128/0129/0131/0139/0141) are R7-vs-R8 on post_harvest
+  storage (5 potato, 1 cauliflower): key still surveys stored produce; candidate R7 storage exception.
+  Answer-key windows also start earlier days, not only 09:00. R1–R8 are inferred from golden; confirm R2.
 - P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
   app/web sent once; channel fallback; reproduce the 183 reference answer records.
 - P4: concern-specific templates; native-speaker Hindi review; stronger guards; better relevance score;
   LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude table.
-- P5: follow-up queue page, per-rule confusion, item similarity, README numbers by script, demo script.
+- P5: plan in `docs/p5_plan.md`. 3-minute script done (`docs/demo_script.md`). Next: record a run per P2/P3 change
+  and fill "Rules we changed"; switch follow-up queue to P3 outcomes; slides; clean-checkout rehearsals; video.
+  Note: the pipeline does not itself block failing surveys from the hand-off; the scorecard only counts them (P1/P4).
 - P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
-- Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing.
+- Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing;
+  does the MEL team have a relevance rubric (for an LLM-as-judge)?
+- Team decision needed (P1 + P4): DG's technical doc says Bedrock is *required* for models; contract says AWS is
+  optional. Contract also states R7 misses backwards (we say no-survey, key says survey); tell P2.
 
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.

@@ -17,7 +17,7 @@ from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
 from mel.data import load_insights, errors, load_golden
-from mel.evaluation import score_golden
+from mel.evaluation import score_golden, run_scorecard, load_history
 from mel.pipeline import run_insight, clean
 from mel.schedule.handoff import CapLedger
 from mel.simulator import simulate, cases_for
@@ -92,7 +92,7 @@ def batch():
 
 rows, capped = batch()
 st.title("MEL Survey Agent")
-tab_over, tab_studio, tab_sim, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Evaluation"])
+tab_over, tab_studio, tab_sim, tab_follow, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Follow-up queue", "Evaluation"])
 
 # ---------------------------------------------------------------- Overview
 with tab_over:
@@ -272,6 +272,148 @@ with tab_sim:
                                         f"follow_up={rec['follow_up_reasons']} schema={'FAIL' if e else 'ok'}")
         st.json(rec)
 
+# ---------------------------------------------------------------- Follow-up queue
+# A ⚑ answer means the advice failed, harm happened, or the farmer couldn't act on it. Those answers
+# don't just get recorded — they route back to FarmerChat so staff can follow up with the farmer.
+# Owner: P5. Mock data only flags q1 on a few surveys, so each survey is simulated with its first ⚑
+# answer forced (other questions held to a safe answer) to show the full queue the system can produce.
+FU_REASON = {
+    "advice_did_not_work": "Advice didn't work",
+    "crop_or_animal_damaged": "Crop / animal damaged",
+    "could_not_get_input": "Couldn't get inputs",
+    "could_not_reach_expert": "Couldn't reach expert",
+}
+FU_ACTION = {
+    "advice_did_not_work": "Re-check the advice and send a corrected recommendation.",
+    "crop_or_animal_damaged": "Assess the damage; connect the farmer to a vet or extension worker.",
+    "could_not_get_input": "Share the nearest input supplier or an available subsidy.",
+    "could_not_reach_expert": "Book a call with the nearest agriculture expert.",
+}
+
+
+def _answer_label(item_def, value):
+    if item_def["type"] == "survey-scale":
+        return f"{value}/{item_def.get('scale_max', '?')}"
+    return next((o["label"] for o in item_def.get("options", []) if o["value"] == value), str(value))
+
+
+def _safe_value(item_def):
+    """A non-follow-up answer, so a ticket stays focused on the one flagged answer."""
+    if item_def["type"] == "survey-scale":
+        return item_def.get("scale_max", 5)
+    for o in item_def.get("options", []):
+        if not o.get("follow_up"):
+            return o["value"]
+    return item_def.get("options", [{}])[0].get("value")
+
+
+def _first_trigger(survey):
+    """First (item_id, value, reason) that flags follow-up, scanning questions in order."""
+    for it in survey["items"]:
+        if it["type"] == "survey-scale":
+            lim = it.get("follow_up_at_or_below")
+            if lim is not None:
+                return it["item_id"], lim, it.get("follow_up_reason")
+        else:
+            for o in it.get("options", []):
+                if o.get("follow_up"):
+                    return it["item_id"], o["value"], o["follow_up"]
+    return None
+
+
+@st.cache_data(show_spinner="Building follow-up queue…")
+def _follow_queue():
+    """One follow-up ticket per survey: force the survey's first ⚑ answer (others kept safe), so the
+    queue shows every trouble answer the system routes back to FarmerChat. Deterministic: seed 0."""
+    tickets = []
+    for ins, out in rows:
+        if not (out["decision"].survey and "handoff" in out):
+            continue
+        h, survey = out["handoff"], out["handoff"]["survey"]
+        ch = h["channel_order"][0]["channel"]
+        trig = _first_trigger(survey)
+        if not trig:
+            continue
+        t_item, t_val, t_reason = trig
+        answers = {it["item_id"]: t_val if it["item_id"] == t_item else _safe_value(it)
+                   for it in survey["items"]}
+        rec = simulate(survey, ch, "completed", seed=0, answers=answers)
+        if not rec["needs_follow_up"]:
+            continue
+        t_def = next(it for it in survey["items"] if it["item_id"] == t_item)
+        a = ins.get("asset") or {}
+        tickets.append({
+            "response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
+            "asset": a.get("name"), "concern": ins.get("concern"),
+            "survey_id": rec["survey_id"], "channel": ch, "recorded_at": rec["recorded_at"],
+            "reason": t_reason, "item_id": t_item, "prompt": t_def.get("prompt", ""),
+            "answer": _answer_label(t_def, t_val), "rec": rec, "insight": ins,
+        })
+    return tickets
+
+
+with tab_follow:
+    tickets = _follow_queue()
+    st.subheader("Follow-up queue")
+    st.caption("Answers that came back flagged ⚑ — the advice failed, harm happened, or the farmer couldn't "
+               "act on it. FarmerChat staff work this queue and get back to the farmer. Each row is one "
+               "survey's trouble answer (simulated); in production only the answers a farmer actually gives land here.")
+    if not tickets:
+        st.info("No survey in this run can produce a follow-up flag.")
+    else:
+        rc = Counter(t["reason"] for t in tickets)
+        m = st.columns(len(FU_REASON) + 1)
+        m[0].metric("Flagged surveys", len(tickets))
+        for col, (k, lab) in zip(m[1:], FU_REASON.items()):
+            col.metric(lab, rc.get(k, 0))
+
+        fr, fc = st.columns(2)
+        sel_reasons = fr.multiselect("Reason", list(FU_REASON), default=list(FU_REASON),
+                                      format_func=FU_REASON.get)
+        chans = sorted({t["channel"] for t in tickets})
+        sel_chans = fc.multiselect("Channel", chans, default=chans, format_func=CH_NAME.get)
+        view = [t for t in tickets if t["reason"] in sel_reasons and t["channel"] in sel_chans]
+
+        if not view:
+            st.warning("No tickets match these filters.")
+        else:
+            st.dataframe(pd.DataFrame([{
+                "Farmer": t["farmer_id"],
+                "Crop / animal": t["asset"],
+                "Survey": t["survey_id"],
+                "Channel": CH_NAME.get(t["channel"], t["channel"]),
+                "Flagged answer": f"{t['prompt']} → {t['answer']}",
+                "Why": FU_REASON.get(t["reason"], t["reason"]),
+                "Answered": t["recorded_at"],
+            } for t in view]), width="stretch", hide_index=True, height=280)
+
+            st.subheader("Open a ticket")
+            opts = {t["response_key"]: f"{t['farmer_id']} · {t['asset']} · {FU_REASON[t['reason']]}"
+                    for t in view}
+            key = st.selectbox("Ticket", list(opts), format_func=lambda k: opts.get(k, k),
+                               label_visibility="collapsed")
+            t = next((x for x in view if x["response_key"] == key), None)
+            if t:
+                ins, a = t["insight"], t["insight"].get("asset") or {}
+                col_d, col_a = st.columns([1.4, 1])
+                with col_d:
+                    html(f'''<div class="mel-card"><span class="mel-k">Farmer</span><b>{escape(t["farmer_id"])}</b>
+                    <span class="mel-id" style="margin-left:10px">{ins.get("insight_id")}</span><br>
+                    <span class="mel-k">Crop / animal</span>{escape(str(a.get("name") or "—").title())} · {escape(str(ins.get("concern") or "").replace("_", " "))}<br>
+                    <span class="mel-k">Survey</span><span class="mel-id">{t["survey_id"]}</span>
+                    <span class="mel-k" style="margin-left:10px">Sent via</span>{CH_NAME.get(t["channel"], t["channel"])}<br>
+                    <span class="mel-k">Advice given</span>“{escape(ins.get("advice_summary") or "—")}”
+                    </div>''')
+                    html(f'''<div class="mel-card"><span class="mel-k">Flagged answer · {t["item_id"]}</span>
+                    <p style="font-size:15px;margin:4px 0">{escape(t["prompt"])}</p>
+                    <p>Answer: <b>{escape(str(t["answer"]))}</b> &nbsp; {badge("⚑ " + FU_REASON[t["reason"]], "red")}</p></div>''')
+                with col_a:
+                    st.markdown("**Suggested follow-up**")
+                    st.info(FU_ACTION[t["reason"]])
+                    st.caption(f"Recorded {short(t['recorded_at'])} · status {t['rec']['status']}")
+                with st.expander("Full answer record (response.schema.json)"):
+                    st.json(t["rec"])
+
 # ---------------------------------------------------------------- Evaluation
 @st.cache_data(show_spinner="Scoring mock golden set…")
 def _eval_mock():
@@ -283,6 +425,11 @@ def _eval_full():
     if not path.exists():
         return None
     return score_golden(load_golden(path))
+
+@st.cache_data(show_spinner="Checking every survey in the full dataset…")
+def _scorecard():
+    path = PACK_DATA / "insights.jsonl"
+    return run_scorecard(load_insights(path if path.exists() else None))
 
 with tab_eval:
     r_mock = _eval_mock()
@@ -305,21 +452,51 @@ with tab_eval:
         else:
             st.info("Full pack not found. Copy the participant pack into the project to see 150-row scores.")
 
+    card = _scorecard()
+    st.subheader("Every survey we write")
+    st.caption(f"Checks on all {card['n_survey_files']:,} survey files (Hindi + English) from "
+               f"{card['n_insights']:,} insights → {card['n_surveyed']:,} surveys. No answer key needed.")
+    q = st.columns(5)
+    q[0].metric("Format", f"{card['format_pass']:.1%}", "schema, 1–3 tap items, right language", delta_color="off")
+    q[1].metric("Safety", f"{card['safety_pass']:.1%}", "no new advice, no personal info", delta_color="off")
+    q[2].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off")
+    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}", "P4 baseline score, 0–1", delta_color="off")
+    q[4].metric("Speed", f"{card['ms_per_insight']} ms", f"per insight · {card['batch_seconds']} s batch", delta_color="off")
+    if card["examples"]:
+        with st.expander(f"Surveys that failed a check (first {len(card['examples'])})"):
+            st.dataframe(pd.DataFrame(card["examples"]), width="stretch", hide_index=True)
+
+    st.subheader("Run history")
+    hist = load_history()
+    if not hist:
+        st.info('No recorded runs yet. Run `python scripts/readme_numbers.py --write --record "what changed"`.')
+    else:
+        st.caption("Each row is one recorded eval run: what we changed and what it did to the scores.")
+        hd = pd.DataFrame(hist)
+        if len(hd) > 1:
+            st.line_chart(hd.set_index("run")[["decision_acc", "rule_acc", "window_acc", "item_similarity_avg"]],
+                          height=200)
+        st.dataframe(hd[["run", "at", "commit", "label", "decision_acc", "rule_acc", "window_acc",
+                         "item_similarity_avg", "misses"]],
+                     width="stretch", hide_index=True,
+                     column_config={k: st.column_config.NumberColumn(format="percent")
+                                    for k in ("decision_acc", "rule_acc", "window_acc")})
+
     src = r_full or r_mock
     st.subheader("Per-rule confusion matrix")
     st.caption("Rows = expected rule, columns = our prediction. Diagonal = correct.")
     rules = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
     df = pd.DataFrame(src["confusion"], index=rules)[rules]
     df.index.name = "expected → predicted"
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
     if src["item_similarities"]:
         st.subheader("Item similarity")
         st.caption(f"Keyword overlap between our questions and the golden set's expected questions (avg {src['item_similarity_avg']:.2f})")
-        st.dataframe(pd.DataFrame(src["item_similarities"]), use_container_width=True, height=150)
+        st.dataframe(pd.DataFrame(src["item_similarities"]), width="stretch", height=150)
 
     st.subheader("Misses")
     if src["misses"]:
-        st.dataframe(pd.DataFrame(src["misses"]), use_container_width=True, height=200)
+        st.dataframe(pd.DataFrame(src["misses"]), width="stretch", height=200)
     else:
         st.success("No misses — every decision and rule matches.")
