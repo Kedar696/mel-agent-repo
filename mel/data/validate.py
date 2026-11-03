@@ -36,6 +36,21 @@ def is_valid(kind: str, obj: dict) -> bool:
     return not errors(kind, obj)
 
 
+def why_junk(insight: dict) -> list[str]:
+    """Plain reasons an insight should get no survey. Empty list means it looks clean.
+
+    Two sources of 'junk': the practice label ``quality_flag == "junk"``, and any way the
+    row fails the insight schema (junk rows are broken on purpose and may miss required
+    fields or carry out-of-range values). P1 reports these so a batch run can say *why* a
+    row was dropped instead of silently skipping it.
+    """
+    reasons: list[str] = []
+    if insight.get("quality_flag") == "junk":
+        reasons.append("labelled junk (quality_flag)")
+    reasons.extend(f"schema: {e}" for e in errors("insight", insight))
+    return reasons
+
+
 def validate(kind: str, obj: dict) -> dict:
     errs = errors(kind, obj)
     if errs:
