@@ -1,0 +1,21 @@
+# Replace @p1..@p8 with GitHub usernames.
+/mel/config.py            @p1
+/mel/data/                @p1
+/mel/pipeline.py          @p1
+/mel/cli.py               @p1
+/config/                  @p1
+/data/                    @p1
+/scripts/                 @p1
+/mel/decision/            @p2
+/mel/timing/              @p3
+/mel/schedule/            @p4
+/mel/writer/templates.py  @p5
+/mel/writer/i18n.py       @p5
+/mel/writer/compose.py    @p5 @p6
+/mel/writer/llm.py        @p6
+/mel/writer/guards.py     @p6
+/mel/channels/            @p7
+/mel/simulator/           @p7
+/mel/evaluation/          @p8
+/app/                     @p8
+/docs/                    @p1 @p8

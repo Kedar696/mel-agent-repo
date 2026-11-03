@@ -1,0 +1,11 @@
+# Palette from the v0 sketch (v0-sketch/): off-white, deep green, amber, red.
+[theme]
+base = "light"
+primaryColor = "#266b4a"
+backgroundColor = "#f7f8f4"
+secondaryBackgroundColor = "#eef1ef"
+textColor = "#18231d"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

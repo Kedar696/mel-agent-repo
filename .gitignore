@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+out/
+.env
+.DS_Store
+.pytest_cache/
+v0-sketch/
