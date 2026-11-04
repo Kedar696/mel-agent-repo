@@ -1,6 +1,10 @@
-"""MEL Survey Agent demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
+"""Fasal Pulse - MEL Survey Agent: the team demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
+P4's standalone survey demo (demo/p4_standalone) is folded in: Survey Studio shows what the agent remembers
+about the farmer and how history rules H1-H4 adapt the survey (on in the app, off for scoring).
 Layout borrowed from the v0 sketch (v0-sketch/): Overview, Survey Studio, Simulate, Evaluation.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
+import copy
+import os
 import sys
 from collections import Counter
 from datetime import datetime
@@ -13,17 +17,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
+
+def _reload_mel_if_changed():
+    """Streamlit reruns this file when code changes (local `git pull`, or Streamlit Cloud pulling a merge),
+    but keeps already-imported packages in memory, so new mel/ code would not be used and calls fail with
+    'unexpected keyword argument'. If any mel/*.py file changed since the last run, drop the old modules
+    and cached results so everything below is imported and computed fresh."""
+    stamp = max(p.stat().st_mtime for p in (Path(__file__).resolve().parents[1] / "mel").rglob("*.py"))
+    if getattr(sys, "_mel_code_stamp", stamp) != stamp:
+        for name in [m for m in sys.modules if m == "mel" or m.startswith("mel.")]:
+            del sys.modules[name]
+        st.cache_data.clear()
+        st.cache_resource.clear()
+    sys._mel_code_stamp = stamp
+
+
+_reload_mel_if_changed()
+
 from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
 from mel.data import load_insights, load_farmers, errors
 from mel.evaluation import evaluate, load_history, rules_changed
 from mel.pipeline import run_pipeline, clean
+from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
-from mel.simulator import simulate, cases_for
-from mel.writer import check_survey
+from mel.simulator import simulate, simulate_sheet, cases_for
+from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
+                        history_notes)
 
-st.set_page_config(page_title="MEL Survey Agent", layout="wide")
+APP_NAME = "Fasal Pulse - MEL Survey Agent"
+st.set_page_config(page_title=APP_NAME, layout="wide")
 
 RULE_LABEL = {"R1": "Junk / unclear", "R2": "Critical → human call", "R3": "Nothing to verify",
               "R4": "Waiting for details", "R5": "No check needed", "R6": "After season",
@@ -78,21 +102,46 @@ def short(ts: str) -> str:
     return datetime.fromisoformat(ts).strftime("%-d %b, %H:%M")
 
 
-@st.cache_resource
+# The full participant pack (6,999 conversations) when it is in the repo; the 57-row mock sample otherwise.
+# An explicit MEL_DATA_DIR always wins.
+DATA_DIR = None if os.environ.get("MEL_DATA_DIR") else (PACK_DATA if (PACK_DATA / "insights.jsonl").exists() else None)
+
+
+@st.cache_resource(show_spinner="Running the pipeline on every conversation…")
 def batch():
-    """Run the whole pipeline once; replay the frequency cap in send order."""
-    res = run_pipeline(load_insights(), farmers=load_farmers())  # farmers + chat history feed the send time
+    """Run the whole pipeline once, replay the weekly limit in send order (P3's CapLedger.admit), and count
+    schema-valid files once, so later clicks stay fast even on the full dataset."""
+    res = run_pipeline(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
+                       farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # farmers feed send time
+                       history=True)  # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
     rows = list(zip(res.insights, res.outputs))
-    led, capped = CapLedger(), set()
-    hs = sorted((o["handoff"] for _, o in rows if "handoff" in o), key=lambda h: h["send_window"]["not_before"])
+    # Contract order: send-window start, then created time, then farmer. Copies, because admit() edits the
+    # hand-off it merges into, and Survey Studio must keep showing the original survey.
+    hs = sorted((copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o),
+                key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]))
+    led = CapLedger()
+    admits = {}
     for h in hs:
-        if not led.allow(h):
-            capped.add(h["handoff_id"])
-    return rows, capped
+        a = led.admit(h)
+        admits[h["handoff_id"]] = (a.decision, a.reason)
+    surveyed = [o for _, o in rows if o["decision"].survey]
+    files = [clean(s) for o in surveyed for s in o["surveys"].values()] + [o["handoff"] for o in surveyed]
+    kinds = ["survey"] * (len(files) - len(surveyed)) + ["schedule_handoff"] * len(surveyed)
+    valid = sum(not errors(k, f) for k, f in zip(kinds, files))
+    return rows, admits, valid, len(files)
 
 
-rows, capped = batch()
-st.title("MEL Survey Agent")
+@st.cache_resource(show_spinner=False)
+def memory():
+    """What the agent knows about each farmer (P4's FarmerMemory): earlier conversations + farmer profile."""
+    return FarmerMemory(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
+                        load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None))
+
+
+rows, admits, n_valid, n_files = batch()
+st.title(APP_NAME)
+st.caption(f"Data: {'full participant pack' if DATA_DIR else os.environ.get('MEL_DATA_DIR') or 'mock sample (data/mock)'}"
+           f" · {len(rows):,} conversations · history rules on (scores in Evaluation use history off)")
 tab_over, tab_studio, tab_sim, tab_follow, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Follow-up queue", "Evaluation"])
 
 # ---------------------------------------------------------------- Overview
@@ -100,18 +149,17 @@ with tab_over:
     n = len(rows)
     rules = Counter(o["decision"].rule for _, o in rows)
     surveyed = [o for _, o in rows if o["decision"].survey]
-    files = [clean(s) for o in surveyed for s in o["surveys"].values()] + [o["handoff"] for o in surveyed]
-    kinds = ["survey"] * (len(files) - len(surveyed)) + ["schedule_handoff"] * len(surveyed)
-    valid = sum(not errors(k, f) for k, f in zip(kinds, files))
+    limit = Counter(d for d, _ in admits.values())
+    held = len(admits) - limit["sent"]
     high = sum(o["handoff"]["priority"] == "high" for o in surveyed)
     llm = sum(s.get("_source") == "llm" for o in surveyed for s in o["surveys"].values())
     c = st.columns(6)
     c[0].metric("Insights processed", n)
     c[1].metric("Surveys planned", len(surveyed), f"{len(surveyed) / n:.0%} of insights", delta_color="off")
     c[2].metric("No survey", n - len(surveyed), f"{(n - len(surveyed)) / n:.0%} of insights", delta_color="off")
-    c[3].metric("Schema-valid files", f"{valid / max(len(files), 1):.0%}", f"{valid} / {len(files)}", delta_color="off")
+    c[3].metric("Schema-valid files", f"{n_valid / max(n_files, 1):.0%}", f"{n_valid:,} / {n_files:,}", delta_color="off")
     c[4].metric("High priority", high, "sent first", delta_color="off")
-    c[5].metric("Capped (1 per 7 days)", len(capped), "would be held back", delta_color="off")
+    c[5].metric("Weekly limit (1 per 7 days)", held, "moved, merged or skipped", delta_color="off")
 
     left, right = st.columns([1.1, 0.9])
     with left:
@@ -129,7 +177,20 @@ with tab_over:
         st.markdown("**Survey source**")
         st.caption(f"Template: {len(surveyed) * 2 - llm} · Claude: {llm}"
                    + ("  (LLM writer off: set MEL_USE_LLM=1)" if not llm else ""))
-    st.caption(f"{len(capped)} survey(s) would be held back by the cap; skip, move or merge policy is still open (P3).")
+    with st.expander("How it fits FarmerChat"):
+        st.markdown("""
+1. The farmer chats with FarmerChat (app, web, WhatsApp, Telegram or voice).
+2. FarmerChat's insight extractor sums up the chat: crop or animal, problem, advice, whether to check back.
+   *(Digital Green gave us 6,999 synthetic ones.)*
+3. **This agent:** decides survey or not (rules R1–R8), remembers the farmer's earlier conversations
+   (history rules H1–H4), writes 1–3 tap questions in Hindi and English, checks them, and sets the send window.
+4. **Scheduler hand-off:** send window, channel order, weekly limit, priority, expiry.
+5. The farmer answers on their channel. Answers that mean trouble go back to FarmerChat staff (Follow-up queue).
+
+Out of scope: real delivery and real farmers. Everything here is simulated.""")
+    st.caption(f"Weekly limit (P3): {limit['sent']:,} sent as planned · {limit['moved']:,} moved to a later date · "
+               f"{limit['merged']:,} merged into the farmer's other survey · {limit['skipped']:,} skipped. "
+               f"High-priority surveys are exempt.")
 
 # ---------------------------------------------------------------- Survey Studio
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
@@ -198,10 +259,15 @@ def handoff_strip(h, send_time):
                     + (f'<small>wait {c["wait_hours"]}h →</small>' if c.get("wait_hours") else "")
                     for i, c in enumerate(h["channel_order"], 1))
     cap = h["frequency_cap"]
-    cap_state = ("Exempt (high priority)" if cap["exempt"] else
-                 "⚠ Over cap: another survey is already planned this week" if h["handoff_id"] in capped else "✓ Within cap")
+    decision, reason = admits.get(h["handoff_id"], ("sent", ""))
+    cap_state = ("Exempt (high priority)" if cap["exempt"] else {
+        "sent": "✓ Within the limit", "moved": f"↷ Moved: {reason}", "merged": f"⊕ Merged: {reason}",
+        "skipped": "⚠ Skipped: this farmer already has a survey that week", "opted_out": "Farmer opted out"}[decision])
+    status = {"sent": badge("Ready to send"), "moved": badge("Moved by weekly limit", "amber"),
+              "merged": badge("Merged by weekly limit", "amber"), "skipped": badge("Skipped by weekly limit", "red"),
+              "opted_out": badge("Opted out", "red")}[decision]
     html(f'''<div class="mel-card"><div style="display:flex;justify-content:space-between"><b>Scheduler hand-off · {h["handoff_id"]}</b>
-{badge("Ready to send") if h["handoff_id"] not in capped else badge("Held by cap", "amber")}</div><br>
+{status}</div><br>
 <div class="mel-strip">
 <div><div class="mel-k">Priority</div>{badge(h["priority"].title(), tone)}</div>
 <div><div class="mel-k">Send window · IST</div><b style="font-size:13px">{short(h["send_window"]["not_before"])} → {short(h["send_window"]["not_after"])}</b>
@@ -214,11 +280,174 @@ def handoff_strip(h, send_time):
 <div style="font-size:12px;margin-top:6px">{cap_state}</div></div></div></div>''')
 
 
+# ---------------------------------------------------------------- Answer as the farmer (from P4's demo)
+TAP_UI = {
+    "hi": dict(title="आपको मिली सलाह पर एक छोटा सवाल", close="बंद करें", optout="दोबारा न पूछें",
+               thanks="धन्यवाद। आपके जवाब से हम और अच्छी सलाह दे पाएँगे।",
+               thanks_fu="धन्यवाद। हमने यह नोट कर लिया है। FarmerChat आपसे इस बारे में फिर बात करेगा।",
+               step="{n} में से {i}", start="शुरू करें", later="अभी नहीं",
+               invite="आपको मिली सलाह के बारे में FarmerChat से एक छोटा सवाल। बस एक मिनट लगेगा।"),
+    "en": dict(title="A quick question about the advice you got", close="Close", optout="Do not ask me again",
+               thanks="Thank you. Your answers help us give better advice.",
+               thanks_fu="Thank you. We have noted this. FarmerChat will talk to you about it again.",
+               step="{i} of {n}", start="Start", later="Not now",
+               invite="A short question from FarmerChat about the advice you got. It takes one minute."),
+}
+
+
+def tap_record(sv, ch, S, send_at):
+    """Turn the taps into an answer record with P3's simulator (the real taps, never invented answers)."""
+    how, taps = S["done"], S["taps"]
+    if how == "finished":
+        return (simulate_sheet(sv, ch, list(taps), answers=taps) if ch in ("app", "web")
+                else simulate(sv, ch, "completed", answers=taps, send_at=send_at))
+    if how == "closed":
+        return simulate_sheet(sv, ch, list(taps), closed=True, answers=taps)
+    case = {"dismissed": "sheet_dismissed", "opted_out": "farmer_opted_out",
+            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped"}[how]
+    return simulate(sv, ch, case, send_at=send_at)
+
+
+def answer_as_farmer(sv, ch, key, send_at):
+    k = "hi" if sv["language"].startswith("hi") else "en"
+    U, its = TAP_UI[k], sv["items"]
+    n = len(its)
+    S = st.session_state.setdefault(key, {"step": 0, "taps": {}, "done": None})
+
+    def tap(qid, val):
+        S["taps"][qid] = val
+        S["step"] += 1
+        if S["step"] >= n:
+            S["done"] = "finished"
+
+    def end(how):
+        S["done"] = how
+
+    def restart():
+        S.update(step=0, taps={}, done=None)
+
+    left, right = st.columns([1, 1])
+    with left, st.container(border=True):
+        st.caption(f"{CH_NAME[ch]} · tap like the farmer would")
+        if ch in ("app", "web"):
+            st.markdown(f"**{U['title']}**")
+            if S["done"] is None:
+                q = its[S["step"]]
+                st.caption(U["step"].format(i=S["step"] + 1, n=n))
+                st.progress((S["step"] + 1) / n)
+                st.markdown(f"#### {q['prompt']}")
+                for o in q.get("options", []):
+                    st.button(o["label"], key=f"{key}|{q['item_id']}|{o['value']}", on_click=tap,
+                              args=(q["item_id"], o["value"]), width="stretch")
+                b1, b2 = st.columns(2)
+                b1.button(U["close"], key=f"{key}|close", on_click=end, args=("closed" if S["taps"] else "dismissed",))
+                b2.button(U["optout"], key=f"{key}|opt", on_click=end, args=("opted_out",))
+        elif ch in ("whatsapp", "telegram"):
+            if ch == "whatsapp":
+                st.chat_message("assistant").write(f"{U['invite']}\n\n[{U['start']}]  [{U['later']}]")
+            for q in its[:S["step"]]:
+                st.chat_message("assistant").write(q["prompt"])
+                v = S["taps"].get(q["item_id"])
+                st.chat_message("user").write(next((o["label"] for o in q.get("options", []) if o["value"] == v), "—"))
+            if S["done"] is None:
+                q = its[S["step"]]
+                st.chat_message("assistant").write(q["prompt"])
+                for o in q.get("options", []):
+                    st.button(o["label"], key=f"{key}|{q['item_id']}|{o['value']}", on_click=tap,
+                              args=(q["item_id"], o["value"]), width="stretch")
+                b1, b2 = st.columns(2)
+                b1.button("Type a message instead", key=f"{key}|ft", on_click=end, args=("free_text",))
+                b2.button("STOP" if ch == "whatsapp" else "/stop", key=f"{key}|stop", on_click=end, args=("opted_out",))
+        else:  # voice
+            vo = render(sv, "voice")
+            if S["done"] is None:
+                st.markdown(f"🔊 *{vo['items'][S['step']]['say']}*")
+                q = its[S["step"]]
+                cols = st.columns(len(q.get("options", [])) + 1)
+                for num, o in enumerate(q.get("options", []), 1):
+                    cols[num - 1].button(f"Press {num}", key=f"{key}|k{num}|{q['item_id']}", on_click=tap,
+                                         args=(q["item_id"], o["value"]))
+                cols[-1].button("Press 9", key=f"{key}|k9", on_click=end, args=("opted_out",))
+                st.button("Farmer hangs up", key=f"{key}|hang", on_click=end, args=("dropped",))
+        if S["done"] is not None:
+            rec = tap_record(sv, ch, S, send_at)
+            st.markdown(f"**{U['thanks_fu'] if rec['needs_follow_up'] else U['thanks']}**")
+            st.button("Start over", key=f"{key}|re", on_click=restart)
+    with right:
+        if S["done"] is None:
+            st.info("Tap an answer on the left. When the farmer finishes, closes, opts out or hangs up, the "
+                    "answer record appears here, built by P3's simulator from the actual taps.")
+        else:
+            m = st.columns(3)
+            m[0].metric("Status", rec["status"])
+            m[1].metric("Counts toward weekly limit", "Yes" if rec["counts_toward_cap"] else "No")
+            m[2].metric("Next step", rec["retry_decision"])
+            if rec["needs_follow_up"]:
+                st.error("Goes to the Follow-up queue: " + ", ".join(FU_LABEL.get(r, r) for r in rec["follow_up_reasons"]))
+            if rec["failure_code"]:
+                st.warning(f"Failure: {rec['failure_code']}")
+            bad = errors("response", rec)
+            st.caption("Answer record " + ("passes the response schema ✓" if not bad else f"FAILS the schema: {bad[:2]}"))
+            with st.expander("Full answer record (response.schema.json)"):
+                st.json(rec)
+
+
+FU_LABEL = {"advice_did_not_work": "advice didn't work", "crop_or_animal_damaged": "crop / animal damaged",
+            "could_not_get_input": "couldn't get inputs", "could_not_reach_expert": "couldn't reach expert"}
+
+DEMO_PICKS = {"I-001253": "Goat → vet (high priority)", "I-006130": "Stored potatoes (the R7 fix)",
+              "I-000291": "Critical cow case → a person calls"}
+BROWSE = "Browse all conversations"
+
 with tab_studio:
-    key = st.selectbox("Insight", list(labels))
-    ins, out = labels[key]
+    by_id = {i.get("insight_id"): (i, o) for i, o in rows}
+    picks = {k: v for k, v in DEMO_PICKS.items() if k in by_id}
+    pick = st.selectbox("Demo picks", [*picks, BROWSE], format_func=lambda k: picks.get(k, k))
+    if pick != BROWSE:
+        ins, out = by_id[pick]
+    else:
+        f = st.columns(4)
+        f_dec = f[0].selectbox("Decision", ["All", "Survey", "No survey"])
+        f_rule = f[1].selectbox("Rule", ["All", *RULE_LABEL], format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}")
+        f_res = f[2].selectbox("Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in rows})])
+        f_asset = f[3].selectbox("Crop / animal", ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in rows})])
+        shown = [k for k, (i, o) in labels.items()
+                 if (f_dec == "All" or (f_dec == "Survey") == o["decision"].survey)
+                 and (f_rule == "All" or o["decision"].rule == f_rule)
+                 and (f_res == "All" or str(i.get("resolution_type")) == f_res)
+                 and (f_asset == "All" or str((i.get("asset") or {}).get("name")) == f_asset)]
+        if not shown:  # never st.stop() here: it would also stop the tabs after this one
+            st.warning("No conversations match these filters; showing all.")
+            shown = list(labels)
+        key = st.selectbox(f"Conversation ({len(shown):,} match; type to search)", shown)
+        ins, out = labels[key]
     d = out["decision"]
     a = ins.get("asset") or {}
+    mem, pretend = None, "none"
+    if d.survey:
+        hc = st.columns([1, 2])
+        use_history = hc[0].toggle("Use the farmer's past conversations", value=True,
+                                   help="Off = the generic template for this advice type (what scoring uses).")
+        with hc[1].expander("Pretend this farmer's survey history (demo)"):
+            pretend = st.selectbox("Earlier survey answers", ["none", "said the input was not available nearby",
+                                                              "said it was too costly", "ignored the last 3 surveys"])
+        if use_history:
+            mem = copy.copy(memory())
+            mem.responses = __import__("collections").defaultdict(list)
+            when = lambda days: (datetime.fromisoformat(ins["created_at"]) - __import__("datetime").timedelta(days=days)).isoformat()
+            fake = lambda status, ans, days=2: {"farmer_id": ins["farmer_id"], "status": status, "answers": ans,
+                                                "recorded_at": when(days), "counts_toward_cap": True}
+            if pretend.startswith("said the input"):
+                mem.record_response(fake("completed", {"q1": "no", "q3": "not_nearby"}))
+            elif pretend.startswith("said it was too"):
+                mem.record_response(fake("completed", {"q1": "no", "q3": "too_costly"}))
+            elif pretend.startswith("ignored"):
+                for days in (6, 4, 2):
+                    mem.record_response(fake("expired", {}, days))
+        if not use_history or pretend != "none":  # the batch was built with history on and no answers yet
+            surveys_now = write_surveys(ins, d.send_window, memory=mem)
+            farmer_copy = clean(surveys_now.get(ins["conversation_language"]) or surveys_now["hi-IN"])
+            out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy)}
     sev_tone = {"critical": "red", "high": "red", "medium": "amber"}.get(ins.get("severity"), "slate")
     why = (out["surveys"][ins["conversation_language"]]["rationale"] if d.survey
            else out["no_survey"]["reason"])
@@ -232,6 +461,14 @@ Selected insight {badge((ins.get("severity") or "n/a").title() + " severity", se
 <div class="mel-meta"><div><span>Farmer</span>{ins.get("farmer_id")}</div><div><span>Insight</span>{ins.get("insight_id")}</div>
 <div><span>Growth stage</span>{escape(str(a.get("growth_stage") or "—"))}</div><div><span>Resolution</span>{escape(str(ins.get("resolution_type") or "—"))}</div></div>
 <div class="mel-why">{"Why this survey?" if d.survey else f"Why no survey? ({d.rule})"}<p>{escape(why)}</p></div></div>''')
+        if mem is not None:
+            notes = history_notes(ins, mem)
+            lines = summary_lines(build_context(ins, mem))
+            html('<div class="mel-card"><b>What the agent remembers</b><ul style="margin:6px 0 0 16px;font-size:13px">'
+                 + "".join(f"<li>{escape(x)}</li>" for x in lines) + "</ul>"
+                 + ("".join(f'<div style="margin-top:6px">{badge(r, "amber")} {escape(w)}</div>' for r, w in notes)
+                    if notes else '<div style="margin-top:6px;font-size:12px;color:#6e7a72">Nothing in the history '
+                                  'changes this survey, so the generic questions are used.</div>') + "</div>")
     if not d.survey:
         with col_q:
             st.warning(f"No survey · {d.rule} {RULE_LABEL[d.rule]}")
@@ -241,19 +478,36 @@ Selected insight {badge((ins.get("severity") or "n/a").title() + " severity", se
         hi, en = surveys.get("hi-IN"), surveys.get("en-IN")
         with col_q:
             src = {s.get("_source") for s in surveys.values()}
+            tags = [badge(x.title(), "amber") for x in src]
+            if en.get("_history"):
+                tags.append(badge("Personalised · " + ", ".join(r for r, _ in en["_history"])))
             html(f'<div style="display:flex;justify-content:space-between;align-items:center"><b>Questions · {len(en["items"])}</b>'
-                 f'<span>{" ".join(badge(x.title(), "amber") for x in src)}</span></div>')
+                 f'<span>{" ".join(tags)}</span></div>')
             for i, (qh, qe) in enumerate(zip(hi["items"], en["items"]), 1):
                 html(f'''<div class="mel-card"><span class="mel-id">0{i}</span> {badge(qe["type"].replace("survey-", ""), "slate")}
 <div class="mel-q" style="margin-top:8px"><div><div class="mel-k">हिन्दी</div><p>{escape(qh["prompt"])}</p>{option_pills(qh)}</div>
 <div><div class="mel-k">English</div><p>{escape(qe["prompt"])}</p>{option_pills(qe)}</div></div></div>''')
             html(guard_ticks(surveys) + '<span style="font-size:12px;color:#8a958d">⚑ = answer triggers a follow-up</span>')
+            if en.get("_history"):
+                generic = write_surveys(ins, d.send_window)["en-IN"]["items"]
+                with st.expander("Generic vs adapted questions (English)", expanded=True):
+                    n_rows = max(len(generic), len(en["items"]))
+                    st.dataframe(pd.DataFrame([{
+                        "#": k + 1,
+                        "Generic (no history)": generic[k]["prompt"] if k < len(generic) else "(none)",
+                        "Adapted to this farmer": en["items"][k]["prompt"] if k < len(en["items"]) else "(none)"}
+                        for k in range(n_rows)]), hide_index=True, width="stretch")
         with col_p:
             ch = st.segmented_control("Channel preview", CHANNELS, default=h["channel_order"][0]["channel"],
                                       format_func=CH_NAME.get) or "app"
             lang = st.segmented_control("Language", list(surveys), default=ins["conversation_language"]) or "hi-IN"
             html(phone(clean(surveys[lang]), ch))
         handoff_strip(h, d.send_time)
+        st.subheader("Answer as the farmer")
+        first = ch == h["channel_order"][0]["channel"]  # P2's recommended time is for the first channel
+        answer_as_farmer(clean(surveys[lang]), ch,
+                         f"tap|{ins['insight_id']}|{ch}|{lang}|{pretend}|{mem is not None}",
+                         d.send_time["send_at"] if first else None)
         with st.expander("Raw JSON: survey, channel payload, hand-off"):
             st.json(clean(surveys[lang]), expanded=False)
             st.json(render(clean(surveys[lang]), ch), expanded=False)
@@ -498,12 +752,22 @@ with tab_eval:
         changed = rules_changed(hist)
         if changed:
             st.markdown("**Rules we changed**")
+            st.caption("Each run is compared with the last run under the same send-time rule.")
+
+            def _chg(pair, f):
+                a, b = (("—" if v is None else f(v)) for v in pair)
+                return b if a == b else f"{a} → {b}"
+
+            def _n(v):
+                return f"{v:.2f}" if isinstance(v, float) else str(v)
+
             st.dataframe(pd.DataFrame([{
-                "Run": c["run"], "What changed": c["change"], "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
-                **{lab: (_pct(c[k][1]) if c[k][0] == c[k][1] else f"{_pct(c[k][0])} → {_pct(c[k][1])}")
-                   for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
-                                  ("timeliness_pass", "Timeliness"))},
-                "Misses": f"{c['misses'][0]} → {c['misses'][1]}"} for c in changed]),
+                "Run": f"{c['run']} (vs {c['vs_run']})", "What changed": c["change"],
+                "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
+                **{lab: _chg(c[k], _pct) for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
+                                                       ("timeliness_pass", "Timeliness"))},
+                "Item sim": _chg(c["item_similarity_avg"], _n), "Relevance (P4)": _chg(c["relevance_avg"], _n),
+                "Misses": _chg(c["misses"], _n)} for c in changed]),
                 width="stretch", hide_index=True)
         hd = pd.DataFrame(hist)
         avail = [k for k in DIMENSIONS if k in hd and hd[k].notna().any()]

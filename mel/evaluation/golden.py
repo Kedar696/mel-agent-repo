@@ -33,7 +33,8 @@ def item_similarity(survey: dict, golden_items: list[dict]) -> float:
     return round(matched / len(golden_items), 2)
 
 
-def score_golden(golden: list[dict] | None = None) -> dict:
+def score_golden(golden: list[dict] | None = None, memory=None) -> dict:
+    """`memory` (mel.writer.FarmerMemory) scores with P4's history rules on; default off (team decision 4 Nov)."""
     golden = golden or load_golden()
     n = len(golden)
     hits = Counter()
@@ -41,7 +42,7 @@ def score_golden(golden: list[dict] | None = None) -> dict:
     confusion = {e: {g: 0 for g in RULES} for e in RULES}
     item_sims = []
     for g in golden:
-        exp, out = g["expected"], run_insight(g["insight"])
+        exp, out = g["expected"], run_insight(g["insight"], memory=memory)
         d = out["decision"]
         ok_dec = d.survey == exp["survey"]
         hits["decision"] += ok_dec

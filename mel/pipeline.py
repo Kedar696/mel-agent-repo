@@ -17,14 +17,15 @@ def clean(survey: dict) -> dict:
     return {k: v for k, v in survey.items() if not k.startswith("_")}
 
 
-def run_insight(insight: dict, farmer: dict | None = None, history_hours=()) -> dict:
+def run_insight(insight: dict, farmer: dict | None = None, history_hours=(), memory=None) -> dict:
     """Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in farmer's language).
     `farmer` (farmers.csv row) and `history_hours` only refine decision.send_time, P2's recommended send time.
-    The hand-off file cannot carry it (the organisers' schema forbids extra fields); senders read it from the decision."""
+    The hand-off file cannot carry it (the organisers' schema forbids extra fields); senders read it from the decision.
+    `memory` (mel.writer.FarmerMemory) turns on P4's history rules H1-H4, which adapt the questions."""
     d = decide(insight, farmer, history_hours)
     if not d.survey:
         return {"decision": d, "no_survey": d.no_survey_record(insight)}
-    surveys = write_surveys(insight, d.send_window)
+    surveys = write_surveys(insight, d.send_window, memory=memory)
     lang = insight.get("conversation_language", "hi-IN")
     farmer_copy = clean(surveys.get(lang) or surveys["hi-IN"])
     return {"decision": d, "surveys": surveys, "handoff": build_handoff(insight, farmer_copy)}
@@ -68,18 +69,24 @@ class PipelineResult:
 
 
 def run_pipeline(insights: list[dict], limit: int | None = None, farmer: str | None = None,
-                 farmers: dict[str, dict] | None = None) -> PipelineResult:
+                 farmers: dict[str, dict] | None = None, history: bool = False) -> PipelineResult:
     """Run the filtered batch through ``run_insight``. Pure: it writes nothing, so the CLI (or
     a test) decides where output goes. Order follows the input, so two runs give equal results.
     `farmers` (load_farmers()) and each farmer's earlier chats in `insights`, including rows the
-    filter left out, feed P2's recommended send time."""
+    filter left out, feed P2's recommended send time.
+    `history=True` builds a FarmerMemory from all `insights` + `farmers` and turns on P4's history rules
+    (team default 4 Nov: on in the app, off for scoring and the CLI)."""
     chosen = select_insights(insights, limit=limit, farmer=farmer)
     farmers = farmers or {}
     by_farmer = defaultdict(list)
     for i in insights:
         if isinstance(i, dict):
             by_farmer[i.get("farmer_id")].append(i)
+    memory = None
+    if history:
+        from mel.writer import FarmerMemory
+        memory = FarmerMemory([i for i in insights if isinstance(i, dict)], farmers)
     outputs = [run_insight(i, farmers.get(i.get("farmer_id")),
-                           chat_hours(by_farmer[i.get("farmer_id")], i.get("farmer_id"), i.get("created_at")))
+                           chat_hours(by_farmer[i.get("farmer_id")], i.get("farmer_id"), i.get("created_at")), memory)
                for i in chosen]
     return PipelineResult(insights=chosen, outputs=outputs, rows_read=len(insights))
