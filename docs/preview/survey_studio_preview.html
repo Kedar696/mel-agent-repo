@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Survey Studio Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=Bricolage+Grotesque:wght@600;700&display=swap">
+<style>
+/* Layout: three columns on desktop (insights | what happened | phone), stacked on phones. Field-station look: slate-green neutrals, leaf accent. */
+:root{--bg:#EEF2EE;--panel:#FFFFFF;--ink:#16221B;--muted:#5A6B61;--line:#D3DCD5;--accent:#1D7A4C;--accent-ink:#FFFFFF;--soft:#E1EFE6;--warn:#B4540A;--warn-soft:#FBEBDD;--bubble-in:#FFFFFF;--bubble-out:#D8F0DE;--wa:#E7E1D6;
+--f-display:'Bricolage Grotesque','Mukta',system-ui,sans-serif;--f-body:'Mukta',system-ui,-apple-system,'Segoe UI',sans-serif;--f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1612;--panel:#17211B;--ink:#E7EFE9;--muted:#93A69A;--line:#2A382F;--accent:#4CC48A;--accent-ink:#06210F;--soft:#1E3326;--warn:#F0A064;--warn-soft:#3A2A1A;--bubble-in:#1F2C24;--bubble-out:#24523A;--wa:#16201A;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0F1612;--panel:#17211B;--ink:#E7EFE9;--muted:#93A69A;--line:#2A382F;--accent:#4CC48A;--accent-ink:#06210F;--soft:#1E3326;--warn:#F0A064;--warn-soft:#3A2A1A;--bubble-in:#1F2C24;--bubble-out:#24523A;--wa:#16201A;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1240px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;justify-content:space-between;margin-bottom:18px}
+h1{font-family:var(--f-display);font-size:26px;margin:0;letter-spacing:-.01em}
+.tag{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:260px minmax(0,1fr) 400px;gap:18px;align-items:start}
+@media(max-width:1020px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+h2{font-family:var(--f-display);font-size:15px;margin:0 0 10px;letter-spacing:.01em}
+.label{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);padding:5px 10px;border-radius:99px;font:inherit;font-size:13px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.list{display:flex;flex-direction:column;gap:4px;margin-top:10px;max-height:420px;overflow:auto}
+.item{text-align:left;border:1px solid transparent;background:transparent;color:var(--ink);padding:8px 10px;border-radius:8px;font:inherit;cursor:pointer;min-width:0}
+.item:hover{background:var(--soft)}
+.item[aria-current="true"]{background:var(--soft);border-color:var(--accent)}
+.item b{display:block;font-size:14px}.item span{font-size:12px;color:var(--muted);font-family:var(--f-mono)}
+.q{margin:0 0 4px;font-weight:700}.a{margin:0 0 12px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.meta div{border-top:1px solid var(--line);padding-top:6px}
+.meta dt{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.meta dd{margin:0;font-weight:500}
+.checks{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.pill{font-family:var(--f-mono);font-size:12px;padding:3px 9px;border-radius:99px;background:var(--soft);color:var(--ink)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.qlist{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:10px}
+.qlist li{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.qlist .t{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.qlist .p{font-weight:700;margin:2px 0 6px}
+.qlist .o{display:flex;flex-wrap:wrap;gap:6px}.qlist .o span{border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:13px}
+.qlist .o span.fu{border-color:var(--warn);color:var(--warn)}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);padding:7px 14px;font:inherit;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.phone{background:#0D130F;border-radius:30px;padding:10px;border:1px solid var(--line);max-width:380px;margin:0 auto}
+.screen{background:var(--panel);border-radius:22px;min-height:520px;position:relative;overflow:hidden;display:flex;flex-direction:column}
+.screen.wa{background:var(--wa)}
+.appbar{padding:14px 16px;font-family:var(--f-display);font-size:15px;border-bottom:1px solid var(--line)}
+.scrim{flex:1;background:color-mix(in srgb,var(--ink) 18%,transparent)}
+.sheet{background:var(--panel);border-radius:18px 18px 0 0;padding:16px;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(0,0,0,.18)}
+.sheet h3{font-family:var(--f-display);font-size:15px;margin:0 0 2px}
+.step{color:var(--muted);font-size:13px;margin-bottom:6px}
+.bar{height:5px;background:var(--line);border-radius:9px;overflow:hidden;margin-bottom:12px}.bar i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.sheet .prompt{font-size:19px;font-weight:700;line-height:1.35;margin:0 0 12px}
+.opts{display:grid;gap:8px}
+.opt{border:1px solid var(--line);background:transparent;color:var(--ink);padding:11px 12px;border-radius:10px;font:inherit;font-size:16px;cursor:pointer;text-align:center}
+.opt:hover{border-color:var(--accent);background:var(--soft)}
+.scale{display:flex;gap:6px}.scale .opt{flex:1;padding:11px 0}
+.foot{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:12px}
+.ghost{border:1px solid var(--line);background:transparent;color:var(--muted);padding:6px 11px;border-radius:8px;font:inherit;font-size:13px;cursor:pointer}
+.thanks{padding:40px 20px;text-align:center}.thanks p{margin:6px 0}
+.chat{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1}
+.bub{max-width:86%;padding:8px 11px;border-radius:10px;background:var(--bubble-in);box-shadow:0 1px 0 var(--line)}
+.bub.me{align-self:flex-end;background:var(--bubble-out)}
+.btnrow{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.wbtn{border:1px solid var(--line);background:var(--panel);color:var(--accent);font:inherit;font-weight:700;padding:8px;border-radius:9px;cursor:pointer}
+.record{margin-top:14px;font-family:var(--f-mono);font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;overflow-x:auto}
+.note{font-size:12px;color:var(--muted);margin-top:10px}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Survey Studio Preview</h1>
+    <span class="tag">P4 writer output · synthetic data · no real farmers</span>
+  </header>
+  <div class="grid">
+    <aside class="panel">
+      <h2>Pick an insight</h2>
+      <div class="label">Advice type</div>
+      <div class="chips" id="types"></div>
+      <div class="list" id="list" role="listbox" aria-label="Insights"></div>
+    </aside>
+    <main class="panel" id="main"></main>
+    <section class="panel">
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Survey language"><button id="l-hi">हिन्दी</button><button id="l-en">English</button></div>
+        <div class="seg" role="group" aria-label="Channel"><button id="c-app">App</button><button id="c-wa">WhatsApp</button></div>
+      </div>
+      <div id="phone"></div>
+      <div class="record" id="record"></div>
+      <p class="note">Tap the answers like a farmer would. A bad answer sets a follow-up flag and goes back to FarmerChat.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+const DATA = [{"id": "I-000002", "type": "do_not_act", "concern": "water_stress", "asset": "maize", "severity": "medium", "asked": "Farmer asks how to handle water logging in maize (seedling).", "advice": "Advised not to irrigate again soon after rain for now, because it would not help at this stage.", "prefers": "voice", "rule": "R8", "win": ["2026-11-06", "2026-11-08"], "sv": {"hi-IN": [{"t": "survey-confirm", "p": "क्या आपने सलाह के अनुसार रुककर इंतज़ार किया?", "o": [{"l": "हाँ", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका मक्का कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-confirm", "p": "Did you hold off as advised?", "o": [{"l": "Yes", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your maize now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000004", "type": "direct_action", "concern": "pest_disease", "asset": "onion", "severity": "medium", "asked": "Farmer reports seedlings falling over at the base in the nursery in onion (nursery sowing and emergence) and asks what is wrong.", "advice": "Advised to drench the nursery with a recommended fungicide as per the label and keep the bed well drained.", "prefers": "whatsapp", "rule": "R8", "win": ["2026-11-06", "2026-11-08"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपने नर्सरी की क्यारी का उपचार किया?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका प्याज़ कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अगर नहीं किया, तो क्या रुकावट थी?", "o": [{"l": "बहुत महँगा", "f": null}, {"l": "पास में नहीं मिला", "f": null}, {"l": "समय नहीं मिला", "f": null}, {"l": "समझ नहीं आया", "f": "could_not_get_input"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you treat the nursery bed?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your onion now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "If not, what stopped you?", "o": [{"l": "Too costly", "f": null}, {"l": "Not available nearby", "f": null}, {"l": "No time", "f": null}, {"l": "Did not understand", "f": "could_not_get_input"}], "sc": [null, null]}]}}, {"id": "I-000005", "type": "plan_created", "concern": "variety_selection", "asset": "wheat", "severity": "low", "asked": "Farmer asks what options exist for late sowing in wheat.", "advice": "Gave a plan in stages: first pick a variety suited to late sowing and raise the seed rate as advised, then watch for how the late crop comes up and take the next step if needed.", "prefers": "whatsapp", "rule": "R8", "win": ["2026-11-08", "2026-11-15"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "आपने योजना का कितना काम किया?", "o": [{"l": "सारे काम", "f": null}, {"l": "कुछ काम", "f": null}, {"l": "शुरू नहीं किया", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या योजना अब तक काम कर रही है?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी जल्दी है", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "How much of the plan have you done?", "o": [{"l": "All steps", "f": null}, {"l": "Some steps", "f": null}, {"l": "Not started", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Is the plan working so far?", "o": [{"l": "Yes", "f": null}, {"l": "Too early to say", "f": null}, {"l": "No", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000006", "type": "direct_action", "concern": "variety_selection", "asset": "wheat", "severity": "low", "asked": "Farmer adds wheat to their profile and asks about late sowing.", "advice": "Advised to pick a variety suited to late sowing and raise the seed rate as advised.", "prefers": "voice", "rule": "R8", "win": ["2026-11-09", "2026-11-15"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपने देर से बुवाई वाली किस्म चुनी?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका गेहूँ कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you choose a late-sowing variety?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your wheat now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000007", "type": "direct_action", "concern": "weather_climate", "asset": "wheat", "severity": "low", "asked": "Farmer asks about weather for sowing in wheat.", "advice": "Advised to check the local forecast in the app and do field work on dry, calm days.", "prefers": "voice", "rule": "R8", "win": ["2026-11-06", "2026-11-08"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपने मौसम देखकर खेत का काम किया?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका गेहूँ कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you plan field work by the forecast?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your wheat now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000017", "type": "direct_action", "concern": "nutrient_deficiency", "asset": "mustard", "severity": "medium", "asked": "Farmer asks how to handle zinc shortage in mustard.", "advice": "Advised to apply zinc as per soil test advice and repeat the soil test next season.", "prefers": "voice", "rule": "R8", "win": ["2026-11-08", "2026-11-11"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपने ज़िंक डाला?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपकी सरसों कैसी है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अगर नहीं किया, तो क्या रुकावट थी?", "o": [{"l": "बहुत महँगा", "f": null}, {"l": "पास में नहीं मिला", "f": null}, {"l": "समय नहीं मिला", "f": null}, {"l": "समझ नहीं आया", "f": "could_not_get_input"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you apply zinc?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your mustard now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "If not, what stopped you?", "o": [{"l": "Too costly", "f": null}, {"l": "Not available nearby", "f": null}, {"l": "No time", "f": null}, {"l": "Did not understand", "f": "could_not_get_input"}], "sc": [null, null]}]}}, {"id": "I-000029", "type": "direct_action", "concern": "livestock_nutrition", "asset": "cow", "severity": "low", "asked": "Farmer adds their cow to their profile and asks about winter green fodder.", "advice": "Advised to sow berseem or oats on a small plot for green fodder.", "prefers": "app", "rule": "R8", "win": ["2026-11-11", "2026-11-13"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपने सर्दी का चारा बोया?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपकी गाय कैसी है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you sow winter fodder?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your cow now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000033", "type": "plan_created", "concern": "growth_issue", "asset": "mustard", "severity": "low", "asked": "Farmer asks about slow growth in mustard.", "advice": "Gave a plan in stages: first check irrigation and drainage first, then top-dress nitrogen as per soil test advice, then watch for colour of new leaves and take the next step if needed.", "prefers": "app", "rule": "R8", "win": ["2026-11-15", "2026-11-17"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "आपने योजना का कितना काम किया?", "o": [{"l": "सारे काम", "f": null}, {"l": "कुछ काम", "f": null}, {"l": "शुरू नहीं किया", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या योजना अब तक काम कर रही है?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी जल्दी है", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "How much of the plan have you done?", "o": [{"l": "All steps", "f": null}, {"l": "Some steps", "f": null}, {"l": "Not started", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Is the plan working so far?", "o": [{"l": "Yes", "f": null}, {"l": "Too early to say", "f": null}, {"l": "No", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000064", "type": "plan_created", "concern": "breeding_reproduction", "asset": "cow", "severity": "low", "asked": "Farmer wants to plan ahead for insemination timing in their cow.", "advice": "Gave a plan in stages: first call the AI worker about 12 hours after heat signs start, then watch for repeat heat after three weeks and take the next step if needed.", "prefers": "web", "rule": "R8", "win": ["2026-11-16", "2026-11-18"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "आपने योजना का कितना काम किया?", "o": [{"l": "सारे काम", "f": null}, {"l": "कुछ काम", "f": null}, {"l": "शुरू नहीं किया", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या योजना अब तक काम कर रही है?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी जल्दी है", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "How much of the plan have you done?", "o": [{"l": "All steps", "f": null}, {"l": "Some steps", "f": null}, {"l": "Not started", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Is the plan working so far?", "o": [{"l": "Yes", "f": null}, {"l": "Too early to say", "f": null}, {"l": "No", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000082", "type": "plan_created", "concern": "livestock_health", "asset": "cow", "severity": "high", "asked": "Farmer reports when to deworm the cow in their cow.", "advice": "Gave a plan in stages: first deworm as advised by the veterinary doctor before winter ends, then watch for dung and body condition and take the next step if needed.", "prefers": "app", "rule": "R8", "win": ["2026-11-07", "2026-11-09"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "आपने योजना का कितना काम किया?", "o": [{"l": "सारे काम", "f": null}, {"l": "कुछ काम", "f": null}, {"l": "शुरू नहीं किया", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या योजना अब तक काम कर रही है?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी जल्दी है", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "How much of the plan have you done?", "o": [{"l": "All steps", "f": null}, {"l": "Some steps", "f": null}, {"l": "Not started", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Is the plan working so far?", "o": [{"l": "Yes", "f": null}, {"l": "Too early to say", "f": null}, {"l": "No", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000154", "type": "plan_created", "concern": "livestock_nutrition", "asset": "goat", "severity": "low", "asked": "Farmer asks how to handle winter green fodder in their goat.", "advice": "Gave a plan in stages: first sow berseem or oats on a small plot for green fodder, then watch for fodder growth and take the next step if needed.", "prefers": "whatsapp", "rule": "R8", "win": ["2026-11-18", "2026-11-20"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "आपने योजना का कितना काम किया?", "o": [{"l": "सारे काम", "f": null}, {"l": "कुछ काम", "f": null}, {"l": "शुरू नहीं किया", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या योजना अब तक काम कर रही है?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी जल्दी है", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "How much of the plan have you done?", "o": [{"l": "All steps", "f": null}, {"l": "Some steps", "f": null}, {"l": "Not started", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Is the plan working so far?", "o": [{"l": "Yes", "f": null}, {"l": "Too early to say", "f": null}, {"l": "No", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-000216", "type": "wait_and_monitor", "concern": "pest_disease", "asset": "lentil", "severity": "low", "asked": "Farmer reports plants drooping and drying in patches in lentil (seedling) and asks what is wrong.", "advice": "Advised to wait and watch for new drooping plants over the next few days before acting.", "prefers": "app", "rule": "R8", "win": ["2026-11-08", "2026-11-10"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपको और पौधे मुरझाते दिखे?", "o": [{"l": "हाँ", "f": "crop_or_animal_damaged"}, {"l": "नहीं", "f": null}, {"l": "देखा नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "क्या आपको और मदद चाहिए?", "o": [{"l": "हाँ", "f": "advice_did_not_work"}, {"l": "नहीं", "f": null}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Have you seen new drooping plants?", "o": [{"l": "Yes", "f": "crop_or_animal_damaged"}, {"l": "No", "f": null}, {"l": "Did not check", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "Do you need more help?", "o": [{"l": "Yes", "f": "advice_did_not_work"}, {"l": "No", "f": null}], "sc": [null, null]}]}}, {"id": "I-000323", "type": "wait_and_monitor", "concern": "growth_issue", "asset": "onion", "severity": "low", "asked": "Farmer reports gaps in the rows after sowing in onion (nursery sowing and emergence) and asks what is wrong.", "advice": "Advised to wait and watch for how the new seedlings come up over the next few days before acting.", "prefers": "whatsapp", "rule": "R8", "win": ["2026-11-12", "2026-11-14"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या आपके प्याज़ में समस्या बढ़ी?", "o": [{"l": "हाँ", "f": "crop_or_animal_damaged"}, {"l": "नहीं", "f": null}, {"l": "देखा नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "क्या आपको और मदद चाहिए?", "o": [{"l": "हाँ", "f": "advice_did_not_work"}, {"l": "नहीं", "f": null}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Have you seen the problem get worse in your onion?", "o": [{"l": "Yes", "f": "crop_or_animal_damaged"}, {"l": "No", "f": null}, {"l": "Did not check", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "Do you need more help?", "o": [{"l": "Yes", "f": "advice_did_not_work"}, {"l": "No", "f": null}], "sc": [null, null]}]}}, {"id": "I-000463", "type": "escalate_to_expert", "concern": "livestock_health", "asset": "cow", "severity": "medium", "asked": "Farmer reports when to deworm the cow in their cow.", "advice": "Advised to call the nearest veterinary doctor because deworming needs a closer look.", "prefers": "whatsapp", "rule": "R8", "win": ["2026-11-12", "2026-11-14"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या पशु डॉक्टर से मुलाकात हो पाई?", "o": [{"l": "हाँ", "f": null}, {"l": "अभी नहीं", "f": null}, {"l": "मिल नहीं पाए", "f": "could_not_reach_expert"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "क्या उनकी सलाह से फ़ायदा हुआ?", "o": [{"l": "हाँ", "f": null}, {"l": "नहीं", "f": "advice_did_not_work"}, {"l": "अभी मिले नहीं", "f": null}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Did you meet the veterinary doctor?", "o": [{"l": "Yes", "f": null}, {"l": "Not yet", "f": null}, {"l": "Could not reach", "f": "could_not_reach_expert"}], "sc": [null, null]}, {"t": "survey-single-select", "p": "Did their advice help?", "o": [{"l": "Yes", "f": null}, {"l": "No", "f": "advice_did_not_work"}, {"l": "Not met yet", "f": null}], "sc": [null, null]}]}}, {"id": "I-000464", "type": "do_not_act", "concern": "pest_disease", "asset": "wheat", "severity": "medium", "asked": "Farmer reports plants drying in patches and pulling out easily in wheat and asks what is wrong.", "advice": "Advised not to leave undecomposed dung in the field for now, because it would not help at this stage.", "prefers": "app", "rule": "R8", "win": ["2026-11-16", "2026-11-18"], "sv": {"hi-IN": [{"t": "survey-confirm", "p": "क्या आपने सलाह के अनुसार रुककर इंतज़ार किया?", "o": [{"l": "हाँ", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका गेहूँ कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-confirm", "p": "Did you hold off as advised?", "o": [{"l": "Yes", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your wheat now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-001214", "type": "do_not_act", "concern": "nutrient_deficiency", "asset": "potato", "severity": "low", "asked": "Farmer wants to confirm earlier advice on sulphur shortage in potato.", "advice": "Advised not to apply more urea instead for now, because it would not help at this stage.", "prefers": "voice", "rule": "R8", "win": ["2026-12-06", "2026-12-08"], "sv": {"hi-IN": [{"t": "survey-confirm", "p": "क्या आपने सलाह के अनुसार रुककर इंतज़ार किया?", "o": [{"l": "हाँ", "f": null}, {"l": "नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "अब आपका आलू कैसा है?", "o": [{"l": "पहले से अच्छा", "f": null}, {"l": "वैसा ही", "f": null}, {"l": "पहले से खराब", "f": "advice_did_not_work"}], "sc": [null, null]}], "en-IN": [{"t": "survey-confirm", "p": "Did you hold off as advised?", "o": [{"l": "Yes", "f": null}, {"l": "No", "f": null}], "sc": [null, null]}, {"t": "survey-single-select", "p": "How is your potato now?", "o": [{"l": "Better", "f": null}, {"l": "Same", "f": null}, {"l": "Worse", "f": "advice_did_not_work"}], "sc": [null, null]}]}}, {"id": "I-002098", "type": "wait_and_monitor", "concern": "water_stress", "asset": "wheat", "severity": "medium", "asked": "Farmer asks about afternoon wilting in wheat.", "advice": "Advised to wait and watch for wilting the next afternoon over the next few days before acting.", "prefers": "app", "rule": "R8", "win": ["2026-12-19", "2026-12-21"], "sv": {"hi-IN": [{"t": "survey-single-select", "p": "क्या अगली दोपहर पौधे मुरझाए दिखे?", "o": [{"l": "हाँ", "f": "crop_or_animal_damaged"}, {"l": "नहीं", "f": null}, {"l": "देखा नहीं", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "क्या आपको और मदद चाहिए?", "o": [{"l": "हाँ", "f": "advice_did_not_work"}, {"l": "नहीं", "f": null}], "sc": [null, null]}], "en-IN": [{"t": "survey-single-select", "p": "Have you seen wilting the next afternoon?", "o": [{"l": "Yes", "f": "crop_or_animal_damaged"}, {"l": "No", "f": null}, {"l": "Did not check", "f": null}], "sc": [null, null]}, {"t": "survey-confirm", "p": "Do you need more help?", "o": [{"l": "Yes", "f": "advice_did_not_work"}, {"l": "No", "f": null}], "sc": [null, null]}]}}];
+const UI = {
+  'hi-IN': {title:'आपको मिली सलाह पर एक छोटा सवाल', of:(k,n)=>`${n} में से ${k}`, skip:'छोड़ें', close:'बंद करें', stop:'दोबारा न पूछें', thanks:'धन्यवाद! आपके जवाब मिल गए।', fu:'आपका जवाब FarmerChat की टीम को भेजा गया है, ताकि आगे मदद मिल सके।', closed:'सर्वे बंद किया गया।', again:'फिर से देखें', app:'FarmerChat', stopped:'ठीक है, अब सर्वे नहीं भेजेंगे।'},
+  'en-IN': {title:'A short question about the advice you got', of:(k,n)=>`${k} of ${n}`, skip:'Skip', close:'Close', stop:"Don't ask me again", thanks:'Thank you. Your answers are in.', fu:'Your answer was sent to the FarmerChat team so they can help further.', closed:'Survey closed.', again:'Replay', app:'FarmerChat', stopped:'Okay, no more surveys.'}
+};
+const TYPE_NAMES = {direct_action:'Do it now',wait_and_monitor:'Wait and watch',do_not_act:'Hold off',plan_created:'Plan',escalate_to_expert:'Expert'};
+const S = {type:'direct_action', idx:0, lang:'hi-IN', ch:'app', step:0, taps:[], end:null};
+const $ = id => document.getElementById(id);
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
+const cur = () => DATA.filter(d => d.type === S.type)[S.idx] || DATA[0];
+const items = () => cur().sv[S.lang];
+function reset(){ S.step = 0; S.taps = []; S.end = null; }
+
+function renderTypes(){
+  const box = $('types'); box.replaceChildren();
+  Object.keys(TYPE_NAMES).filter(t => DATA.some(d => d.type === t)).forEach(t => {
+    const b = el('button','chip',TYPE_NAMES[t]); b.setAttribute('aria-pressed', String(t === S.type));
+    b.onclick = () => { S.type = t; S.idx = 0; reset(); renderAll(); }; box.append(b);
+  });
+}
+function renderList(){
+  const box = $('list'); box.replaceChildren();
+  DATA.filter(d => d.type === S.type).forEach((d,i) => {
+    const b = el('button','item'); b.setAttribute('aria-current', String(i === S.idx));
+    b.append(el('b','',`${d.asset} · ${d.concern.replace(/_/g,' ')}`), el('span','',`${d.id} · severity ${d.severity}`));
+    b.onclick = () => { S.idx = i; reset(); renderAll(); }; box.append(b);
+  });
+}
+function renderMain(){
+  const d = cur(), m = $('main'); m.replaceChildren();
+  m.append(el('h2','','What happened in the chat'));
+  const q = el('p','q','Farmer asked'); const qa = el('p','a',d.asked);
+  const a = el('p','q','FarmerChat advised'); const aa = el('p','a',d.advice);
+  m.append(q, qa, a, aa);
+  const dl = el('dl','meta');
+  [['Decision','Survey · rule '+d.rule],['Send window',d.win[0]+' to '+d.win[1]],['Farmer prefers',d.prefers],['Severity',d.severity]].forEach(([k,v]) => { const w = el('div'); w.append(el('dt','',k), el('dd','',v)); dl.append(w); });
+  m.append(dl);
+  const ck = el('div','checks'); ['schema valid','no advice given','no personal info','labels ≤ 20 characters'].forEach(t => ck.append(el('span','pill','✓ '+t))); m.append(ck);
+  m.append(el('div','label','Questions in '+(S.lang==='hi-IN'?'Hindi':'English')));
+  const ul = el('ul','qlist');
+  items().forEach((it,i) => {
+    const li = el('li'); li.append(el('div','t',`q${i+1} · ${it.t}`), el('div','p',it.p));
+    const o = el('div','o');
+    if (it.t === 'survey-scale') o.append(el('span','',`${it.sc[0]} to ${it.sc[1]}`));
+    it.o.forEach(x => o.append(el('span', x.f ? 'fu' : '', x.l + (x.f ? '  ⚑' : ''))));
+    li.append(o); ul.append(li);
+  });
+  m.append(ul, el('p','note','⚑ marks an answer that means the advice failed or harm happened. It is sent back for follow-up.'));
+}
+function answer(val, flag){ S.taps.push({v:val, f:flag||null}); S.step++; if (S.step >= items().length) S.end = 'finished'; renderPhone(); renderRecord(); }
+function renderPhone(){
+  const u = UI[S.lang], its = items(), n = its.length, p = $('phone'); p.replaceChildren();
+  const ph = el('div','phone'), sc = el('div','screen' + (S.ch==='wa' ? ' wa' : '')); ph.append(sc); p.append(ph);
+  if (S.ch === 'app') {
+    sc.append(el('div','appbar',u.app), el('div','scrim'));
+    const sh = el('div','sheet'); sc.append(sh);
+    if (S.end) {
+      const t = el('div','thanks');
+      t.append(el('p','', S.end==='finished' ? u.thanks : S.end==='stopped' ? u.stopped : u.closed));
+      if (S.end==='finished' && S.taps.some(x => x.f)) t.append(el('p','note',u.fu));
+      const r = el('button','ghost',u.again); r.onclick = () => { reset(); renderAll(); }; t.append(r); sh.append(t); return;
+    }
+    const it = its[S.step];
+    sh.append(el('h3','',u.title), el('div','step',u.of(S.step+1,n)));
+    const bar = el('div','bar'); const i = el('i'); i.style.width = ((S.step+1)/n*100)+'%'; bar.append(i); sh.append(bar);
+    sh.append(el('div','prompt',it.p)); sh.append(options(it));
+    const f = el('div','foot'); const l = el('div'); l.style.cssText='display:flex;gap:8px;flex-wrap:wrap';
+    const sk = el('button','ghost',u.skip); sk.onclick = () => answer(null);
+    const cl = el('button','ghost',u.close); cl.onclick = () => { S.end = 'closed'; renderPhone(); renderRecord(); };
+    l.append(sk, cl); const st = el('button','ghost',u.stop); st.onclick = () => { S.end = 'stopped'; renderPhone(); renderRecord(); };
+    f.append(l, st); sh.append(f);
+  } else {
+    const chat = el('div','chat'); sc.append(el('div','appbar','FarmerChat · WhatsApp'), chat);
+    const shown = Math.min(S.step+1, n);
+    for (let k = 0; k < shown; k++) {
+      const it = its[k]; const b = el('div','bub'); b.append(el('div','',it.p));
+      if (k === S.step && !S.end) b.append(options(it,true));
+      chat.append(b);
+      if (S.taps[k]) chat.append(el('div','bub me', S.taps[k].v === null ? '—' : S.taps[k].label));
+    }
+    if (S.end) { const t = el('div','bub', u.thanks); chat.append(t); if (S.taps.some(x => x.f)) chat.append(el('div','bub', u.fu)); const r = el('button','wbtn',u.again); r.onclick = () => { reset(); renderAll(); }; chat.append(r); }
+  }
+}
+function options(it, wa){
+  if (it.t === 'survey-scale') {
+    const row = el('div','scale'); for (let v = it.sc[0]; v <= it.sc[1]; v++) { const b = el('button','opt',String(v)); b.onclick = () => { S.taps.push({v, label:String(v), f:null}); S.step++; if (S.step >= items().length) S.end='finished'; renderPhone(); renderRecord(); }; row.append(b); } return row;
+  }
+  const box = el('div', wa ? 'btnrow' : 'opts');
+  it.o.forEach(x => { const b = el('button', wa ? 'wbtn' : 'opt', x.l); b.onclick = () => { S.taps.push({v:x.l, label:x.l, f:x.f}); S.step++; if (S.step >= items().length) S.end='finished'; renderPhone(); renderRecord(); }; box.append(b); });
+  return box;
+}
+function renderRecord(){
+  const r = $('record'); const flags = [...new Set(S.taps.filter(t => t.f).map(t => t.f))];
+  const answered = S.taps.filter(t => t.v !== null).length;
+  const status = S.end === 'stopped' ? 'declined (farmer_opted_out)' : S.end === 'closed' ? (answered ? 'partial (sheet closed partway)' : 'declined (sheet dismissed)') : !S.taps.length ? 'waiting for the farmer' : S.end === 'finished' ? (flags.length ? 'negative_outcome' : answered < items().length ? 'partial' : 'completed') : 'in progress';
+  r.textContent = `answer record\nstatus: ${status}\nanswered: ${answered} of ${items().length}\nneeds_follow_up: ${flags.length ? 'yes' : 'no'}\nfollow_up_reasons: ${flags.length ? flags.join(', ') : 'none'}`;
+}
+function renderAll(){
+  $('l-hi').setAttribute('aria-pressed', String(S.lang==='hi-IN')); $('l-en').setAttribute('aria-pressed', String(S.lang==='en-IN'));
+  $('c-app').setAttribute('aria-pressed', String(S.ch==='app')); $('c-wa').setAttribute('aria-pressed', String(S.ch==='wa'));
+  renderTypes(); renderList(); renderMain(); renderPhone(); renderRecord();
+}
+$('l-hi').onclick = () => { S.lang='hi-IN'; reset(); renderAll(); };
+$('l-en').onclick = () => { S.lang='en-IN'; reset(); renderAll(); };
+$('c-app').onclick = () => { S.ch='app'; reset(); renderAll(); };
+$('c-wa').onclick = () => { S.ch='wa'; reset(); renderAll(); };
+renderAll();
+</script>
+
+</body>
+</html>
