@@ -14,15 +14,25 @@ def _crop_key(crop: str) -> str:
 
 
 @lru_cache
-def _harvest_end() -> dict[str, date]:
-    out: dict[str, date] = {}
+def _harvest_periods() -> dict[str, tuple[date, date]]:
+    out: dict[str, tuple[date, date]] = {}
     for row in load_crop_calendar():
         # A post_harvest row describes storage, not a later standing-crop harvest.
         if row["growth_stage"] == "harvest":
-            d = date.fromisoformat(row["end_date"])
+            s, e = date.fromisoformat(row["start_date"]), date.fromisoformat(row["end_date"])
             crop = _crop_key(row["crop"])
-            out[crop] = max(out.get(crop, d), d)
+            old_s, old_e = out.get(crop, (s, e))
+            out[crop] = (min(old_s, s), max(old_e, e))
     return out
+
+
+def _harvest_end() -> dict[str, date]:
+    return {crop: end for crop, (_, end) in _harvest_periods().items()}
+
+
+def harvest_period(crop: str | None) -> tuple[date, date] | None:
+    """(first, last) harvest day for a crop in the calendar; None if unnamed or unknown."""
+    return _harvest_periods().get(_crop_key(crop)) if crop else None
 
 
 def is_past_harvest(crop: str | None, on: date) -> bool:
