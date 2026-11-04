@@ -21,12 +21,30 @@ real time. This module ties the existing pieces together without changing any of
 A "scheduled step" is one channel attempt for one admitted hand-off (the hand-off's
 `channel_order` is the list of steps). `step()` runs the single next due step; `run_due()`
 runs every step that is due right now by repeatedly calling `step()`; `advance(days)` moves
-the one shared clock forward so a later `step()` / `run_due()` sees different work as due.
+the one shared clock forward (clamped at the season end) so a later `step()` / `run_due()`
+sees different work as due.
+
+The season range (November to March by default, from `Season`) is configurable and the
+clock cannot advance past its end. The demo UI that drives this API lives in P5's Streamlit
+app; the callable P3 surface and a Season-tab sketch are documented in
+`docs/p3_season_screen_api.md`.
 """
+from datetime import timedelta
+
 from mel.timing import parse_ist, fmt_ist
-from .clock import SimClock
+from .clock import SimClock, Season
 from .handoff import CapLedger, OptOutList
 from .broadcast import Broadcaster, within_send_hours
+
+
+def _days(days: int) -> timedelta:
+    """Validate a day count the way SimClock.advance does (whole int, >= 0, not bool) and
+    return it as a timedelta. Keeps the season clamp honouring the same guards."""
+    if isinstance(days, bool) or not isinstance(days, int):
+        raise TypeError("advance(days) takes a whole number of days (int)")
+    if days < 0:
+        raise ValueError("advance(days) cannot go backwards; days must be >= 0")
+    return timedelta(days=days)
 
 
 class StepResult:
@@ -53,19 +71,28 @@ class StepResult:
 class SeasonScheduler:
     """Scheduler + broadcaster sharing one SimClock, with a manual per-step trigger.
 
-        sched = SeasonScheduler("2026-11-01T07:00:00+05:30", relevance_threshold=0.5)
+        sched = SeasonScheduler(relevance_threshold=0.5)   # starts at the rabi season's 1 Nov
         sched.admit_all(handoffs)          # cap + opt-out gate, queue what is sent/moved/merged
         sched.step()                       # run the next due scheduled step (one channel attempt)
         sched.advance(7)                   # move the shared clock a week; different work is now due
         sched.run_due()                    # fire every step due at the new instant
+        sched.advance_to_end()             # jump to the season's last instant (fast-forward)
 
     The clock is shared: `sched.clock is sched.broadcaster.clock` is always true, so the
     scheduler and broadcaster can never disagree about the current time. `relevance_threshold`
     is explicit (P3 invents no shared bar); it is handed to the broadcaster's quality gate.
+
+    Season range: `season` (a `Season`) defines the November-to-March range the demo walks.
+    It defaults to the rabi season from config (1 Nov .. `window_rules.season_end` 19:00). The
+    clock starts at `start` if given, else the season start. `advance()` never moves past the
+    season end -- it clamps there and `is_season_over()` then reports True -- so a fast-forward
+    cannot run off into an endless future.
     """
 
-    def __init__(self, start, *, relevance_threshold: float, persona: str = "default", seed: int = 0):
-        self.clock = SimClock(start)
+    def __init__(self, start=None, *, relevance_threshold: float, persona: str = "default",
+                 seed: int = 0, season: Season | None = None):
+        self.season = season or Season()
+        self.clock = SimClock(start if start is not None else self.season.start_ist)
         self.broadcaster = Broadcaster(self.clock)      # the SAME clock instance
         self.cap = CapLedger()
         self.opt_out = OptOutList()
@@ -100,9 +127,30 @@ class SeasonScheduler:
         return self.clock.now_ist()
 
     def advance(self, days: int):
-        """Move the one shared clock forward. Both the scheduler's expiry/due checks and the
-        broadcaster's decisions follow it, because they read the same instance."""
-        return self.clock.advance(days)
+        """Move the one shared clock forward, but never past the season end: if the step
+        would overshoot, the clock lands exactly on the season's last instant instead. Both
+        the scheduler's expiry/due checks and the broadcaster's decisions follow the shared
+        clock. Returns the new `now()`."""
+        target = self.clock.now() + _days(days)          # validates days (>=0, whole int)
+        if target > self.season.end:
+            self.clock.set(self.season.end)               # clamp to the season boundary
+        else:
+            self.clock.advance(days)
+        return self.clock.now()
+
+    def advance_to_end(self):
+        """Jump straight to the season's last instant -- the demo's 'fast-forward to the end
+        of March' control. After this, `is_season_over()` is True."""
+        self.clock.set(self.season.end)
+        return self.clock.now()
+
+    def in_season(self) -> bool:
+        """True while the shared clock is within the season range."""
+        return self.season.contains(self.clock.now())
+
+    def is_season_over(self) -> bool:
+        """True once the clock has reached (or been clamped to) the season end."""
+        return self.clock.now() >= self.season.end
 
     # ------------------------------------------------- the manual per-step trigger
     def step(self) -> StepResult:
