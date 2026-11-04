@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-03_
+_Last updated: 2026-11-04_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -49,8 +49,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   One decision miss (G-0131, expected R8, got R7). R1–R8 are inferred from golden, not the brief; confirm R2.
 - P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
   app/web sent once; channel fallback; reproduce the 183 reference answer records.
-- P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2 (see `docs/p4/P4_PLAN.md`).
-  TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), contradiction guard, Bedrock + cost logging, history-aware questions, templates vs Claude table.
+- P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
+  TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
 - P5: follow-up queue page, per-rule confusion, item similarity, README numbers by script, demo script.
 - P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
 - Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing.

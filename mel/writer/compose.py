@@ -1,11 +1,22 @@
-"""Assemble a full survey document per language. Owner: P4."""
+"""Assemble a full survey document per language. Owner: P4.
+
+Contract signatures (Team Contracts, P4):
+  compose_survey(decision, insight, lang)  -> Survey      lang is a BCP 47 code: "hi-IN" or "en-IN"
+  write_survey_llm(decision, insight, lang)-> Survey | None   Bedrock only; None when off, unreachable or rejected
+  write_surveys(insight, send_window)      -> {lang: Survey}  both languages (kept: mel/pipeline.py calls it)
+
+English (en-IN) is the evaluation baseline; Hindi comes from the same code when passed hi-IN.
+Every survey carries self_eval: schema_valid, relevance_score, gives_new_advice, asks_personal_info.
+"""
 import re
 
 from mel.config import LANGS
 from . import llm
 from .guards import check_survey, self_eval
 from .relevance import relevance   # re-exported
-from .templates import template_items
+from .templates import template_items, question_count
+
+BASELINE_LANG = "en-IN"
 
 RATIONALE = {
     "direct_action": "Direct-action advice. Ask after the action window whether the farmer acted and whether it worked.",
@@ -21,20 +32,78 @@ def survey_id_for(insight: dict) -> str:
     return f"S-{int(digits):05d}"
 
 
+def norm_lang(lang: str) -> str:
+    """'hi', 'hi-IN', 'hi_in' -> 'hi-IN'; 'en', 'en-IN' -> 'en-IN'. Anything else is an error, never a silent guess."""
+    primary = str(lang).replace("_", "-").split("-")[0].lower()
+    for known in LANGS:
+        if known.split("-")[0] == primary:
+            return known
+    raise ValueError(f"unsupported language {lang!r}; use one of {LANGS}")
+
+
+def _window(decision) -> dict:
+    """Accepts a Decision object, a dict with 'send_window', or the window dict itself."""
+    if isinstance(decision, dict):
+        return decision.get("send_window", decision)
+    return decision.send_window
+
+
+def _base(insight: dict, lang: str, send_window: dict) -> dict:
+    return {
+        "survey_id": survey_id_for(insight), "farmer_id": insight["farmer_id"],
+        "source_insight_ids": [insight["insight_id"]], "language": lang,
+        "send_window": send_window, "rationale": RATIONALE[insight["resolution_type"]],
+    }
+
+
+def _finish(s: dict, insight: dict, source: str, model: str = "", fallback: str = "") -> dict:
+    s["self_eval"] = self_eval(s, insight)
+    s["_source"] = source           # keys starting with _ are stripped before writing; the UI reads them
+    if model: s["_model"] = model
+    if fallback: s["_fallback_reason"] = fallback
+    return s
+
+
+def _try_model(base: dict, insight: dict, lang: str) -> tuple[dict | None, str]:
+    """-> (survey or None, reason it was not used). The model survey is used only if it passes ALL of:
+    guards, relevance at least as good as the template for this insight, and the small-model check (when one is configured)."""
+    if not llm.enabled():
+        return None, "model_off"
+    items = llm.llm_items(insight, lang, n_items=question_count(insight))
+    if not items:
+        return None, "model_unavailable_or_unreadable"
+    if len(items) != question_count(insight):        # the 2-vs-3 rule holds on the model path too
+        return None, "wrong_question_count"
+    cand = base | {"items": items}
+    bad = check_survey(cand)
+    if bad:
+        return None, "guard:" + ",".join(sorted({p.split(": ")[1].split(" ")[0] for p in bad}))
+    template = base | {"items": template_items(insight, lang)}
+    if relevance(cand, insight) < relevance(template, insight):
+        return None, "less_relevant_than_template"
+    opinion = llm.model_check(cand, insight)
+    if opinion and any(opinion.values()):
+        return None, "model_check:" + ",".join(k for k, v in opinion.items() if v)
+    return cand, ""
+
+
+def write_survey_llm(decision, insight: dict, lang: str = BASELINE_LANG) -> dict | None:
+    """The Bedrock-written survey after every check, or None (then use compose_survey, which falls back to the template)."""
+    lang = norm_lang(lang)
+    cand, _ = _try_model(_base(insight, lang, _window(decision)), insight, lang)
+    return _finish(cand, insight, "llm", llm.write_model()) if cand else None
+
+
+def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG) -> dict:
+    """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem."""
+    lang = norm_lang(lang)
+    base = _base(insight, lang, _window(decision))
+    cand, why = _try_model(base, insight, lang)
+    if cand:
+        return _finish(cand, insight, "llm", llm.write_model())
+    return _finish(base | {"items": template_items(insight, lang)}, insight, "template", fallback="" if why == "model_off" else why)
+
+
 def write_surveys(insight: dict, send_window: dict, langs=LANGS) -> dict[str, dict]:
     """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']]."""
-    out = {}
-    for lang in langs:
-        items, source = llm.llm_items(insight, lang), "llm"
-        base = {
-            "survey_id": survey_id_for(insight), "farmer_id": insight["farmer_id"],
-            "source_insight_ids": [insight["insight_id"]], "language": lang,
-            "send_window": send_window, "rationale": RATIONALE[insight["resolution_type"]],
-        }
-        if not items or check_survey(base | {"items": items}):
-            items, source = template_items(insight, lang), "template"
-        s = base | {"items": items}
-        s["self_eval"] = self_eval(s, insight)
-        s["_source"] = source  # stripped before writing; handy in the UI
-        out[lang] = s
-    return out
+    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang) for lang in langs}

@@ -256,3 +256,266 @@ def test_brief_mustard_scenario_asks_about_the_main_action_not_the_evening_detai
     """The brief's worked scenario 1: 'Spray the recommended insecticide within 2 days ... Spray in the evening when bees are not active.'"""
     i = mk(asset={'name': 'mustard', 'category': 'crop', 'growth_stage': None}, advice_summary='These are aphids. Spray the recommended insecticide within 2 days if no rain is forecast. Spray in the evening when bees are not active.')
     assert prompts(i)[0] == 'Did you spray the insecticide?' and prompts(i, 'hi-IN')[0] == 'क्या आपने कीटनाशक का छिड़काव किया?'
+
+# ======================================================================================================
+# P4 Bedrock path (Team Contracts, 4 Nov): ModelClient, hi-IN / en-IN, English baseline, self_eval on every survey.
+# No test calls AWS: a fake bedrock-runtime object stands in for boto3.
+# ======================================================================================================
+import json
+from mel.writer import compose_survey, write_survey_llm, norm_lang, BASELINE_LANG, llm
+
+WINDOW = {'not_before': '2026-12-10T09:00:00+05:30', 'not_after': '2026-12-12T09:00:00+05:30'}
+
+
+class ClientErr(Exception):
+    def __init__(self, code):
+        super().__init__(code); self.response = {'Error': {'Code': code}}
+
+
+class FakeRuntime:
+    """Stands in for boto3's bedrock-runtime. `replies` are texts returned in order (last one repeats); `errors` are raised first, in order."""
+    def __init__(self, replies, errors=()):
+        self.replies, self.errors, self.calls = list(replies), list(errors), []
+    def converse(self, **kw):
+        self.calls.append(kw)
+        if self.errors:
+            e = self.errors.pop(0)
+            if e: raise e
+        text = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        return {'output': {'message': {'content': [{'text': text}]}}, 'usage': {'inputTokens': 100, 'outputTokens': 50}, 'metrics': {'latencyMs': 5}}
+
+
+def items_json(insight, lang):
+    return json.dumps({'items': template_items(insight, lang)}, ensure_ascii=False)
+
+
+@pytest.fixture
+def bedrock(tmp_path, monkeypatch):
+    """Switch the model path on with a temp cache and log; returns a function that installs a fake runtime."""
+    monkeypatch.setenv('MEL_USE_LLM', '1')
+    monkeypatch.setenv('MEL_BEDROCK_WRITE_MODEL', 'test-write-model')
+    monkeypatch.setenv('MEL_CACHE_DIR', str(tmp_path / 'cache'))
+    monkeypatch.setenv('MEL_LLM_LOG', str(tmp_path / 'calls.jsonl'))
+    monkeypatch.setenv('MEL_BEDROCK_PRICES', json.dumps({'test-write-model': {'in': 0.003, 'out': 0.015}, 'test-check-model': {'in': 0.001, 'out': 0.002}}))
+    def install(replies, errors=(), max_attempts=4):
+        rt = FakeRuntime(replies, errors)
+        llm.set_client(llm.ModelClient(runtime=rt, max_attempts=max_attempts, sleep=lambda s: None))
+        return rt
+    yield install
+    llm.set_client(None)
+
+
+def test_model_path_is_off_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv('MEL_USE_LLM', raising=False); monkeypatch.setenv('MEL_LLM_LOG', str(tmp_path / 'calls.jsonl'))
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and 'self_eval' in s and not (tmp_path / 'calls.jsonl').exists()
+
+
+def test_model_path_needs_a_model_id(monkeypatch):
+    monkeypatch.setenv('MEL_USE_LLM', '1'); monkeypatch.delenv('MEL_BEDROCK_WRITE_MODEL', raising=False)
+    assert llm.enabled() is False
+
+
+@pytest.mark.parametrize('given,expected', [('hi', 'hi-IN'), ('hi-IN', 'hi-IN'), ('hi_in', 'hi-IN'), ('en', 'en-IN'), ('en-IN', 'en-IN'), ('EN-in', 'en-IN')])
+def test_norm_lang(given, expected):
+    assert norm_lang(given) == expected
+
+
+def test_norm_lang_refuses_unknown_language():
+    with pytest.raises(ValueError): norm_lang('ta-IN')
+    with pytest.raises(ValueError): compose_survey({'send_window': WINDOW}, mk(), 'fr')
+
+
+def test_english_is_the_baseline_and_both_languages_come_from_the_same_code():
+    assert BASELINE_LANG == 'en-IN'
+    out = write_surveys(mk(), WINDOW)
+    assert set(out) == {'hi-IN', 'en-IN'} and out['en-IN']['language'] == 'en-IN' and out['hi-IN']['language'] == 'hi-IN'
+    assert compose_survey({'send_window': WINDOW}, mk()) ['language'] == 'en-IN'      # no language given -> English
+
+
+@pytest.mark.parametrize('lang', ['en-IN', 'hi-IN'])
+def test_every_survey_carries_a_complete_self_eval(lang):
+    ev = compose_survey({'send_window': WINDOW}, mk(), lang)['self_eval']
+    assert set(ev) == {'schema_valid', 'relevance_score', 'gives_new_advice', 'asks_personal_info'}
+    assert ev['schema_valid'] is True and ev['gives_new_advice'] is False and ev['asks_personal_info'] is False and 0 < ev['relevance_score'] <= 1
+
+
+def test_bedrock_survey_is_used_when_it_passes_everything(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')])
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'llm' and s['_model'] == 'test-write-model' and 'self_eval' in s and check_survey(clean_s(s)) == []
+    call = rt.calls[0]
+    assert call['modelId'] == 'test-write-model' and call['inferenceConfig']['maxTokens'] > 0 and 'en-IN' in call['messages'][0]['content'][0]['text']
+
+
+def clean_s(s): return {k: v for k, v in s.items() if not k.startswith('_')}
+
+
+def test_bedrock_hindi_goes_through_hi_IN(bedrock):
+    bedrock([items_json(mk(), 'hi-IN')])
+    s = compose_survey({'send_window': WINDOW}, mk(), 'hi-IN')
+    assert s['_source'] == 'llm' and s['language'] == 'hi-IN' and guards._DEV.search(s['items'][0]['prompt'])
+
+
+def test_write_survey_llm_returns_none_when_off(monkeypatch):
+    monkeypatch.delenv('MEL_USE_LLM', raising=False)
+    assert write_survey_llm({'send_window': WINDOW}, mk(), 'en-IN') is None
+
+
+def test_write_survey_llm_returns_survey_when_on(bedrock):
+    bedrock([items_json(mk(), 'en-IN')])
+    s = write_survey_llm({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s and s['self_eval']['schema_valid'] and s['_source'] == 'llm'
+
+
+def test_only_the_five_allowed_fields_are_sent_to_the_model(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')])
+    compose_survey({'send_window': WINDOW}, mk(farmer_id='F-SECRET-9', conversation_id='C-SECRET-9'), 'en-IN')
+    sent = json.dumps(rt.calls[0], ensure_ascii=False)
+    assert 'F-SECRET-9' not in sent and 'C-SECRET-9' not in sent and 'wheat' in sent and 'advice_summary' in sent
+
+
+def test_model_survey_that_gives_advice_falls_back_to_template(bedrock):
+    bad = json.loads(items_json(mk(), 'en-IN')); bad['items'][0]['prompt'] = 'You should spray the insecticide today.'
+    bedrock([json.dumps(bad)])
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and s['_fallback_reason'].startswith('guard:') and 'gives_new_advice' in s['_fallback_reason']
+    assert s['self_eval']['gives_new_advice'] is False        # self_eval describes the survey that is actually sent
+
+
+def test_model_survey_that_asks_personal_info_falls_back(bedrock):
+    bad = json.loads(items_json(mk(), 'en-IN')); bad['items'][1]['prompt'] = 'What is your phone number?'
+    bedrock([json.dumps(bad)])
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and 'asks_personal_info' in s['_fallback_reason']
+
+
+def test_model_survey_with_wrong_number_of_questions_falls_back(bedrock):
+    two = json.loads(items_json(mk(), 'en-IN')); two['items'] = two['items'][:2]       # medium-severity direct_action needs 3
+    bedrock([json.dumps(two)])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_fallback_reason'] == 'wrong_question_count'
+
+
+def test_model_survey_less_relevant_than_template_falls_back(bedrock):
+    generic = {'items': [{'item_id': f'q{n}', 'type': 'survey-confirm', 'prompt': 'Is everything fine?',
+                          'options': [{'value': 'yes', 'label': 'Yes'}, {'value': 'no', 'label': 'No'}]} for n in (1, 2, 3)]}
+    bedrock([json.dumps(generic)])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_fallback_reason'] == 'less_relevant_than_template'
+
+
+def test_unreadable_model_answer_falls_back(bedrock):
+    bedrock(['Sorry, I cannot help with that.'])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_fallback_reason'] == 'model_unavailable_or_unreadable'
+
+
+def test_small_model_check_can_veto(bedrock, monkeypatch):
+    monkeypatch.setenv('MEL_BEDROCK_CHECK_MODEL', 'test-check-model')
+    # call 1 = the writer (valid items), call 2 = the checker (says: contradicts the advice)
+    bedrock([items_json(mk(), 'en-IN'), json.dumps({'gives_new_advice': False, 'asks_personal_info': False, 'contradicts_advice': True})])
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and s['_fallback_reason'] == 'model_check:contradicts_advice'
+
+
+def test_small_model_check_that_approves_lets_the_survey_through(bedrock, monkeypatch):
+    monkeypatch.setenv('MEL_BEDROCK_CHECK_MODEL', 'test-check-model')
+    rt = bedrock([items_json(mk(), 'en-IN'), json.dumps({'gives_new_advice': False, 'asks_personal_info': False, 'contradicts_advice': False})])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_source'] == 'llm'
+    assert [c['modelId'] for c in rt.calls] == ['test-write-model', 'test-check-model']       # small model checks, larger one writes
+
+
+def test_unreadable_check_answer_means_no_opinion_not_safe(bedrock, monkeypatch):
+    monkeypatch.setenv('MEL_BEDROCK_CHECK_MODEL', 'test-check-model')
+    bedrock([items_json(mk(), 'en-IN'), 'maybe'])
+    assert llm.model_check({'language': 'en-IN', 'items': []}, mk()) is None
+
+
+def test_throttling_is_retried_then_succeeds(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')], errors=[ClientErr('ThrottlingException'), ClientErr('ThrottlingException')])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_source'] == 'llm' and len(rt.calls) == 3
+
+
+def test_endless_throttling_gives_up_and_uses_the_template(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')], errors=[ClientErr('ThrottlingException')] * 10, max_attempts=3)
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and len(rt.calls) == 3 and s['_fallback_reason'] == 'model_unavailable_or_unreadable'
+
+
+def test_model_not_enabled_is_not_retried(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')], errors=[ClientErr('AccessDeniedException')])
+    assert compose_survey({'send_window': WINDOW}, mk(), 'en-IN')['_source'] == 'template' and len(rt.calls) == 1
+
+
+def test_no_boto3_or_credentials_means_templates(bedrock, monkeypatch):
+    llm.set_client(llm.ModelClient())          # real client, but boto3 is not installed here / has no credentials
+    s = compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert s['_source'] == 'template' and 'self_eval' in s
+
+
+def test_second_identical_request_is_served_from_the_disk_cache(bedrock):
+    rt = bedrock([items_json(mk(), 'en-IN')])
+    compose_survey({'send_window': WINDOW}, mk(), 'en-IN'); compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    assert len(rt.calls) == 1
+    u = llm.usage_summary()
+    assert u['calls'] == 2 and u['cached'] == 1
+
+
+def test_every_call_logs_tokens_cost_and_time(bedrock):
+    bedrock([items_json(mk(), 'en-IN')])
+    compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    row = json.loads(llm.log_path().read_text(encoding='utf-8').splitlines()[0])
+    assert row['model'] == 'test-write-model' and row['input_tokens'] == 100 and row['output_tokens'] == 50 and row['tag'] == 'I-X'
+    assert row['cost_usd'] == pytest.approx(100 / 1000 * 0.003 + 50 / 1000 * 0.015) and row['seconds'] >= 0 and row['ok'] and not row['cached']
+
+
+def test_usage_summary_adds_up_a_run_and_never_invents_a_price(bedrock, monkeypatch):
+    monkeypatch.setenv('MEL_BEDROCK_CHECK_MODEL', 'unpriced-model')
+    bedrock([items_json(mk(), 'en-IN'), json.dumps({'gives_new_advice': False, 'asks_personal_info': False, 'contradicts_advice': False})])
+    compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    u = llm.usage_summary()
+    assert u['calls'] == 2 and u['input_tokens'] == 200 and u['output_tokens'] == 100
+    assert u['unpriced_calls'] == 1 and u['cost_usd'] == pytest.approx(0.00075 * 0 + 100 / 1000 * 0.003 + 50 / 1000 * 0.015)
+    assert set(u['by_model']) == {'test-write-model', 'unpriced-model'}
+
+
+def test_failed_calls_are_logged_too(bedrock):
+    bedrock(['x'], errors=[ClientErr('AccessDeniedException')])
+    compose_survey({'send_window': WINDOW}, mk(), 'en-IN')
+    u = llm.usage_summary()
+    assert u['failed'] == 1 and u['ok'] == 0
+
+
+def test_template_english_surveys_pass_end_to_end_on_every_insight():
+    """English is the evaluation baseline: every English survey is valid, safe and carries a passing self_eval."""
+    n = 0
+    for i in load_insights():
+        d = decide(i)
+        if d.survey:
+            s = compose_survey(d, i, 'en-IN')
+            assert check_survey(clean_s(s)) == [] and s['self_eval']['schema_valid'] and not s['self_eval']['gives_new_advice'] and not s['self_eval']['asks_personal_info']
+            n += 1
+    assert n > 0
+
+
+def test_comparison_says_not_run_when_bedrock_is_off(monkeypatch):
+    from mel.writer.compare import compare, markdown, sample_insights
+    monkeypatch.delenv('MEL_USE_LLM', raising=False)
+    r = compare(sample_insights(load_insights(), decide, 10), {'large': 'x'})
+    assert r['status'] == 'not run' and [row['writer'] for row in r['rows']] == ['templates'] and r['rows'][0]['guard_pass_rate'] == 1.0
+    assert 'not run' in markdown(r)
+
+
+def test_comparison_measures_raw_model_output_for_each_model(bedrock):
+    from mel.writer.compare import compare, sample_insights
+    pairs = sample_insights(load_insights(), decide, 5)
+    class Echo(FakeRuntime):                       # answers every request with the template items for that insight's language
+        def converse(self, **kw):
+            self.calls.append(kw)
+            text = kw['messages'][0]['content'][0]['text']
+            ins = next(i for i, _ in pairs if i['advice_summary'] in text)
+            return {'output': {'message': {'content': [{'text': items_json(ins, 'en-IN')}]}}, 'usage': {'inputTokens': 10, 'outputTokens': 5}}
+    llm.set_client(llm.ModelClient(runtime=Echo([]), sleep=lambda s: None))
+    r = compare(pairs, {'large': 'test-write-model'})
+    assert r['status'] == 'run' and len(r['rows']) == 2
+    big = r['rows'][1]
+    assert big['writer'].startswith('bedrock large') and big['guard_pass_rate'] == 1.0 and big['calls'] == len(pairs) and big['input_tokens'] == 10 * len(pairs)
+    assert big['cost_usd'] > 0

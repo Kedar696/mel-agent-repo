@@ -13,7 +13,7 @@ P5 Evaluation & Demo). My files are `mel/writer/` and `tests/test_writer.py`. Sy
 ## My job
 Write 1 to 3 tap-answer survey questions in Hindi (hi-IN) and English (en-IN) about the advice the farmer
 received. Surveys check what happened; they never give advice or ask for personal information. A survey that
-fails any guard is never shown; the plain template is used instead. Claude writing is optional, off by default.
+fails any guard is never shown; the plain template is used instead. The model path is Amazon Bedrock (Converse API), optional and off by default.
 
 ## What I built (prompted step by step with Claude)
 1. **Templates** (`templates.py`, `i18n.py`): every resolution type (direct_action, wait_and_monitor,
@@ -39,8 +39,12 @@ fails any guard is never shown; the plain template is used instead. Claude writi
 8. **History-aware questions** (`history.py`): H1 repeat problem within 45 days, H2 earlier survey said
    not_nearby / too_costly, H3 survey fatigue, H4 light user (at most 2 questions). Only data earlier than the
    insight is used (no leakage).
-9. **Optional Claude writer** (`llm.py`): disk cache, retries, guards, template fallback, no farmer ids in the
-   prompt. Not run against the real API (no key). Two styles via `SETTINGS['writer_style']`:
+9. **Bedrock writer** (`llm.py`, `compose.py`): one `ModelClient` over the Amazon Bedrock Converse API (model ids in config, off by
+   default), retries with backoff, disk cache, per-call token/cost/time log, template fallback, no farmer ids in the prompt.
+   A model survey is used only if it has the right question count, passes every guard, is at least as relevant as the template,
+   and (when a check model is set) the small model finds no new advice, no personal info and no contradiction of the advice.
+   `compose_survey(decision, insight, lang)` takes hi-IN or en-IN (English is the evaluation baseline) and every survey
+   carries `self_eval`. Tested with a fake client only; not run against real Bedrock. Two styles via `SETTINGS['writer_style']`:
    `golden` (default, matches the answer key) and `concern` (more concern-specific).
 10. **Concern-style wait_and_monitor fallback**: when the advice names nothing to watch for, ask about the
     concern ("Have more leaves of your wheat turned yellow?") instead of "the problem".
@@ -78,17 +82,16 @@ fails any guard is never shown; the plain template is used instead. Claude writi
   reasons, so finer ones map onto them (`templates.FOLLOW_UP_MAP`).
 - Result: 298 tests pass; full pack = 5,102 surveys with 0 failures, relevance mean 0.711; `mel.cli validate` 0 invalid.
 - The Streamlit app already had a language switch (segmented control), so `app/` was not touched.
-- Not merged yet: history-aware questions, the cached Claude writer, Bedrock, the contradiction guard.
+- Not merged yet: history-aware questions.
 - Branch `kedar-p4`, small commits, `git pull --rebase origin main`, pull request reviewed by P3 (and P5/P2). CI is
   `pytest -q` and `python -m mel.cli validate`. Never commit `.env` or keys.
 
-## Still to do (in cut order if late: comparison, Claude path)
+## Still to do (in cut order if late: comparison, model path)
 1. Native Hindi review applied to `templates.py` and `i18n.LABELS`.
-2. Contradiction guard with tests.
-3. Bedrock call behind one function, with token/cost/time logging per survey.
-4. Templates vs Claude comparison on 50 surveys (guard pass rate, relevance, cost, speed); "not run" if no
-   access.
-5. Post the top-10 concerns and guard codes to the team; give P5 the style numbers for "Rules we changed".
+2. Run the Bedrock path and `python scripts/p4_compare.py` against real Bedrock once models are enabled (templates vs
+   the large and small model on up to 50 surveys: guard pass rate, relevance, cost, speed). Only tested with a fake client so far.
+3. Add `boto3` to requirements (P1 owns that file) and agree the relevance threshold for the scheduler gate with P5 and P3.
+4. Post the top-10 concerns and guard codes to the team; give P5 the style numbers for "Rules we changed".
 
 ## What I want from you now
 [Pick one: write the contradiction guard / merge my writer into the shared repo without breaking
