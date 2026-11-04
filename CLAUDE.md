@@ -1,4 +1,4 @@
-# MEL Survey Agent: project status for Claude
+# Fasal Pulse - MEL Survey Agent: project status for Claude
 
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
@@ -60,10 +60,15 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   send-time rule toggle, five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table and
   run-history chart. (Full-data app is on `p5-full-data`; `main` still shows the 57-row sample.)
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
-- P4 hosts a separate standalone demo, "Fasal Pulse" (https://fasal-pulse.streamlit.app/, from
-  `demo/p4_standalone/`, its own copy of `mel/`, Streamlit Community Cloud, not AWS). It adds survey-history
-  rules H1–H4 that are not in the team pipeline, so they are not scored. Open: one demo vs two, one product
-  name, whether H1–H4 move into `mel/writer/`. Our app could be hosted the same way as a backup judge link.
+- **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
+  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey Studio
+  shows "What the agent remembers", a history on/off switch, a "pretend survey history" demo and generic vs
+  adapted questions; Overview has "How it fits FarmerChat". History rules H1–H4 now live in
+  `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
+  `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
+  CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
+  score history on: item sim 0.99 → 0.93, P4 relevance 0.69 → 0.73, format/safety/timeliness still 100%.
+  Tests: `tests/test_history.py`. Our app can be hosted next to P4's on Streamlit Cloud as a backup link.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·

@@ -1,4 +1,4 @@
-# Demo script: MEL Survey Agent (3 minutes, 3 parts)
+# Demo script: Fasal Pulse - MEL Survey Agent (3 minutes, 3 parts)
 
 Owner: P5 (Evaluation & Demo). The **Say** lines are written for judges, most of whom aren't engineers.
 Speak them in your own words; don't read them out.
@@ -50,7 +50,8 @@ streamlit run app/streamlit_app.py
 > A farmer asked about her goat; FarmerChat told her to call the vet. So we ask exactly that:
 > *"Did an expert see your goat?"* and *"How is your goat now?"*, one tap each, in Hindi and English.
 > **[ticks]** Before anything goes out, automatic checks confirm: no new advice, no personal questions,
-> short buttons. **[click App → WhatsApp → Voice]** The same survey as the app, WhatsApp, or a phone call.
+> short buttons. **[point at "What the agent remembers"]** It also remembers this farmer: the same problem came
+> up before, so it adds "Is this the same problem you told us about before?" **[click App → WhatsApp → Voice]** The same survey as the app, WhatsApp, or a phone call.
 > **[hand-off strip]** It's urgent, so it goes first: 28 to 30 November, between 7 am and 7 pm, app first,
 > then WhatsApp, then a call.
 

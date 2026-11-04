@@ -275,11 +275,16 @@ FOLLOW_UP_MAP = {'problem_growing': 'crop_or_animal_damaged', 'needs_more_help':
                  'input_not_available': 'could_not_get_input', 'cost_barrier': 'could_not_get_input'}
 
 
-def template_items(insight, lang, style=None):
-    """Survey `items` (survey.schema.json) for one insight in one language. Same call the shared compose.py used before."""
+def template_items(insight, lang, style=None, memory=None):
+    """Survey `items` (survey.schema.json) for one insight in one language. Same call the shared compose.py used before.
+    With `memory` (history.FarmerMemory) the history rules H1-H4 adapt the questions to what we know about the farmer."""
+    raw = build_items(insight, style or STYLE)
+    if memory is not None:
+        from .history import personalize
+        raw, _ = personalize(raw, insight, memory)
     k = 'hi' if str(lang).startswith('hi') else 'en'
     items = []
-    for n, (typ, pen, phi, opts) in enumerate(build_items(insight, style or STYLE), 1):
+    for n, (typ, pen, phi, opts) in enumerate(raw, 1):
         options = []
         for o in opts:
             d = {'value': o['value'], 'label': o[k]}

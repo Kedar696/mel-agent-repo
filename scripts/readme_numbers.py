@@ -24,12 +24,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--write", action="store_true", help="rewrite README results + offline scorecard")
     ap.add_argument("--record", metavar="LABEL", help="append this run to the history, with a label")
+    ap.add_argument("--history", action="store_true",
+                    help="score with P4's history rules H1-H4 on (off by default; README always shows history off)")
     ap.add_argument("--basis", choices=[*BASES, "both"], default="both",
                     help="which send-time rule(s) to score and record (default both)")
     a = ap.parse_args()
 
     bases = BASES if a.basis == "both" else (a.basis,)
-    results = run_eval(bases, record=a.record)
+    results = run_eval(bases, record=a.record, history=a.history)
     for b, r in results.items():
         for label, g in (("full", r["full"]), ("mock", r["mock"])):
             if g:
@@ -44,8 +46,8 @@ def main():
     if a.record:
         print(f"Recorded: {a.record} ({', '.join(bases)})")
     if a.write:
-        if a.basis != "both":
-            results = run_eval(BASES)  # published outputs always show both rules
+        if a.basis != "both" or a.history:
+            results = run_eval(BASES)  # published outputs: both send-time rules, history off
         for p in write_outputs(results):
             print("Wrote", p.relative_to(ROOT))
 

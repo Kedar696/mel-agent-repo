@@ -76,14 +76,14 @@ def timeliness_problems(insight: dict, window: dict) -> list[str]:
     return probs
 
 
-def run_scorecard(insights: list[dict], max_examples: int = 20) -> dict:
+def run_scorecard(insights: list[dict], max_examples: int = 20, memory=None) -> dict:
     """Run the pipeline over `insights` and score every survey it writes. Deterministic except timing."""
     n_surveyed = n_files = fmt_ok = safe_ok = handoff_ok = gated_leak = timely_ok = 0
     rel = []
     examples, late_examples = [], []
     t0 = time.perf_counter()
     for ins in insights:
-        out = run_insight(ins)
+        out = run_insight(ins, memory=memory)
         if not out["decision"].survey:
             continue
         n_surveyed += 1

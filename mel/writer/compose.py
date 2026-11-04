@@ -14,7 +14,7 @@ from mel.config import LANGS
 from . import llm
 from .guards import check_survey, self_eval
 from .relevance import relevance   # re-exported
-from .templates import template_items, question_count
+from .templates import template_items, question_count, build_items, STYLE
 
 BASELINE_LANG = "en-IN"
 
@@ -94,16 +94,34 @@ def write_survey_llm(decision, insight: dict, lang: str = BASELINE_LANG) -> dict
     return _finish(cand, insight, "llm", llm.write_model()) if cand else None
 
 
-def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG) -> dict:
-    """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem."""
+def history_notes(insight: dict, memory) -> list[tuple[str, str]]:
+    """Which history rules (H1-H4) change this farmer's survey, and why. Empty without memory."""
+    if memory is None:
+        return []
+    from .history import personalize
+    return personalize(build_items(insight, STYLE), insight, memory)[1]
+
+
+def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None) -> dict:
+    """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem.
+    With `memory` (history.FarmerMemory), the history rules adapt the template; a personalised survey always uses the template."""
     lang = norm_lang(lang)
     base = _base(insight, lang, _window(decision))
-    cand, why = _try_model(base, insight, lang)
-    if cand:
-        return _finish(cand, insight, "llm", llm.write_model())
-    return _finish(base | {"items": template_items(insight, lang)}, insight, "template", fallback="" if why == "model_off" else why)
+    notes = history_notes(insight, memory)
+    if not notes:
+        cand, why = _try_model(base, insight, lang)
+        if cand:
+            return _finish(cand, insight, "llm", llm.write_model())
+    else:
+        why = "model_off"
+        base["rationale"] = (base["rationale"] + " Personalised: "
+                             + "; ".join(f"{rule} {reason}" for rule, reason in notes))[:400]
+    s = _finish(base | {"items": template_items(insight, lang, memory=memory)}, insight, "template",
+                fallback="" if why == "model_off" else why)
+    s["_history"] = notes
+    return s
 
 
-def write_surveys(insight: dict, send_window: dict, langs=LANGS) -> dict[str, dict]:
+def write_surveys(insight: dict, send_window: dict, langs=LANGS, memory=None) -> dict[str, dict]:
     """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']]."""
-    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang) for lang in langs}
+    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang, memory) for lang in langs}
