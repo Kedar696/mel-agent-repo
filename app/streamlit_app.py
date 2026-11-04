@@ -1,6 +1,8 @@
 """MEL Survey Agent demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
 Layout borrowed from the v0 sketch (v0-sketch/): Overview, Survey Studio, Simulate, Evaluation.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
+import copy
+import os
 import sys
 from collections import Counter
 from datetime import datetime
@@ -78,21 +80,38 @@ def short(ts: str) -> str:
     return datetime.fromisoformat(ts).strftime("%-d %b, %H:%M")
 
 
-@st.cache_resource
+# The full participant pack (6,999 conversations) when it is in the repo; the 57-row mock sample otherwise.
+# An explicit MEL_DATA_DIR always wins.
+DATA_DIR = None if os.environ.get("MEL_DATA_DIR") else (PACK_DATA if (PACK_DATA / "insights.jsonl").exists() else None)
+
+
+@st.cache_resource(show_spinner="Running the pipeline on every conversation…")
 def batch():
-    """Run the whole pipeline once; replay the frequency cap in send order."""
-    res = run_pipeline(load_insights(), farmers=load_farmers())  # farmers + chat history feed the send time
+    """Run the whole pipeline once, replay the weekly limit in send order (P3's CapLedger.admit), and count
+    schema-valid files once, so later clicks stay fast even on the full dataset."""
+    res = run_pipeline(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
+                       farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None))  # farmers feed send time
     rows = list(zip(res.insights, res.outputs))
-    led, capped = CapLedger(), set()
-    hs = sorted((o["handoff"] for _, o in rows if "handoff" in o), key=lambda h: h["send_window"]["not_before"])
+    # Contract order: send-window start, then created time, then farmer. Copies, because admit() edits the
+    # hand-off it merges into, and Survey Studio must keep showing the original survey.
+    hs = sorted((copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o),
+                key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]))
+    led = CapLedger()
+    admits = {}
     for h in hs:
-        if not led.allow(h):
-            capped.add(h["handoff_id"])
-    return rows, capped
+        a = led.admit(h)
+        admits[h["handoff_id"]] = (a.decision, a.reason)
+    surveyed = [o for _, o in rows if o["decision"].survey]
+    files = [clean(s) for o in surveyed for s in o["surveys"].values()] + [o["handoff"] for o in surveyed]
+    kinds = ["survey"] * (len(files) - len(surveyed)) + ["schedule_handoff"] * len(surveyed)
+    valid = sum(not errors(k, f) for k, f in zip(kinds, files))
+    return rows, admits, valid, len(files)
 
 
-rows, capped = batch()
+rows, admits, n_valid, n_files = batch()
 st.title("MEL Survey Agent")
+st.caption(f"Data: {'full participant pack' if DATA_DIR else os.environ.get('MEL_DATA_DIR') or 'mock sample (data/mock)'}"
+           f" · {len(rows):,} conversations")
 tab_over, tab_studio, tab_sim, tab_follow, tab_eval = st.tabs(["Overview", "Survey Studio", "Simulate answers", "Follow-up queue", "Evaluation"])
 
 # ---------------------------------------------------------------- Overview
@@ -100,18 +119,17 @@ with tab_over:
     n = len(rows)
     rules = Counter(o["decision"].rule for _, o in rows)
     surveyed = [o for _, o in rows if o["decision"].survey]
-    files = [clean(s) for o in surveyed for s in o["surveys"].values()] + [o["handoff"] for o in surveyed]
-    kinds = ["survey"] * (len(files) - len(surveyed)) + ["schedule_handoff"] * len(surveyed)
-    valid = sum(not errors(k, f) for k, f in zip(kinds, files))
+    limit = Counter(d for d, _ in admits.values())
+    held = len(admits) - limit["sent"]
     high = sum(o["handoff"]["priority"] == "high" for o in surveyed)
     llm = sum(s.get("_source") == "llm" for o in surveyed for s in o["surveys"].values())
     c = st.columns(6)
     c[0].metric("Insights processed", n)
     c[1].metric("Surveys planned", len(surveyed), f"{len(surveyed) / n:.0%} of insights", delta_color="off")
     c[2].metric("No survey", n - len(surveyed), f"{(n - len(surveyed)) / n:.0%} of insights", delta_color="off")
-    c[3].metric("Schema-valid files", f"{valid / max(len(files), 1):.0%}", f"{valid} / {len(files)}", delta_color="off")
+    c[3].metric("Schema-valid files", f"{n_valid / max(n_files, 1):.0%}", f"{n_valid:,} / {n_files:,}", delta_color="off")
     c[4].metric("High priority", high, "sent first", delta_color="off")
-    c[5].metric("Capped (1 per 7 days)", len(capped), "would be held back", delta_color="off")
+    c[5].metric("Weekly limit (1 per 7 days)", held, "moved, merged or skipped", delta_color="off")
 
     left, right = st.columns([1.1, 0.9])
     with left:
@@ -129,7 +147,9 @@ with tab_over:
         st.markdown("**Survey source**")
         st.caption(f"Template: {len(surveyed) * 2 - llm} · Claude: {llm}"
                    + ("  (LLM writer off: set MEL_USE_LLM=1)" if not llm else ""))
-    st.caption(f"{len(capped)} survey(s) would be held back by the cap; skip, move or merge policy is still open (P3).")
+    st.caption(f"Weekly limit (P3): {limit['sent']:,} sent as planned · {limit['moved']:,} moved to a later date · "
+               f"{limit['merged']:,} merged into the farmer's other survey · {limit['skipped']:,} skipped. "
+               f"High-priority surveys are exempt.")
 
 # ---------------------------------------------------------------- Survey Studio
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
@@ -198,10 +218,15 @@ def handoff_strip(h, send_time):
                     + (f'<small>wait {c["wait_hours"]}h →</small>' if c.get("wait_hours") else "")
                     for i, c in enumerate(h["channel_order"], 1))
     cap = h["frequency_cap"]
-    cap_state = ("Exempt (high priority)" if cap["exempt"] else
-                 "⚠ Over cap: another survey is already planned this week" if h["handoff_id"] in capped else "✓ Within cap")
+    decision, reason = admits.get(h["handoff_id"], ("sent", ""))
+    cap_state = ("Exempt (high priority)" if cap["exempt"] else {
+        "sent": "✓ Within the limit", "moved": f"↷ Moved: {reason}", "merged": f"⊕ Merged: {reason}",
+        "skipped": "⚠ Skipped: this farmer already has a survey that week", "opted_out": "Farmer opted out"}[decision])
+    status = {"sent": badge("Ready to send"), "moved": badge("Moved by weekly limit", "amber"),
+              "merged": badge("Merged by weekly limit", "amber"), "skipped": badge("Skipped by weekly limit", "red"),
+              "opted_out": badge("Opted out", "red")}[decision]
     html(f'''<div class="mel-card"><div style="display:flex;justify-content:space-between"><b>Scheduler hand-off · {h["handoff_id"]}</b>
-{badge("Ready to send") if h["handoff_id"] not in capped else badge("Held by cap", "amber")}</div><br>
+{status}</div><br>
 <div class="mel-strip">
 <div><div class="mel-k">Priority</div>{badge(h["priority"].title(), tone)}</div>
 <div><div class="mel-k">Send window · IST</div><b style="font-size:13px">{short(h["send_window"]["not_before"])} → {short(h["send_window"]["not_after"])}</b>
@@ -214,9 +239,32 @@ def handoff_strip(h, send_time):
 <div style="font-size:12px;margin-top:6px">{cap_state}</div></div></div></div>''')
 
 
+DEMO_PICKS = {"I-001253": "Goat → vet (high priority)", "I-006130": "Stored potatoes (the R7 fix)",
+              "I-000291": "Critical cow case → a person calls"}
+BROWSE = "Browse all conversations"
+
 with tab_studio:
-    key = st.selectbox("Insight", list(labels))
-    ins, out = labels[key]
+    by_id = {i.get("insight_id"): (i, o) for i, o in rows}
+    picks = {k: v for k, v in DEMO_PICKS.items() if k in by_id}
+    pick = st.selectbox("Demo picks", [*picks, BROWSE], format_func=lambda k: picks.get(k, k))
+    if pick != BROWSE:
+        ins, out = by_id[pick]
+    else:
+        f = st.columns(4)
+        f_dec = f[0].selectbox("Decision", ["All", "Survey", "No survey"])
+        f_rule = f[1].selectbox("Rule", ["All", *RULE_LABEL], format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}")
+        f_res = f[2].selectbox("Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in rows})])
+        f_asset = f[3].selectbox("Crop / animal", ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in rows})])
+        shown = [k for k, (i, o) in labels.items()
+                 if (f_dec == "All" or (f_dec == "Survey") == o["decision"].survey)
+                 and (f_rule == "All" or o["decision"].rule == f_rule)
+                 and (f_res == "All" or str(i.get("resolution_type")) == f_res)
+                 and (f_asset == "All" or str((i.get("asset") or {}).get("name")) == f_asset)]
+        if not shown:  # never st.stop() here: it would also stop the tabs after this one
+            st.warning("No conversations match these filters; showing all.")
+            shown = list(labels)
+        key = st.selectbox(f"Conversation ({len(shown):,} match; type to search)", shown)
+        ins, out = labels[key]
     d = out["decision"]
     a = ins.get("asset") or {}
     sev_tone = {"critical": "red", "high": "red", "medium": "amber"}.get(ins.get("severity"), "slate")
@@ -498,12 +546,22 @@ with tab_eval:
         changed = rules_changed(hist)
         if changed:
             st.markdown("**Rules we changed**")
+            st.caption("Each run is compared with the last run under the same send-time rule.")
+
+            def _chg(pair, f):
+                a, b = (("—" if v is None else f(v)) for v in pair)
+                return b if a == b else f"{a} → {b}"
+
+            def _n(v):
+                return f"{v:.2f}" if isinstance(v, float) else str(v)
+
             st.dataframe(pd.DataFrame([{
-                "Run": c["run"], "What changed": c["change"], "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
-                **{lab: (_pct(c[k][1]) if c[k][0] == c[k][1] else f"{_pct(c[k][0])} → {_pct(c[k][1])}")
-                   for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
-                                  ("timeliness_pass", "Timeliness"))},
-                "Misses": f"{c['misses'][0]} → {c['misses'][1]}"} for c in changed]),
+                "Run": f"{c['run']} (vs {c['vs_run']})", "What changed": c["change"],
+                "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
+                **{lab: _chg(c[k], _pct) for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
+                                                       ("timeliness_pass", "Timeliness"))},
+                "Item sim": _chg(c["item_similarity_avg"], _n), "Relevance (P4)": _chg(c["relevance_avg"], _n),
+                "Misses": _chg(c["misses"], _n)} for c in changed]),
                 width="stretch", hide_index=True)
         hd = pd.DataFrame(hist)
         avail = [k for k in DIMENSIONS if k in hd and hd[k].notna().any()]
