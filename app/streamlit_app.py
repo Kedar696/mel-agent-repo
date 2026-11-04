@@ -25,7 +25,7 @@ from mel.evaluation import evaluate, load_history, rules_changed
 from mel.pipeline import run_pipeline, clean
 from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
-from mel.simulator import simulate, cases_for
+from mel.simulator import simulate, simulate_sheet, cases_for
 from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
                         history_notes)
 
@@ -263,6 +263,121 @@ def handoff_strip(h, send_time):
 <div style="font-size:12px;margin-top:6px">{cap_state}</div></div></div></div>''')
 
 
+# ---------------------------------------------------------------- Answer as the farmer (from P4's demo)
+TAP_UI = {
+    "hi": dict(title="आपको मिली सलाह पर एक छोटा सवाल", close="बंद करें", optout="दोबारा न पूछें",
+               thanks="धन्यवाद। आपके जवाब से हम और अच्छी सलाह दे पाएँगे।",
+               thanks_fu="धन्यवाद। हमने यह नोट कर लिया है। FarmerChat आपसे इस बारे में फिर बात करेगा।",
+               step="{n} में से {i}", start="शुरू करें", later="अभी नहीं",
+               invite="आपको मिली सलाह के बारे में FarmerChat से एक छोटा सवाल। बस एक मिनट लगेगा।"),
+    "en": dict(title="A quick question about the advice you got", close="Close", optout="Do not ask me again",
+               thanks="Thank you. Your answers help us give better advice.",
+               thanks_fu="Thank you. We have noted this. FarmerChat will talk to you about it again.",
+               step="{i} of {n}", start="Start", later="Not now",
+               invite="A short question from FarmerChat about the advice you got. It takes one minute."),
+}
+
+
+def tap_record(sv, ch, S, send_at):
+    """Turn the taps into an answer record with P3's simulator (the real taps, never invented answers)."""
+    how, taps = S["done"], S["taps"]
+    if how == "finished":
+        return (simulate_sheet(sv, ch, list(taps), answers=taps) if ch in ("app", "web")
+                else simulate(sv, ch, "completed", answers=taps, send_at=send_at))
+    if how == "closed":
+        return simulate_sheet(sv, ch, list(taps), closed=True, answers=taps)
+    case = {"dismissed": "sheet_dismissed", "opted_out": "farmer_opted_out",
+            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped"}[how]
+    return simulate(sv, ch, case, send_at=send_at)
+
+
+def answer_as_farmer(sv, ch, key, send_at):
+    k = "hi" if sv["language"].startswith("hi") else "en"
+    U, its = TAP_UI[k], sv["items"]
+    n = len(its)
+    S = st.session_state.setdefault(key, {"step": 0, "taps": {}, "done": None})
+
+    def tap(qid, val):
+        S["taps"][qid] = val
+        S["step"] += 1
+        if S["step"] >= n:
+            S["done"] = "finished"
+
+    def end(how):
+        S["done"] = how
+
+    def restart():
+        S.update(step=0, taps={}, done=None)
+
+    left, right = st.columns([1, 1])
+    with left, st.container(border=True):
+        st.caption(f"{CH_NAME[ch]} · tap like the farmer would")
+        if ch in ("app", "web"):
+            st.markdown(f"**{U['title']}**")
+            if S["done"] is None:
+                q = its[S["step"]]
+                st.caption(U["step"].format(i=S["step"] + 1, n=n))
+                st.progress((S["step"] + 1) / n)
+                st.markdown(f"#### {q['prompt']}")
+                for o in q.get("options", []):
+                    st.button(o["label"], key=f"{key}|{q['item_id']}|{o['value']}", on_click=tap,
+                              args=(q["item_id"], o["value"]), width="stretch")
+                b1, b2 = st.columns(2)
+                b1.button(U["close"], key=f"{key}|close", on_click=end, args=("closed" if S["taps"] else "dismissed",))
+                b2.button(U["optout"], key=f"{key}|opt", on_click=end, args=("opted_out",))
+        elif ch in ("whatsapp", "telegram"):
+            if ch == "whatsapp":
+                st.chat_message("assistant").write(f"{U['invite']}\n\n[{U['start']}]  [{U['later']}]")
+            for q in its[:S["step"]]:
+                st.chat_message("assistant").write(q["prompt"])
+                v = S["taps"].get(q["item_id"])
+                st.chat_message("user").write(next((o["label"] for o in q.get("options", []) if o["value"] == v), "—"))
+            if S["done"] is None:
+                q = its[S["step"]]
+                st.chat_message("assistant").write(q["prompt"])
+                for o in q.get("options", []):
+                    st.button(o["label"], key=f"{key}|{q['item_id']}|{o['value']}", on_click=tap,
+                              args=(q["item_id"], o["value"]), width="stretch")
+                b1, b2 = st.columns(2)
+                b1.button("Type a message instead", key=f"{key}|ft", on_click=end, args=("free_text",))
+                b2.button("STOP" if ch == "whatsapp" else "/stop", key=f"{key}|stop", on_click=end, args=("opted_out",))
+        else:  # voice
+            vo = render(sv, "voice")
+            if S["done"] is None:
+                st.markdown(f"🔊 *{vo['items'][S['step']]['say']}*")
+                q = its[S["step"]]
+                cols = st.columns(len(q.get("options", [])) + 1)
+                for num, o in enumerate(q.get("options", []), 1):
+                    cols[num - 1].button(f"Press {num}", key=f"{key}|k{num}|{q['item_id']}", on_click=tap,
+                                         args=(q["item_id"], o["value"]))
+                cols[-1].button("Press 9", key=f"{key}|k9", on_click=end, args=("opted_out",))
+                st.button("Farmer hangs up", key=f"{key}|hang", on_click=end, args=("dropped",))
+        if S["done"] is not None:
+            rec = tap_record(sv, ch, S, send_at)
+            st.markdown(f"**{U['thanks_fu'] if rec['needs_follow_up'] else U['thanks']}**")
+            st.button("Start over", key=f"{key}|re", on_click=restart)
+    with right:
+        if S["done"] is None:
+            st.info("Tap an answer on the left. When the farmer finishes, closes, opts out or hangs up, the "
+                    "answer record appears here, built by P3's simulator from the actual taps.")
+        else:
+            m = st.columns(3)
+            m[0].metric("Status", rec["status"])
+            m[1].metric("Counts toward weekly limit", "Yes" if rec["counts_toward_cap"] else "No")
+            m[2].metric("Next step", rec["retry_decision"])
+            if rec["needs_follow_up"]:
+                st.error("Goes to the Follow-up queue: " + ", ".join(FU_LABEL.get(r, r) for r in rec["follow_up_reasons"]))
+            if rec["failure_code"]:
+                st.warning(f"Failure: {rec['failure_code']}")
+            bad = errors("response", rec)
+            st.caption("Answer record " + ("passes the response schema ✓" if not bad else f"FAILS the schema: {bad[:2]}"))
+            with st.expander("Full answer record (response.schema.json)"):
+                st.json(rec)
+
+
+FU_LABEL = {"advice_did_not_work": "advice didn't work", "crop_or_animal_damaged": "crop / animal damaged",
+            "could_not_get_input": "couldn't get inputs", "could_not_reach_expert": "couldn't reach expert"}
+
 DEMO_PICKS = {"I-001253": "Goat → vet (high priority)", "I-006130": "Stored potatoes (the R7 fix)",
               "I-000291": "Critical cow case → a person calls"}
 BROWSE = "Browse all conversations"
@@ -371,6 +486,11 @@ Selected insight {badge((ins.get("severity") or "n/a").title() + " severity", se
             lang = st.segmented_control("Language", list(surveys), default=ins["conversation_language"]) or "hi-IN"
             html(phone(clean(surveys[lang]), ch))
         handoff_strip(h, d.send_time)
+        st.subheader("Answer as the farmer")
+        first = ch == h["channel_order"][0]["channel"]  # P2's recommended time is for the first channel
+        answer_as_farmer(clean(surveys[lang]), ch,
+                         f"tap|{ins['insight_id']}|{ch}|{lang}|{pretend}|{mem is not None}",
+                         d.send_time["send_at"] if first else None)
         with st.expander("Raw JSON: survey, channel payload, hand-off"):
             st.json(clean(surveys[lang]), expanded=False)
             st.json(render(clean(surveys[lang]), ch), expanded=False)

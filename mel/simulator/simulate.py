@@ -523,7 +523,8 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> 
 
 # ------------------------------------------------------- app/web "submit once" sheet
 def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
-                   closed: bool = False, submit_at: str | None = None, seed: int = 0) -> dict:
+                   closed: bool = False, submit_at: str | None = None, seed: int = 0,
+                   answers: dict | None = None) -> dict:
     """Model the brief's app/web bottom sheet: the farmer taps through the steps and the
     answers are submitted ONCE, when they finish or close the sheet, keeping whatever was
     answered so far. `channel` must be "app" or "web".
@@ -534,6 +535,9 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
       closed            : True if the farmer closed/swiped the sheet before the last step
                           (status partial, sheet_outcome closed_partway); False if they
                           went through to the end (completed/negative_outcome, finished).
+      answers           : optional {item_id: value} the farmer actually tapped (the Survey Studio
+                          tap-through passes them). Answered items without a value here get the
+                          persona's answer, as before.
       submit_at         : optional IST timestamp the submission happened at. If it is after
                           the survey's expires_at the record is flagged `late` (only emitted
                           when MEL_RESPONSE_LATE_FIELD=1; see the module docstring).
@@ -550,7 +554,8 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
 
     # Start from the persona's answers but keep only the ones the farmer gave.
     rec = simulate(survey, channel, case, seed=seed,
-                   answers={i: _good_value(next(it for it in items if it["item_id"] == i)) for i in answered})
+                   answers={i: (answers or {}).get(i, _good_value(next(it for it in items if it["item_id"] == i)))
+                            for i in answered})
 
     # Trim to exactly the answered set (submit once, retaining given answers).
     keep = set(answered)

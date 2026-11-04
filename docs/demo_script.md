@@ -54,6 +54,8 @@ streamlit run app/streamlit_app.py
 > up before, so it adds "Is this the same problem you told us about before?" **[click App → WhatsApp → Voice]** The same survey as the app, WhatsApp, or a phone call.
 > **[hand-off strip]** It's urgent, so it goes first: 28 to 30 November, between 7 am and 7 pm, app first,
 > then WhatsApp, then a call.
+> **[optional, if time: "Answer as the farmer" → tap "Worse"]** And if the farmer says it got worse, it
+> goes straight to the Follow-up queue.
 
 ## Part 2. The MEL team checks quality (80 seconds)
 
