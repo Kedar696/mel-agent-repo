@@ -23,8 +23,8 @@ Backup for the demo: open this file if the app won't start. Same numbers as the 
 | Timeliness (after the action window, 07:00–19:00, in season, before harvest) | 100.0% | 26.5% |
 | Failing surveys handed to the scheduler | 0 | 0 |
 | Relevance (P4's score, 0–1) | 0.69 | 0.69 |
-| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | not run | not run |
-| Speed | 3.4 ms per survey · 9 s for all | 3.5 ms per survey · 9 s for all |
+| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | 4.82 | 4.81 |
+| Speed | 3.7 ms per survey · 10 s for all | 3.8 ms per survey · 10 s for all |
 
 **Rules we changed** (each recorded run vs the last run under the same send-time rule)
 
