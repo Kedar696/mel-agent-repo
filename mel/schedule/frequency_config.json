@@ -1,0 +1,35 @@
+{
+  "_doc": "P3 frequency-monitor + scheduling config. Owner: P3. Kept here (inside the P3 package) rather than config/rules/ so it does not disturb P1's pack-parity check. Every threshold/weight is here, not buried in code; defaults are explained per key.",
+
+  "window": {
+    "_doc": "Rolling window the monitor counts questions in, per (farmer, topic). days=14 matches the project's weekly-ish cadence and the 7-day cap's horizon doubled, so a 'peak' reflects a sustained fortnight of interest, not a single day. min_history=2 means at least two questions are needed before a baseline/peak is meaningful.",
+    "rolling_days": 14,
+    "min_history": 2
+  },
+
+  "baseline": {
+    "_doc": "The baseline is the farmer+topic's own average questions-per-window over their observed history (self-relative, so a chatty farmer is not falsely flagged). peak_ratio: a window count at or above baseline * peak_ratio is a peak. 1.5 = 50% above that pair's own normal. min_peak_count guards against peaks built from almost no data (a jump 1->2 is not a peak).",
+    "peak_ratio": 1.5,
+    "min_peak_count": 3
+  },
+
+  "topic": {
+    "_doc": "How a question's 'topic' is keyed for grouping. prefer=crop groups by asset.name (the crop/animal); fall back to concern when the crop is unnamed. Either way unrelated topics/farmers never share a bucket.",
+    "prefer": "crop",
+    "fallback": "concern"
+  },
+
+  "ranking": {
+    "_doc": "Weights that combine signals into a single rank score for ELIGIBLE hand-offs only. These never change eligibility or bypass any protection; they only order/time surveys that are already allowed. priority_weight maps the survey's EXISTING priority to a base score; frequency_weight scales the peak strength; season_stage_weight rewards an active (in-stage) crop window; climate_weight is applied only when real climate context is supplied (0 effect under the no-climate fallback).",
+    "priority_base": {"high": 3.0, "normal": 2.0, "low": 1.0},
+    "frequency_weight": 1.0,
+    "season_stage_weight": 0.5,
+    "climate_weight": 0.5
+  },
+
+  "climate": {
+    "_doc": "Regional climate context. available=false by default because this repo ships NO climate/weather dataset. Under the fallback the climate signal contributes 0 and results expose context_missing=true. To add real data, provide a loader returning, per (state/district, date), a numeric stress factor in [0,1]; wire it via ClimateContext(provider=...). Any value set here for a demo is SYNTHETIC and must be labelled as such.",
+    "available": false,
+    "synthetic_demo_factor": null
+  }
+}
