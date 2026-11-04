@@ -32,8 +32,36 @@ def errors(kind: str, obj: dict) -> list[str]:
     return [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in _validator(kind).iter_errors(obj)]
 
 
+def failed_fields(kind: str, obj: dict) -> list[str]:
+    """Every field that fails the schema, sorted, as dotted paths (``query_summary``,
+    ``verification.needed``). A missing required field is named, not reported as the parent."""
+    fields: set[str] = set()
+    for e in _validator(kind).iter_errors(obj):
+        path = [str(p) for p in e.path]
+        if e.validator == "required" and isinstance(e.instance, dict):
+            fields.update(".".join(path + [k]) for k in e.validator_value if k not in e.instance)
+        else:
+            fields.add(".".join(path) or "<root>")
+    return sorted(fields)
+
+
 def is_valid(kind: str, obj: dict) -> bool:
     return not errors(kind, obj)
+
+
+def why_junk(insight: dict) -> list[str]:
+    """Plain reasons an insight should get no survey. Empty list means it looks clean.
+
+    Two sources of 'junk': the practice label ``quality_flag == "junk"``, and any way the
+    row fails the insight schema (junk rows are broken on purpose and may miss required
+    fields or carry out-of-range values). P1 reports these so a batch run can say *why* a
+    row was dropped instead of silently skipping it.
+    """
+    reasons: list[str] = []
+    if insight.get("quality_flag") == "junk":
+        reasons.append("labelled junk (quality_flag)")
+    reasons.extend(f"schema: {e}" for e in errors("insight", insight))
+    return reasons
 
 
 def validate(kind: str, obj: dict) -> dict:

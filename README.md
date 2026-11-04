@@ -5,17 +5,81 @@ builds the scheduler hand-off → simulates farmer answers across app, web, What
 Built for the Digital Green MEL hackathon pack (synthetic data only).
 
 ## Quick start
+Run these from the repo root. Python 3.11 or newer.
 ```bash
-cd ~/mel-agent
-source .venv/bin/activate          # or: python3 -m venv .venv && pip install -r requirements.txt
-pytest -q                          # 13 tests, all green on the scaffold
-python -m mel.cli run --simulate   # writes out/{surveys,handoffs,no_survey,responses}
-python -m mel.cli validate         # schema-checks everything in out/
-python -m mel.cli eval             # golden-set score
-streamlit run app/streamlit_app.py # demo UI
+python -m venv .venv
 ```
-Use the full pack instead of the mock subset:
-`MEL_DATA_DIR=~/Downloads/participant-pack/data python -m mel.cli eval`
+Activate the virtual environment (pick your OS):
+```bash
+# Windows (PowerShell or cmd)
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+```
+```bash
+pip install -r requirements.txt
+pytest -q
+python -m mel.cli run --simulate --clean   # writes out/{surveys,handoffs,no_survey,responses} + run_summary.json + junk_report.csv
+python -m mel.cli validate                 # schema-checks everything in out/ (fails if there is nothing to check)
+python -m mel.cli eval                     # golden-set score
+python -m mel.cli parity                   # Excel workbooks and JSON/CSV agree, config folders match the pack
+streamlit run app/streamlit_app.py         # demo UI
+```
+The defaults use the small mock subset in `data/mock/`.
+
+## Run on the full pack
+The full participant pack is committed at `mel-survey-agent-participant-pack/participant-pack/`.
+Point `MEL_DATA_DIR` at its `data` folder and `MEL_OUT_DIR` at a scratch folder **outside the repo**.
+
+> **Keep output out of OneDrive** (and Dropbox, iCloud, Google Drive). Syncing locks and re-uploads thousands of small
+> files and can stall or break a long run. Use a plain local folder such as `C:\mel_out` or `/tmp/mel_out`.
+
+Windows (PowerShell):
+```powershell
+$env:MEL_DATA_DIR = "mel-survey-agent-participant-pack\participant-pack\data"
+$env:MEL_OUT_DIR = "C:\mel_out"
+python -m mel.cli run --simulate --clean
+python -m mel.cli validate
+python -m mel.cli eval
+```
+Windows (cmd):
+```bat
+set MEL_DATA_DIR=mel-survey-agent-participant-pack\participant-pack\data
+set MEL_OUT_DIR=C:\mel_out
+python -m mel.cli run --simulate --clean
+```
+macOS / Linux:
+```bash
+export MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data
+export MEL_OUT_DIR=/tmp/mel_out
+python -m mel.cli run --simulate --clean
+python -m mel.cli validate
+python -m mel.cli eval
+```
+| Variable | Meaning | Default |
+|---|---|---|
+| `MEL_DATA_DIR` | folder with `insights.jsonl`, `golden_set.jsonl`, `farmers.csv`, `crop_calendar_bihar_rabi.csv` | `data/mock` |
+| `MEL_OUT_DIR` | where `run` writes (and `validate` reads) | `./out` |
+
+`validate` on the full pack checks about 14,650 files (a few seconds to a few minutes, depending on the machine).
+
+## Command reference
+| Command | What it does |
+|---|---|
+| `run [--insights PATH] [--simulate] [--limit N] [--farmer ID] [--clean]` | decide, write, hand off every insight. `--limit` must be 0 or more. `--clean` empties only `surveys/`, `handoffs/`, `no_survey/`, `responses/` first. Also writes `run_summary.json` and `junk_report.csv` (see [docs/TEAM.md](docs/TEAM.md)). |
+| `validate [--allow-empty]` | schema-check the output; exits non-zero when it finds no files, unless `--allow-empty` |
+| `eval [--golden PATH]` | golden-set scores |
+| `junk [--insights PATH] [--limit N] [--farmer ID]` | list input rows that get no survey, and why |
+| `parity [--xlsx FILE] [--jsonl FILE] [--pack DIR]` | compare the four workbooks (insights, golden set, farmers, crop calendar) with their JSON/CSV, and `config/rules`, `config/schemas`, `data/mock/scenarios`, `data/mock/outcomes` with the pack. Prints each difference by row id and field (`I-000123 severity`) or file name; exits non-zero on any difference. |
+
+## If a new golden set arrives
+1. Save the new file outside the pack (for example `~/new/golden_set.jsonl`); do not overwrite the old one yet.
+2. Compare: `python scripts/compare_golden.py mel-survey-agent-participant-pack/participant-pack/data/golden_set.jsonl ~/new/golden_set.jsonl`.
+   It lists the golden ids added, removed and changed (and which fields), and the count per rule R1 to R8. It also reads `.xlsx`.
+3. Replace `golden_set.jsonl` (and `golden_set.xlsx` if it came too) in the pack's `data/` and `spreadsheets/` folders, then run `python -m mel.cli parity`: the workbook and the JSON must agree.
+4. Rebuild the mock subset: `python scripts/make_mock_data.py` (default `--pack` is the committed pack).
+5. Re-score: `MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python -m mel.cli eval`, and `pytest -q`.
+6. Tell P2 which ids changed, tell P5 to refresh the results section, and update the numbers in `docs/TEAM.md`.
 
 ## Pipeline
 ```
@@ -37,5 +101,67 @@ insight ─► decision (R1–R8) ─► timing (window, expiry) ─► writer (
 The signed Team Contracts document is the source of truth. `docs/TEAM.md` is the short version;
 `docs/h4_interface_decisions.md` lists the function names to settle at H+4; `docs/prompts/` holds reusable prompts.
 
-## Baseline (scaffold, full pack)
-decision 96.0% · rule 96.0% · channel 100% · window 0% (see open question in docs/TEAM.md, P2).
+## Results
+Digital Green's brief and its answer key disagree on send times (brief: 07:00, after the farmer's action
+window; answer key: 09:00, often before it). P2 built both; the brief is the default
+(`MEL_TIMING_BASIS=brief`) and the answer-key rule is a setting (`MEL_TIMING_BASIS=answer_key`). Both are
+scored below, and we have asked Digital Green which is right (see `mel/timing/README.md`).
+
+<!-- results:start -->
+**Answer key** (150 rows), under each send-time rule.
+
+| Measure | Brief rules (default) | Answer-key setting |
+|---|---|---|
+| Decision (survey or not) | 99.3% | 100.0% |
+| Rule (which of R1–R8) | 99.3% | 100.0% |
+| First channel | 100.0% | 100.0% |
+| Send window (exact match with answer key) | 0.0% | 100.0% |
+| Item similarity (keyword overlap) | 0.50 | 0.50 |
+| Misses | 1 | 0 |
+
+**Every survey we write** (6,999 insights; Hindi + English files).
+
+| Measure | Brief rules (default) | Answer-key setting |
+|---|---|---|
+| Surveys (files) | 2,616 (5,232) | 2,698 (5,396) |
+| Format (schema, 1–3 tap items, right language) | 100.0% | 100.0% |
+| Safety (no new advice, no personal info) | 100.0% | 100.0% |
+| Timeliness (after the action window, 07:00–19:00, in season, before harvest) | 100.0% | 26.5% |
+| Failing surveys handed to the scheduler | 0 | 0 |
+| Relevance (P4's score, 0–1) | 0.83 | 0.83 |
+| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | not run | not run |
+| Speed | 2.4 ms per survey · 6 s for all | 2.3 ms per survey · 6 s for all |
+
+**Rules we changed** (each recorded run vs the one before it)
+
+| Run | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Misses |
+|---|---|---|---|---|---|---|---|
+| 2 | R7 storage exception (P2): stored crops still get a survey | Brief rules (default) | 96.0% → 99.3% | 96.0% → 99.3% | 0.0% | — → 100.0% | 6 → 1 |
+| 3 | Answer-key send-time setting (P2), off by default | Answer-key setting | 99.3% → 100.0% | 99.3% → 100.0% | 0.0% → 100.0% | 100.0% → 26.5% | 1 → 0 |
+
+Misses under brief rules (default): G-0145 (expected R8, got R6)
+
+_Generated by `python scripts/readme_numbers.py --write`. Do not edit by hand._
+<!-- results:end -->
+
+## Relevance rubric (AI judge)
+Digital Green asks for relevance to be scored by an AI judge. Ours runs a small model on Amazon Bedrock
+(`mel/evaluation/judge.py`, off by default: `MEL_JUDGE=1`). It reads the conversation summary and our English
+survey, and scores relevance 1–5 with this rubric (version `v1`):
+
+```
+Score how relevant this follow-up survey is to the advice this farmer actually received.
+
+5 = Asks directly whether the farmer acted on this specific advice and whether it worked. Every question
+    is about this farmer's crop or animal and problem. Short, tap-to-answer.
+4 = Clearly about this advice, but one question is generic or slightly off the main action.
+3 = About the right crop or problem, but does not check the specific action that was advised.
+2 = Mostly generic: could be sent to any farmer; only loosely tied to this conversation.
+1 = Irrelevant, gives new advice, contradicts the advice, or asks for personal information.
+
+Built from Digital Green's design principles: one farmer, one context; ask about the advice given; never give
+new advice; short and tappable. Replace with Digital Green's MEL rubric if they share one.
+```
+
+To check the judge, the team scores 20 surveys by hand in `docs/results/hand_scores.csv` (same rubric), then
+`python -m mel.evaluation.judge --calibrate` reports how often the judge agrees (exact and within one point).

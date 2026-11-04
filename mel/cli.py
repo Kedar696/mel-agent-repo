@@ -1,17 +1,26 @@
 """Command line. Owner: P1.
-
-  python -m mel.cli run [--insights PATH] [--simulate]   write out/{surveys,handoffs,no_survey,responses}
-  python -m mel.cli eval [--golden PATH]                 golden-set scores
-  python -m mel.cli validate                             schema-check everything in out/
+  python -m mel.cli run [--insights PATH] [--simulate] [--limit N] [--farmer ID] [--clean]
+                                                        write out/{surveys,handoffs,no_survey,responses}
+                                                        plus out/run_summary.json and out/junk_report.csv
+  python -m mel.cli eval [--golden PATH]                golden-set scores
+  python -m mel.cli validate [--allow-empty]            schema-check everything in out/ (fails if there is nothing)
+  python -m mel.cli junk [--insights PATH] [--limit N] [--farmer ID]
+                                                        list input rows that get no survey, and why
+  python -m mel.cli parity [--xlsx FILE] [--jsonl FILE] [--pack DIR]
+                                                        check the Excel workbooks and the JSON/CSV agree
 """
 import argparse
+import csv
 import json
-from collections import Counter
+import shutil
+import sys
 from pathlib import Path
+from mel.config import DATA, OUT, PACK
+from mel.data import load_insights, load_golden, errors, why_junk, junk_row, check_insights_parity, check_all_parity
+from mel.pipeline import run_pipeline, select_insights, clean
 
-from mel.config import OUT
-from mel.data import load_insights, load_golden, errors
-from mel.pipeline import run_insight, clean
+OUT_SUBDIRS = ("surveys", "handoffs", "no_survey", "responses")   # the only folders --clean touches
+JUNK_COLUMNS = ("insight_id", "category", "detail")
 
 
 def _dump(path: Path, obj):
@@ -19,12 +28,61 @@ def _dump(path: Path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _non_negative(text: str) -> int:
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, got {n}")
+    return n
+
+
+def _fail(msg: str, code: int = 1):
+    print(f"error: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def _clean_out(out: Path):
+    """Empty surveys/, handoffs/, no_survey/ and responses/. Anything else in `out` stays."""
+    for name in OUT_SUBDIRS:
+        d = out / name
+        if d.is_symlink() or d.is_file():
+            d.unlink()
+        elif d.is_dir():
+            for child in d.iterdir():
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def _write_junk_report(path: Path, insights: list[dict]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(JUNK_COLUMNS)
+        for ins in insights:
+            row = junk_row(ins)
+            if row:
+                w.writerow([ins.get("insight_id", "unknown"), *row])
+                n += 1
+    return n
+
+
 def cmd_run(a):
     from mel.simulator import simulate
-    stats = Counter()
-    for ins in load_insights(Path(a.insights) if a.insights else None):
-        out = run_insight(ins)
-        stats[out["decision"].rule] += 1
+    path = Path(a.insights) if a.insights else DATA / "insights.jsonl"
+    try:
+        insights = load_insights(path)
+    except FileNotFoundError:
+        _fail(f"insights file not found: {path}")
+    if a.clean:
+        _clean_out(OUT)
+    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer)
+    for ins, out in zip(result.insights, result.outputs):
         if "no_survey" in out:
             _dump(OUT / "no_survey" / f"{ins.get('insight_id','unknown')}.json", out["no_survey"])
             continue
@@ -36,7 +94,64 @@ def cmd_run(a):
             ch = h["channel_order"][0]["channel"]
             r = simulate(h["survey"], ch, "completed")
             _dump(OUT / "responses" / f"{r['response_key']}.json", r)
-    print("decisions by rule:", dict(sorted(stats.items())), "->", OUT)
+    junk = _write_junk_report(OUT / "junk_report.csv", result.insights)
+    counts = result.counts()
+    surveys = sum(1 for o in result.outputs if "handoff" in o)
+    summary = {
+        "input_path": str(path),
+        "rows_read": result.rows_read,
+        "rows_processed": result.rows_processed,
+        "limit": a.limit,
+        "farmer": a.farmer,
+        "surveys": surveys,
+        "no_survey": result.rows_processed - surveys,
+        "junk_rows": junk,
+        **counts,
+    }
+    _dump(OUT / "run_summary.json", summary)
+    print(f"insights={result.rows_processed}  surveys={surveys}  no_survey={summary['no_survey']}  "
+          f"junk={junk}  input={path}")
+    print("decisions by rule:  ", "  ".join(f"{r}={n}" for r, n in counts["by_rule"].items()))
+    print("by language:        ", "  ".join(f"{k}={n}" for k, n in counts["by_language"].items()))
+    print("by first channel:   ", "  ".join(f"{k}={n}" for k, n in counts["by_first_channel"].items()))
+    print("by priority:        ", "  ".join(f"{k}={n}" for k, n in counts["by_priority"].items()))
+    print(f"-> {OUT}  (run_summary.json, junk_report.csv)")
+
+
+def cmd_junk(a):
+    """Report which input rows are junk and why, instead of dropping them silently."""
+    insights = select_insights(
+        load_insights(Path(a.insights) if a.insights else None),
+        farmer=a.farmer, limit=a.limit,
+    )
+    junk = 0
+    for ins in insights:
+        reasons = why_junk(ins)
+        if reasons:
+            junk += 1
+            print(f"{ins.get('insight_id', 'unknown')}: {'; '.join(reasons[:3])}")
+    print(f"junk rows: {junk} of {len(insights)}")
+
+
+def cmd_parity(a):
+    """Prove the Excel workbooks and the JSON/CSV agree (P1 integration guarantee)."""
+    if a.xlsx:   # one workbook: insights only
+        xlsx = Path(a.xlsx)
+        jsonl = Path(a.jsonl) if a.jsonl else DATA / "insights.jsonl"
+        diffs = check_insights_parity(xlsx, jsonl)
+        what = f"{xlsx.name} vs {jsonl.name}"
+    else:        # everything, against the committed pack
+        pack = Path(a.pack) if a.pack else PACK
+        if not pack.is_dir():
+            _fail(f"participant pack not found: {pack}", 2)
+        diffs = check_all_parity(pack)
+        what = f"4 workbooks + rules, schemas, scenarios, outcomes vs {pack}"
+    for d in diffs[:30]:
+        print(" ", d)
+    if len(diffs) > 30:
+        print(f"  ... and {len(diffs) - 30} more")
+    print(f"differences: {len(diffs)}  ({what})")
+    raise SystemExit(1 if diffs else 0)
 
 
 def cmd_eval(a):
@@ -50,23 +165,55 @@ def cmd_eval(a):
 
 def cmd_validate(a):
     kinds = {"surveys": "survey", "handoffs": "schedule_handoff", "no_survey": "no_survey", "responses": "response"}
-    bad = 0
+    if not OUT.is_dir() and not a.allow_empty:
+        print("files checked: 0")
+        _fail(f"output folder not found: {OUT} (run `python -m mel.cli run` first, or pass --allow-empty)")
+    checked = bad = 0
     for d, kind in kinds.items():
         for p in sorted((OUT / d).glob("*.json")):
-            e = errors(kind, json.loads(p.read_text(encoding="utf-8")))
+            checked += 1
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                bad += 1
+                print(f"{d}/{p.name}: unparseable JSON ({exc})")
+                continue
+            e = errors(kind, obj)
             if e:
                 bad += 1
                 print(p.name, e[:3])
+    print("files checked:", checked)
     print("invalid files:", bad)
+    if checked == 0 and not a.allow_empty:
+        _fail(f"no files to check in {OUT} (run `python -m mel.cli run` first, or pass --allow-empty)")
     raise SystemExit(1 if bad else 0)
 
 
 def main():
     ap = argparse.ArgumentParser(prog="mel")
     sp = ap.add_subparsers(dest="cmd", required=True)
-    r = sp.add_parser("run"); r.add_argument("--insights"); r.add_argument("--simulate", action="store_true"); r.set_defaults(f=cmd_run)
+    r = sp.add_parser("run")
+    r.add_argument("--insights")
+    r.add_argument("--simulate", action="store_true")
+    r.add_argument("--limit", type=_non_negative, help="process only the first N insights (0 = none)")
+    r.add_argument("--farmer", help="process only this farmer_id")
+    r.add_argument("--clean", action="store_true",
+                   help="first empty surveys/, handoffs/, no_survey/ and responses/ in the output folder")
+    r.set_defaults(f=cmd_run)
     e = sp.add_parser("eval"); e.add_argument("--golden"); e.set_defaults(f=cmd_eval)
-    v = sp.add_parser("validate"); v.set_defaults(f=cmd_validate)
+    v = sp.add_parser("validate")
+    v.add_argument("--allow-empty", action="store_true", help="exit 0 even when there are no files to check")
+    v.set_defaults(f=cmd_validate)
+    j = sp.add_parser("junk")
+    j.add_argument("--insights")
+    j.add_argument("--limit", type=_non_negative)
+    j.add_argument("--farmer")
+    j.set_defaults(f=cmd_junk)
+    p = sp.add_parser("parity")
+    p.add_argument("--xlsx", help="check only this insights workbook (default: all four workbooks + config folders)")
+    p.add_argument("--jsonl", help="with --xlsx: data/insights.jsonl (defaults to the active data dir)")
+    p.add_argument("--pack", help="participant-pack folder (default: the committed pack)")
+    p.set_defaults(f=cmd_parity)
     a = ap.parse_args(); a.f(a)
 
 

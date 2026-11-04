@@ -11,6 +11,8 @@ SCHEMAS = CONFIG / "schemas"
 RULES_DIR = CONFIG / "rules"
 DATA = Path(os.environ.get("MEL_DATA_DIR", ROOT / "data" / "mock"))
 FIXTURES = ROOT / "data" / "mock"  # scenarios/ + outcomes/ always come from here
+PACK = ROOT / "mel-survey-agent-participant-pack" / "participant-pack"
+PACK_DATA = PACK / "data"
 OUT = Path(os.environ.get("MEL_OUT_DIR", ROOT / "out"))
 IST = timezone(timedelta(hours=5, minutes=30))
 LANGS = ("hi-IN", "en-IN")

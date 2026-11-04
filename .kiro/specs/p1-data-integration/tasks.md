@@ -1,0 +1,23 @@
+# Tasks: P1 Data, Contracts & Integration
+
+- [x] 1. `validate` exits non-zero on a missing/empty folder (`--allow-empty` overrides), prints files checked, reports unparseable JSON by file name (R-1)
+- [x] 2. `run --limit -1` and `junk --limit -1` are usage errors with no traceback; `--limit 0` processes nothing (R-2)
+- [x] 3. Restore `.github/CODEOWNERS` from commit 88590f8
+- [x] 4. Import `openpyxl` only inside the functions that read Excel (R-3)
+- [x] 5. Fix `.github/workflows/ci.yml`: remove the wrong comment, Python 3.12 only, the six steps in order, no `continue-on-error` (R-4)
+- [x] 6. Make the clean-row test in `tests/test_data.py` a real test
+- [x] 7. `run --clean` empties only `surveys/`, `handoffs/`, `no_survey/`, `responses/` (R-5)
+- [x] 8. `run_pipeline(insights, limit=None, farmer=None)` in `mel/pipeline.py`; `cmd_run` calls it; `_select` removed (R-6)
+- [x] 9. `run_summary.json` and a printed summary; documented in `docs/TEAM.md` for P5 (R-7)
+- [x] 10. `junk_report.csv` with `schema_failure` and content categories (R-8)
+- [x] 11. `load_golden_xlsx`, `load_farmers_xlsx`, `load_crop_calendar_xlsx`, equal to the JSON/CSV loaders (R-9)
+- [x] 12. `parity` with no arguments, four workbooks + four config/mock folders, row id + field messages, one-sided keys, non-zero exit (R-10)
+- [x] 13. `scripts/compare_golden.py OLD NEW` and the README steps for a new golden set (R-11)
+- [x] 14. README: quick start for both OSes, full-pack commands, `MEL_DATA_DIR`, `MEL_OUT_DIR`, OneDrive warning, `parity` (R-12)
+- [x] 15. `CLAUDE.md` pack location; `scripts/make_mock_data.py` default `--pack` (R-12)
+- [x] 16. `.env.example`: `MEL_TIMING_BASIS=brief`, blank `ANTHROPIC_API_KEY` (R-12)
+- [x] 17. `docs/questions_for_digital_green.md` (R-12)
+- [x] 18. Merge notes: "Merge order" in `docs/TEAM.md`, plus "Interfaces" and "Where each person starts" (R-12)
+- [x] 19. Kiro steering (product, tech and commands, file ownership) and this spec; `.kiro/` is not git-ignored
+- [x] 20. Tests for items 1, 2, 4 and 7 to 13 in `tests/test_data.py`, `tests/test_cli.py`, `tests/test_parity.py`
+- [x] 21. Prove it: `pytest -q`, mock and full-pack runs, `validate`, `eval`, `parity`, empty-folder and negative-limit failures (R-13)

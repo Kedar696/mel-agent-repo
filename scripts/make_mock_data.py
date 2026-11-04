@@ -1,6 +1,7 @@
 """Build a small, reproducible mock dataset from the participant pack.
 
-Usage: python scripts/make_mock_data.py [--pack ~/Downloads/participant-pack] [--n 60]
+Usage: python scripts/make_mock_data.py [--pack mel-survey-agent-participant-pack/participant-pack] [--n 60]
+(--pack defaults to the committed pack folder in this repo.)
 Writes data/mock/{insights.jsonl,golden_set.jsonl,farmers.csv}.
 Stratified: every resolution_type, both languages, junk rows, and every golden rule R1-R8.
 """
@@ -14,7 +15,8 @@ OUT = ROOT / "data" / "mock"
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pack", default=str(Path.home() / "Downloads" / "participant-pack"))
+    ap.add_argument("--pack", default=str(ROOT / "mel-survey-agent-participant-pack" / "participant-pack"),
+                    help="participant-pack folder (default: the committed pack)")
     ap.add_argument("--n", type=int, default=60, help="insights to sample")
     ap.add_argument("--seed", type=int, default=7)
     a = ap.parse_args()

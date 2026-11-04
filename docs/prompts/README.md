@@ -15,6 +15,7 @@ Reusable prompts for the team.
 | [individual_contract_prompt.md](individual_contract_prompt.md) | Generate a separate one-page contract for each of P1–P8, with their baseline and open work |
 | [update_team_contracts_prompt.md](update_team_contracts_prompt.md) | Update existing contracts with new work, finished items, and the optional AWS plan, in plain English |
 | [v0_frontend_sketch_prompt.md](v0_frontend_sketch_prompt.md) | Get v0.dev to mock up the finished demo UI (design reference; real app stays Streamlit) |
+| [update_status_prompt.md](update_status_prompt.md) | Keep CLAUDE.md's Status and Open items current after work lands (docs-only) |
 
 | [p4_writer_safety_prompt.md](p4_writer_safety_prompt.md) | Brief Claude on the P4 writer and safety work: what exists, what changed, what is left |
 
