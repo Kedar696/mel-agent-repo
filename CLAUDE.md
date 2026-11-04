@@ -59,19 +59,37 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   rows; switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
   the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
-- Streamlit app (5 tabs) loads the full pack (6,999) by default, mock sample only if the pack is missing or
-  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. Overview shows P3's weekly-limit decisions (full data:
-  1,614 sent, 452 moved, 442 merged, 108 skipped); Survey Studio has demo picks + filters; Evaluation has the
-  send-time rule toggle, five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table and
-  run-history chart. (Full-data app is on `p5-full-data`; `main` still shows the 57-row sample.)
+- Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
+  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. UI/UX redesign (branch `willF-uiux`, 4 Nov, not yet
+  merged): a compact masthead, then 3 tabs. **Dashboard** (default; below). **Survey demo**: a toolbar with the Demo picks list (four
+  demo picks: High goat, Medium lentil, Low stored mustard, no-survey critical cow, then Browse with filters) and
+  the primary **Add your own insight** button (own-insight mode replaces the picker with a "Source: Your insight" label and
+  shows the **Edit insight / Hide editor** toggle and **Back to the demos**; **Your insight** returns from demo mode;
+  the editor draft, result and last demo pick survive hiding and switches), a
+  report title line ("Your insight" / "Demo insight"), a settings bar (channel; language with **English default**, Hindi one tap away; an icon-only
+  **Restart** that resets the phone only; pretend history), then the green insight card | the interactive
+  channel preview (`app/channel_preview.py`, one 378x700 phone for all channels, restart/show_restart API) |
+  the scheduler hand-off, survey checks and the answer record; JSON in collapsed developer details. History
+  rules H1-H4 are always on in the app (the old toggle is gone). **Your own insight** (`app/custom_context.py`): the editor (farmer's question, advice, Details for crop/problem/severity/advice
+  type/timing/channel/language/district) runs once through `run_insight` on submit and then collapses; ids `I-9000NN`, real IST
+  `created_at`, session only, never in the batch or the numbers; empty advice = "No advice given yet." and R4;
+  tests in `tests/test_custom_context.py`. **Dashboard**: P3's weekly-limit decisions (full data:
+  1,614 sent, 452 moved, 442 merged, 108 skipped), then the send-time rule toggle, five-dimension scorecard,
+  brief-vs-answer-key comparison, rules-we-changed table and run-history chart; its metrics count up and the rule
+  bars grow in on first view (`COUNT_UP_JS`, ported from the Success Metrics site; none under reduced motion).
+  **Follow-up queue**: reason and channel filters with counts, a pick-one list (oldest answer first) and the open
+  ticket beside it: next step, conversation log (insight summaries, then the survey Q&A), record JSON.
+  The Simulate answers tab, the static all-questions panel and the data caption are gone. Theme: `app/theme.py`
+  + `.streamlit/config.toml` (Mukta, ivory/green/marigold, see `docs/uiux-design.md`). Dates and times on screen are
+  Eastern Time, MM/DD/YYYY, 12-hour via `app/display_time.py`; stored timestamps and JSON stay ISO/IST.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
-  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey Studio
-  shows "What the agent remembers", a history on/off switch, a "pretend survey history" demo and generic vs
-  adapted questions, and "Answer as the farmer" (real tap-through on all 5 channels: finish, close, opt out,
-  free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
+  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey demo
+  shows "What the agent remembers", a "pretend survey history" demo and generic vs
+  adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
+  channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
   FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the tap-through has no Skip button. History rules H1–H4 now live in
+  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H4 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
