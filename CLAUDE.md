@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-03_
+_Last updated: 2026-11-04_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -12,8 +12,8 @@ en-IN, builds a scheduler hand-off, renders per channel (app, web, WhatsApp, Tel
 answers. Scored against a 150-row golden set. Synthetic data only. Real delivery is out of scope.
 
 - Repo: https://github.com/michvinh-7/mel-agent-repo (branch `main`)
-- Organisers' brief: `participant-pack/index.html` (full pack lives in ~/Downloads, which macOS blocks for Claude;
-  the user must move files into the project). Mock subset: `data/mock/`.
+- Organisers' brief: `mel-survey-agent-participant-pack/participant-pack/index.html`. The full pack is committed in
+  the repo at `mel-survey-agent-participant-pack/participant-pack/` (read-only reference). Mock subset: `data/mock/`.
 - Team plan, owners P1–P8, interfaces, brief gaps, AWS notes, glossary: `docs/TEAM.md`
 - Reusable prompts: `docs/prompts/` (team contract, individual contracts, update contracts, v0 sketch)
 
@@ -21,12 +21,15 @@ answers. Scored against a 150-row golden set. Synthetic data only. Real delivery
 ```
 source .venv/bin/activate
 pytest -q
-python -m mel.cli run --simulate
+python -m mel.cli run --simulate --clean
 python -m mel.cli validate
 python -m mel.cli eval
+python -m mel.cli parity
 streamlit run app/streamlit_app.py
 ```
-Full pack: `MEL_DATA_DIR=<pack>/data python -m mel.cli eval`. Write scratch output with `MEL_OUT_DIR=...`.
+Full pack: `MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python -m mel.cli eval`.
+Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DIR=...`.
+`run` also writes `run_summary.json` and `junk_report.csv` into the output folder (described in `docs/TEAM.md`).
 
 ## Status (mock data)
 - 16 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey.
@@ -52,7 +55,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P4: concern-specific templates; native-speaker Hindi review; stronger guards; better relevance score;
   LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude table.
 - P5: follow-up queue page, per-rule confusion, item similarity, README numbers by script, demo script.
-- P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
+- P1: done: Excel loaders + parity, `--limit`/`--farmer`/`--clean`, `run_pipeline`, run summary, junk report, CI.
+  Open: real usernames in CODEOWNERS (restored to the `@p1..@p5` placeholders); send `docs/questions_for_digital_green.md`;
+  merge order is in `docs/TEAM.md`.
 - Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing.
 
 ## Decisions already made (don't re-litigate)
@@ -66,4 +71,4 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - Commit/push only when asked. Never commit `.env`, keys, `.venv/`, `out/`, `v0-sketch/`.
 
 ## Environment notes
-- macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. `~/Downloads` is not readable from Claude's shell.
+- macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. The full pack is committed in the repo (see the pack location above).

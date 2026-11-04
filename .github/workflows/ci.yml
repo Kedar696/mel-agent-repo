@@ -1,38 +1,30 @@
 name: CI
-
 # P1 owns this. Keep main green: run the whole test suite, then prove a batch run
-# still writes schema-valid output. The full participant pack is not committed, so
-# parity runs only when the pack is present (it is skipped in the test suite otherwise).
-
+# writes schema-valid output, scores against the golden set, and that the Excel
+# workbooks and JSON/CSV in the committed pack still agree.
 on:
   push:
     branches: [main]
   pull_request:
-
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           cache: pip
-
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
+        run: pip install -r requirements.txt
       - name: Run tests
         run: pytest -q
-
-      - name: Batch run writes schema-valid output
-        run: |
-          python -m mel.cli run --simulate
-          python -m mel.cli validate
+      - name: Batch run
+        run: python -m mel.cli run --simulate
+      - name: Validate output
+        run: python -m mel.cli validate
+      - name: Golden-set scores
+        run: python -m mel.cli eval
+      - name: Excel and JSON parity
+        run: python -m mel.cli parity

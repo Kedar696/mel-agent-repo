@@ -47,11 +47,11 @@ def test_why_junk_flags_labelled_and_broken_rows():
 
 
 def test_why_junk_clean_row_has_no_reasons():
-    for ins in load_insights():
-        if ins.get("quality_flag") == "clean" and not errors("insight", ins):
-            assert why_junk(ins) == []
-            return
-    pytest.skip("no clean, schema-valid insight in the mock subset")
+    clean_rows = [i for i in load_insights()
+                  if i.get("quality_flag") == "clean" and not errors("insight", i)]
+    assert clean_rows, "the mock data must contain clean, schema-valid insights"
+    for ins in clean_rows:
+        assert why_junk(ins) == [], ins["insight_id"]
 
 
 def test_coerce_types():

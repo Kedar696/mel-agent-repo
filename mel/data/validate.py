@@ -32,6 +32,19 @@ def errors(kind: str, obj: dict) -> list[str]:
     return [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in _validator(kind).iter_errors(obj)]
 
 
+def failed_fields(kind: str, obj: dict) -> list[str]:
+    """Every field that fails the schema, sorted, as dotted paths (``query_summary``,
+    ``verification.needed``). A missing required field is named, not reported as the parent."""
+    fields: set[str] = set()
+    for e in _validator(kind).iter_errors(obj):
+        path = [str(p) for p in e.path]
+        if e.validator == "required" and isinstance(e.instance, dict):
+            fields.update(".".join(path + [k]) for k in e.validator_value if k not in e.instance)
+        else:
+            fields.add(".".join(path) or "<root>")
+    return sorted(fields)
+
+
 def is_valid(kind: str, obj: dict) -> bool:
     return not errors(kind, obj)
 
