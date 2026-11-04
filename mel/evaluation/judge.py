@@ -220,18 +220,56 @@ def agreement(pairs_of_scores: list[tuple[int, int]]) -> dict:
             "mean_abs_diff": round(sum(diffs) / n, 2)}
 
 
+_Q_LINE = re.compile(r"^Q\d+\.\s(.*?)\s{2}\[(.*)\]\s*$")
+
+
+def survey_from_text(text: str) -> dict:
+    """Turn the sheet's "Q1. prompt  [a / b]" lines back into a survey, so the judge reads exactly what people read
+    (the live templates may have changed since the sheet was made). survey_text(survey_from_text(t)) == t."""
+    items = []
+    for line in (text or "").strip().splitlines():
+        m = _Q_LINE.match(line.strip())
+        if not m:
+            continue
+        prompt, opts = m.group(1), m.group(2)
+        sc = re.fullmatch(r"scale (\d+)-(\d+)", opts)
+        if sc:
+            items.append({"type": "survey-scale", "prompt": prompt, "scale_min": int(sc.group(1)), "scale_max": int(sc.group(2))})
+        else:
+            items.append({"type": "survey-select", "prompt": prompt, "options": [{"label": o} for o in opts.split(" / ")]})
+    return {"items": items}
+
+
 def calibrate(pairs, client, path=SHEET, cache_dir=CACHE) -> dict:
+    """Judge vs people on the hand-scored sheet. The judge scores the questions as written on the sheet.
+
+    Returns the judge's agreement (n, exact, within_1, mean_abs_diff) plus the bars to read it against:
+      people_vs_people  every pair of people on the same survey (the fair bar for the judge)
+      always_5          a "judge" that says 5 every time (the judge must beat this to mean anything)
+      judge_scores      how many surveys got each score (all 5s = the judge does not tell surveys apart)
+    """
     by_gid = {g["golden_id"]: (g, ins, s) for g, ins, s in pairs}
-    both = []
+    both, people, judged = [], defaultdict(list), {}
     for r in read_sheet(path):
         h = r.get("score_1_to_5", "").strip()
         if not h or r["golden_id"] not in by_gid:
             continue
         g, ins, s = by_gid[r["golden_id"]]
-        j = judge_survey(s, ins, client, cache_dir)["score"]
+        people[r["golden_id"]].append(int(h))
+        if r["golden_id"] not in judged:
+            shown = survey_from_text(r.get("questions", ""))
+            judged[r["golden_id"]] = judge_survey(shown if shown["items"] else s, ins, client, cache_dir)["score"]
+        j = judged[r["golden_id"]]
         if j is not None:
             both.append((int(h), j))
-    return agreement(both)
+    hp = [(a, b) for hs in people.values() for i, a in enumerate(hs) for b in hs[i + 1:]]
+    counts = defaultdict(int)
+    for j in judged.values():
+        counts[j] += 1
+    return {**agreement(both),
+            "people_vs_people": agreement(hp),
+            "always_5": agreement([(h, 5) for h, _ in both]),
+            "judge_scores": dict(sorted(counts.items(), key=lambda kv: str(kv[0])))}
 
 
 def main():

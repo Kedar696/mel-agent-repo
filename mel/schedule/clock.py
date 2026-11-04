@@ -19,8 +19,55 @@ Design choices, matching the P3 acceptance checklist:
 """
 from datetime import datetime, timedelta
 
-from mel.config import IST
+from mel.config import IST, rules
 from mel.timing import parse_ist, fmt_ist
+
+
+class Season:
+    """The date range the demo walks: the rabi season, November to March.
+
+    Both ends are inclusive IST instants. The defaults come from the project config so the
+    season and the scheduler's window maths agree: the end is `window_rules.season_end`
+    (2027-03-31) at the last send hour, and the start is 1 November of the season-start year
+    (the November before that end). Either end can be overridden for a different season or a
+    shorter demo.
+
+        Season()                      # 2026-11-01 07:00 .. 2027-03-31 19:00 IST (rabi 2026-27)
+        Season(start="2026-11-15T07:00:00+05:30")          # custom start, default end
+        Season(start=..., end="2027-02-28T19:00:00+05:30")  # custom both
+
+    `contains(dt)` is the season membership test; `start` / `end` are tz-aware IST datetimes.
+    """
+
+    def __init__(self, start: str | None = None, end: str | None = None):
+        wr = rules()["window_rules"]
+        sh = rules()["send_hours"]
+        if end is None:
+            end_date = wr["season_end"]                      # e.g. "2027-03-31"
+            end = f"{end_date}T{sh['to']}:00+05:30"          # last send hour on the last day
+        self.end = parse_ist(end)
+        if start is None:
+            # 1 November of the November-before-the-end. The rabi season's November.
+            nov_year = self.end.year if self.end.month >= 11 else self.end.year - 1
+            start = f"{nov_year}-11-01T{sh['from']}:00+05:30"
+        self.start = parse_ist(start)
+        if self.start > self.end:
+            raise ValueError(f"season start {self.start_ist} is after end {self.end_ist}")
+
+    @property
+    def start_ist(self) -> str:
+        return fmt_ist(self.start)
+
+    @property
+    def end_ist(self) -> str:
+        return fmt_ist(self.end)
+
+    def contains(self, when: datetime) -> bool:
+        """True if `when` falls within [start, end] inclusive."""
+        return self.start <= when <= self.end
+
+    def __repr__(self) -> str:
+        return f"Season({self.start_ist!r} .. {self.end_ist!r})"
 
 
 class SimClock:
@@ -70,6 +117,14 @@ class SimClock:
         if days < 0:
             raise ValueError("advance(days) cannot go backwards; days must be >= 0")
         self._now = self._now + timedelta(days=days)
+        return self._now
+
+    def set(self, when) -> datetime:
+        """Jump the clock to a specific instant (an IST string or tz-aware datetime). Used to
+        clamp to a season boundary or fast-forward to the end. Rejects naive datetimes and
+        offset-less strings, like the constructor. Unlike `advance`, this may move the clock
+        to any instant (a boundary jump), so it does not require moving forward."""
+        self._now = self._coerce(when)
         return self._now
 
     def __repr__(self) -> str:

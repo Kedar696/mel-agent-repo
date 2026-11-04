@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04_
+_Last updated: 2026-11-04 (judge calibrated)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -50,9 +50,14 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   the last run under the same send-time rule. `python scripts/readme_numbers.py --write [--record "label"]
   [--basis ...]` (logic in `mel/evaluation/report.py`) regenerates README block + `docs/results/scorecard.md`.
 - AI relevance judge `mel/evaluation/judge.py` (Bedrock Converse, off unless `MEL_JUDGE=1`, cached, logs
-  tokens/cost/time; rubric v1 in README): tested with a stand-in model only, **not yet run on Bedrock**. It
-  has its own small Bedrock adapter; P4's `ModelClient.converse()` exists now, so switching to it is next.
-  Hand-scoring sheet `docs/results/hand_scores.csv` (20 surveys, 4 per resolution type) + guide: unscored.
+  tokens/cost/time; rubric v1 in README). **Ran on Bedrock 4 Nov** (Claude Haiku 4.5, inference profile
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`, us-east-1; plain `anthropic.` id fails "on-demand throughput").
+  Hand scores: 5 people x 20 surveys = 100 rows in `docs/results/hand_scores.csv`. Calibration (judge scores the
+  sheet's exact question text via `survey_from_text`): AI vs person within 1 point 95%, gap 0.63, r=0.58 with the
+  team average; person vs person 83%, 0.82, r 0.00-0.49; "always 5" 79%, 0.79. AI used only 4/5 and is a bit
+  lenient. Write-up: `docs/results/judge_calibration.md` (PR `p5-hand-scores`). Not yet: `--run` on all 94
+  rows; switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
+  the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
   `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. UI/UX redesign (branch `willF-uiux`, 4 Nov, not yet
@@ -116,7 +121,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
   send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
-  backup link; switch the judge to P4's `ModelClient` and run it + `--calibrate` once Bedrock access exists;
+  backup link; judge calibrated on Bedrock (done 4 Nov); left: `--run` on all 94 rows, switch to P4's `ModelClient`;
   window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
   Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
   not in the response schema, so P3's outcomes would give an empty queue.
