@@ -17,6 +17,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
+
+def _reload_mel_if_changed():
+    """Streamlit reruns this file when code changes (local `git pull`, or Streamlit Cloud pulling a merge),
+    but keeps already-imported packages in memory, so new mel/ code would not be used and calls fail with
+    'unexpected keyword argument'. If any mel/*.py file changed since the last run, drop the old modules
+    and cached results so everything below is imported and computed fresh."""
+    stamp = max(p.stat().st_mtime for p in (Path(__file__).resolve().parents[1] / "mel").rglob("*.py"))
+    if getattr(sys, "_mel_code_stamp", stamp) != stamp:
+        for name in [m for m in sys.modules if m == "mel" or m.startswith("mel.")]:
+            del sys.modules[name]
+        st.cache_data.clear()
+        st.cache_resource.clear()
+    sys._mel_code_stamp = stamp
+
+
+_reload_mel_if_changed()
+
 from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
