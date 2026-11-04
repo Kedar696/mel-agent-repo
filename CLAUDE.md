@@ -32,22 +32,34 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 `run` also writes `run_summary.json` and `junk_report.csv` into the output folder (described in `docs/TEAM.md`).
 
 ## Status (mock data)
-- 71 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
+- On `main` (4 Nov): PRs #1–#2 (P5), #3 (P2), #4 `p5-eval-v2`, #5 `p5-judge`, plus P1 (`lucas-p1`) and P4
+  (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Nothing left unmerged.
+- 462 tests pass (~19 s). `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
+  CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`, `validate`, `eval` on every PR.
 - Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
   brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
-  answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity 0.50.
+  answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity **0.99** (P4's templates copy the answer
+  key's wording on purpose, `templates.STYLE='golden'`, so this is an in-sample match, not independent proof).
 - Batch scorecard on all 6,999 insights (`mel/evaluation/scorecard.py`): brief → 2,616 surveys, format 100%,
-  safety 100%, **timeliness 100%**, 0 failing-but-scheduled, ~2.4 ms/survey (~6 s total). Under answer_key,
-  timeliness is **26.5%** (1,982 windows open before the farmer's action window ends): the case for brief.
-- Run history `docs/results/eval_history.jsonl`: run 1 baseline (96.0%), run 2 R7 storage fix (99.3%),
-  run 3 answer-key setting. `python scripts/readme_numbers.py --write [--record "label"] [--basis ...]`
-  (logic in `mel/evaluation/report.py`) regenerates the README results block, the generated "Rules we changed"
-  table and `docs/results/scorecard.md` (offline backup). Never type numbers.
+  safety 100%, **timeliness 100%**, 0 failing-but-scheduled, relevance 0.69 (P4's stricter v2 score; was 0.83
+  under v1), ~3.1 ms/survey (~8 s total). Under answer_key, timeliness is **26.5%** (key windows open before
+  the farmer's action window ends): the case for brief. Only 19 of 94 answer-key windows are themselves timely.
+- Run history `docs/results/eval_history.jsonl`: 1 baseline (96.0%), 2 R7 storage fix (99.3%), 3 answer-key
+  setting, 4–5 P4 templates (item sim 0.50 → 0.99) under each rule. "Rules we changed" compares each run with
+  the last run under the same send-time rule. `python scripts/readme_numbers.py --write [--record "label"]
+  [--basis ...]` (logic in `mel/evaluation/report.py`) regenerates README block + `docs/results/scorecard.md`.
+- AI relevance judge `mel/evaluation/judge.py` (Bedrock Converse, off unless `MEL_JUDGE=1`, cached, logs
+  tokens/cost/time; rubric v1 in README): tested with a stand-in model only, **not yet run on Bedrock**. It
+  has its own small Bedrock adapter; P4's `ModelClient.converse()` exists now, so switching to it is next.
+  Hand-scoring sheet `docs/results/hand_scores.csv` (20 surveys, 4 per resolution type) + guide: unscored.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
-- Streamlit app: Overview, Survey Studio (insight card, bilingual question cards, phone preview, hand-off strip),
-  Simulate answers, Follow-up queue, Evaluation (send-time rule toggle, five-dimension scorecard, brief-vs-
-  answer-key comparison, rules-we-changed table, run-history chart with dimension picker). Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
-- Added beyond the scaffold: `OptOutList` (mel/schedule), basic `relevance_score` (mel/writer/guards.py).
+- Streamlit app (5 tabs) loads the full pack (6,999) by default, mock sample only if the pack is missing or
+  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. Overview shows P3's weekly-limit decisions (full data:
+  1,614 sent, 452 moved, 442 merged, 108 skipped); Survey Studio has demo picks + filters:
+  Overview, Survey Studio, Simulate answers, Follow-up queue, Evaluation (send-time rule toggle,
+  five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table, run-history chart).
+  Restart Streamlit after `git pull`. P4 also added a static preview (`docs/preview/survey_studio_preview.html`)
+  and a standalone demo copy (`demo/p4_standalone/`); the Streamlit app stays the real UI.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
@@ -58,22 +70,31 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Open items (owner)
 - P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
-  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2.
-  `compute_window()` must read P3's simulated clock (FINAL contract).
+  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2;
+  `compute_window()` must read P3's simulated clock. Suggestion from P5 (not yet sent): open at 09:00 within the
+  brief rule (+14 exact matches, still 100% timely), or "answer-key window when timely, else brief"
+  (window match ~20%, timeliness ~99%).
 - P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`).
   Wired: `run_pipeline(..., farmers=)` passes profile + chat history; CLI and app simulate at `send_at`; app
   hand-off strip shows it. Hand-off JSON unchanged (organisers' schema forbids extra fields; `parity` checks it).
-- P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
-  app/web sent once; channel fallback; reproduce the 183 reference answer records.
+- P3: merged into main 4 Nov (`Semdon-P3`): `CapLedger.admit` (sent/moved/merged/skipped/opted_out),
+  `simulate_handoff`, personas, `late` flag (off until P1 adds it to the response schema). Not started: SimClock,
+  `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1.
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
-- P5: plan + status table in `docs/p5_plan.md`. Next: AI judge on Bedrock + 20 hand-scored surveys (needs
-  P1's Bedrock access); P1 to call `mel.evaluation.run_eval()` from `cmd_eval`; plug in P3 (outcomes with late,
-  cap counts, Season tab with SimClock) and P4 (`self_eval`, templates-vs-Bedrock table); slides, rehearsals, video.
-  The `self_eval` gate (never schedule a failing survey) is P4 sets / P3 enforces; P5 only counts.
-- P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
+- P5: plan + status table `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
+  `docs/slides_draft.md`. Next: get the 20 hand scores; switch the judge to P4's `ModelClient` and run it +
+  `--calibrate` once Bedrock access exists; add a window-overlap measure (87 of 94 brief windows overlap the
+  key's); move app pages to the full 6,999 data with Studio filters; plug in P3 (outcomes with late, cap
+  counts, Season tab) and P4 (self_eval counts, templates-vs-Bedrock table); real deck; rehearsals; video.
+- P1: merged: batch runner, `run_pipeline()`/`PipelineResult`, `--limit`/`--farmer`, junk report, Excel parity,
+  CI. Open: call `mel.evaluation.run_eval()` from `cmd_eval` (history on every eval); REST API + Dockerfile;
+  `infra/` + LICENSE + public repo; Bedrock account access (region/models) for P4 and P5; `boto3` in
+  requirements; `late` in the response schema (P3 request); P3's batch-wiring request; real usernames in
+  CODEOWNERS (still `@p1..@p5`).
 - Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
   MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
+  `docs/questions_for_digital_green.md` drafts only the first 3; whether they were sent is unknown.
 - FINAL contract (4 Nov) also adds: REST API + Dockerfile + infra/ + LICENSE + public repo (P1); SimClock +
   broadcaster stub + self_eval gate (P3); Bedrock `ModelClient`, BCP 47 `lang`, self_eval (P4). Its P2 section
   still describes the R7 misses backwards (we said no-survey, key said survey); tell P2.

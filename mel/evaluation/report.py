@@ -69,33 +69,44 @@ def pct(x):
     return "—" if x is None else f"{x:.1%}"
 
 
+CHANGED_KEYS = ("decision_acc", "rule_acc", "window_acc", "timeliness_pass", "item_similarity_avg",
+                "relevance_avg", "misses")
+
+
 def rules_changed(history: list[dict] | None = None) -> list[dict]:
-    """Each recorded run compared with the run before it: the 'Rules we changed' list, never typed."""
+    """Each recorded run compared with the last earlier run under the same send-time rule (or, for the first
+    run under a rule, with the run just before it): the 'Rules we changed' list, never typed."""
     hist = load_history() if history is None else history
     out = []
-    for prev, cur in zip(hist, hist[1:]):
-        out.append({"run": cur["run"], "change": cur["label"], "timing_basis": cur["timing_basis"],
-                    **{k: (prev.get(k), cur.get(k)) for k in
-                       ("decision_acc", "rule_acc", "window_acc", "timeliness_pass", "misses")}})
+    for i, cur in enumerate(hist[1:], 1):
+        same = [h for h in hist[:i] if h["timing_basis"] == cur["timing_basis"]]
+        prev = same[-1] if same else hist[i - 1]
+        out.append({"run": cur["run"], "vs_run": prev["run"], "change": cur["label"],
+                    "timing_basis": cur["timing_basis"], **{k: (prev.get(k), cur.get(k)) for k in CHANGED_KEYS}})
     return out
 
 
-def _arrow(pair, as_pct=True):
+def _arrow(pair, fmt=pct):
     a, b = pair
-    f = pct if as_pct else (lambda v: "—" if v is None else str(v))
+    f = (lambda v: "—" if v is None else fmt(v))
     return f(b) if a == b else f"{f(a)} → {f(b)}"
+
+
+def _num(v):
+    return f"{v:.2f}" if isinstance(v, float) else str(v)
 
 
 def rules_changed_md() -> str:
     rows = rules_changed()
     if not rows:
         return "_Only the baseline run so far._"
-    out = ["| Run | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Misses |",
-           "|---|---|---|---|---|---|---|---|"]
+    out = ["| Run (vs) | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Item sim | Relevance (P4) | Misses |",
+           "|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
-        out.append(f"| {r['run']} | {r['change']} | {BASIS_LABEL.get(r['timing_basis'], r['timing_basis'])} "
+        out.append(f"| {r['run']} (vs {r['vs_run']}) | {r['change']} | {BASIS_LABEL.get(r['timing_basis'], r['timing_basis'])} "
                    f"| {_arrow(r['decision_acc'])} | {_arrow(r['rule_acc'])} | {_arrow(r['window_acc'])} "
-                   f"| {_arrow(r['timeliness_pass'])} | {_arrow(r['misses'], as_pct=False)} |")
+                   f"| {_arrow(r['timeliness_pass'])} | {_arrow(r['item_similarity_avg'], _num)} "
+                   f"| {_arrow(r['relevance_avg'], _num)} | {_arrow(r['misses'], _num)} |")
     return "\n".join(out)
 
 
@@ -144,7 +155,7 @@ def results_md(results: dict) -> str:
            row("Relevance (AI judge on Bedrock, 1–5; see the rubric below)",
                lambda b: "not run" if c[b].get("judge_relevance") is None else f"{c[b]['judge_relevance']:.2f}"),
            row("Speed", lambda b: f"{c[b]['s_per_survey'] * 1000:.1f} ms per survey · {c[b]['batch_seconds']:.0f} s for all"),
-           "", "**Rules we changed** (each recorded run vs the one before it)", "", rules_changed_md()]
+           "", "**Rules we changed** (each recorded run vs the last run under the same send-time rule)", "", rules_changed_md()]
     misses = g[bases[0]]["misses"]
     if misses:
         out += ["", f"Misses under {BASIS_LABEL[bases[0]].lower()}: " + ", ".join(

@@ -116,7 +116,7 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | Rule (which of R1–R8) | 99.3% | 100.0% |
 | First channel | 100.0% | 100.0% |
 | Send window (exact match with answer key) | 0.0% | 100.0% |
-| Item similarity (keyword overlap) | 0.50 | 0.50 |
+| Item similarity (keyword overlap) | 0.99 | 0.99 |
 | Misses | 1 | 0 |
 
 **Every survey we write** (6,999 insights; Hindi + English files).
@@ -128,16 +128,18 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | Safety (no new advice, no personal info) | 100.0% | 100.0% |
 | Timeliness (after the action window, 07:00–19:00, in season, before harvest) | 100.0% | 26.5% |
 | Failing surveys handed to the scheduler | 0 | 0 |
-| Relevance (P4's score, 0–1) | 0.83 | 0.83 |
+| Relevance (P4's score, 0–1) | 0.69 | 0.69 |
 | Relevance (AI judge on Bedrock, 1–5; see the rubric below) | not run | not run |
-| Speed | 2.4 ms per survey · 6 s for all | 2.3 ms per survey · 6 s for all |
+| Speed | 3.1 ms per survey · 8 s for all | 3.2 ms per survey · 9 s for all |
 
-**Rules we changed** (each recorded run vs the one before it)
+**Rules we changed** (each recorded run vs the last run under the same send-time rule)
 
-| Run | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Misses |
-|---|---|---|---|---|---|---|---|
-| 2 | R7 storage exception (P2): stored crops still get a survey | Brief rules (default) | 96.0% → 99.3% | 96.0% → 99.3% | 0.0% | — → 100.0% | 6 → 1 |
-| 3 | Answer-key send-time setting (P2), off by default | Answer-key setting | 99.3% → 100.0% | 99.3% → 100.0% | 0.0% → 100.0% | 100.0% → 26.5% | 1 → 0 |
+| Run (vs) | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Item sim | Relevance (P4) | Misses |
+|---|---|---|---|---|---|---|---|---|---|
+| 2 (vs 1) | R7 storage exception (P2): stored crops still get a survey | Brief rules (default) | 96.0% → 99.3% | 96.0% → 99.3% | 0.0% | — → 100.0% | 0.50 | — → 0.83 | 6 → 1 |
+| 3 (vs 2) | Answer-key send-time setting (P2), off by default | Answer-key setting | 99.3% → 100.0% | 99.3% → 100.0% | 0.0% → 100.0% | 100.0% → 26.5% | 0.50 | 0.83 | 1 → 0 |
+| 4 (vs 2) | P4 templates in answer-key wording (writer_style=golden) + stricter relevance v2 | Brief rules (default) | 99.3% | 99.3% | 0.0% | 100.0% | 0.50 → 0.99 | 0.83 → 0.69 | 1 |
+| 5 (vs 3) | P4 templates in answer-key wording (writer_style=golden) + stricter relevance v2 | Answer-key setting | 100.0% | 100.0% | 100.0% | 26.5% | 0.50 → 0.99 | 0.83 → 0.69 | 0 |
 
 Misses under brief rules (default): G-0145 (expected R8, got R6)
 

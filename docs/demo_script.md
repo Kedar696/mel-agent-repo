@@ -28,7 +28,8 @@ streamlit run app/streamlit_app.py
 
 - Expect `pytest` all green and `invalid files: 0`. Then the Mock, Full and Batch lines print.
 - Click through every tab once, so Evaluation (it checks all 6,999 insights) is already loaded.
-- In **Survey Studio**, pre-select insight **I-001253** (goat · escalate_to_expert · survey).
+- The app loads all 6,999 conversations (about 25 seconds the first time). In **Survey Studio**, the
+  "Demo picks" list starts on **Goat → vet** (I-001253); the stored-potato and critical-cow cases are in the same list.
 - Have the slides open in another window, and the backup video ready.
 - **Hindi:** if P4's native-speaker review hasn't signed off, say "Hindi pending native review" once in part 1.
 
@@ -43,7 +44,7 @@ streamlit run app/streamlit_app.py
 
 ## Part 1. A farmer gets a follow-up about her own advice (50 seconds)
 
-**Screen:** Survey Studio, insight I-001253.
+**Screen:** Survey Studio, demo pick "Goat → vet" (I-001253).
 
 **Say, pointing left to right:**
 > A farmer asked about her goat; FarmerChat told her to call the vet. So we ask exactly that:
@@ -119,9 +120,11 @@ EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any con
 - **What about farmers who don't want surveys?** STOP, /stop, pressing 9 or "do not ask me again" opts them
   out for good. Non-urgent surveys are capped at one per farmer per week. *(Show Simulate answers →
   `farmer_opted_out` if asked.)*
-- **How many get a survey?** *(Show Overview.)* In the 57-conversation sample, 16 do; 41 don't, each with a
-  written reason: broken record, general information, still asking for details, or a critical case where a
-  person should call instead.
+- **How many get a survey?** *(Show Overview.)* Of 6,999 conversations, about 2,600 get a survey; the rest
+  don't, each with a written reason: broken record, general information, still asking for details, or a
+  critical case where a person should call instead *(demo pick "Critical cow case")*.
+- **Do farmers get bombarded?** *(Overview, weekly-limit number.)* At most one non-urgent survey per farmer per
+  week: about 1,000 surveys are moved to a later date, merged into the farmer's other survey, or skipped.
 - **Why 0% window match by default?** The brief and the answer key disagree on send times. The answer-key
   setting scores 100% but asks 3 in 4 farmers before they could act, so the brief stays the default until
   Digital Green confirms. *(Switch the Evaluation tab's send-time rule to show both.)*
