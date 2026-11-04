@@ -120,9 +120,9 @@ def test_cmd_run_calls_run_pipeline(monkeypatch, tmp_path):
     seen = {}
     real = cli.run_pipeline
 
-    def spy(insights, limit=None, farmer=None):
+    def spy(insights, limit=None, farmer=None, **kw):
         seen.update(limit=limit, farmer=farmer)
-        return real(insights, limit=limit, farmer=farmer)
+        return real(insights, limit=limit, farmer=farmer, **kw)
 
     monkeypatch.setattr(cli, "run_pipeline", spy)
     monkeypatch.setattr(cli, "OUT", tmp_path)

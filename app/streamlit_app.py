@@ -16,9 +16,9 @@ import streamlit as st
 from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
-from mel.data import load_insights, errors
+from mel.data import load_insights, load_farmers, errors
 from mel.evaluation import evaluate, load_history, rules_changed
-from mel.pipeline import run_insight, clean
+from mel.pipeline import run_pipeline, clean
 from mel.schedule.handoff import CapLedger
 from mel.simulator import simulate, cases_for
 from mel.writer import check_survey
@@ -57,7 +57,7 @@ st.markdown("""<style>
 .mel-wa .mel-top{background:#075e54;color:#fff}.mel-wa{background:#ece5dd}.mel-tg .mel-top{background:#2aabee;color:#fff}
 .mel-sheet{background:#fff;border-radius:16px 16px 0 0;padding:12px;box-shadow:0 -2px 8px #0001}
 .mel-step{border-top:1px solid var(--ln);padding:8px 0}.mel-step:first-of-type{border-top:0}
-.mel-strip{display:grid;grid-template-columns:110px 1.6fr 1.3fr 1fr;gap:22px;align-items:start}
+.mel-strip{display:grid;grid-template-columns:110px 1.6fr 1.2fr 1.3fr 1fr;gap:22px;align-items:start}
 .mel-tl{position:relative;height:8px;background:#e8ece8;border-radius:6px;margin:10px 0 4px}
 .mel-tl i{position:absolute;top:0;height:8px;border-radius:6px}.mel-tl i.w{background:#6ca378}.mel-tl i.x{background:#e3ad52}
 .mel-tlab{display:flex;justify-content:space-between;color:#8a958d;font-size:11px}
@@ -81,7 +81,8 @@ def short(ts: str) -> str:
 @st.cache_resource
 def batch():
     """Run the whole pipeline once; replay the frequency cap in send order."""
-    rows = [(ins, run_insight(ins)) for ins in load_insights()]
+    res = run_pipeline(load_insights(), farmers=load_farmers())  # farmers + chat history feed the send time
+    rows = list(zip(res.insights, res.outputs))
     led, capped = CapLedger(), set()
     hs = sorted((o["handoff"] for _, o in rows if "handoff" in o), key=lambda h: h["send_window"]["not_before"])
     for h in hs:
@@ -187,7 +188,7 @@ def phone(survey, ch):
     return f'<div class="mel-phone {cls}"><div class="mel-top">{top}</div><div class="mel-body">{body}</div></div>'
 
 
-def handoff_strip(h):
+def handoff_strip(h, send_time):
     nb, na = (datetime.fromisoformat(h["send_window"][k]) for k in ("not_before", "not_after"))
     ex = datetime.fromisoformat(h["expires_at"])
     span = (ex - nb).total_seconds() or 1
@@ -206,6 +207,8 @@ def handoff_strip(h):
 <div><div class="mel-k">Send window · IST</div><b style="font-size:13px">{short(h["send_window"]["not_before"])} → {short(h["send_window"]["not_after"])}</b>
 <div class="mel-tl"><i class="w" style="left:0;width:{w:.0f}%"></i><i class="x" style="left:{w:.0f}%;width:{100 - w:.0f}%;opacity:.45"></i></div>
 <div class="mel-tlab"><span>Not before</span><span>Not after</span><span>Expires {short(h["expires_at"])}</span></div></div>
+<div><div class="mel-k">Recommended send · IST</div><b style="font-size:13px">{short(send_time["send_at"])}</b>
+<div style="font-size:12px;margin-top:6px">{escape(send_time["reason"])}</div></div>
 <div class="mel-ch"><div class="mel-k">Channel order</div><span style="font-size:13px">{chans}</span></div>
 <div><div class="mel-k">Frequency cap</div><b style="font-size:13px">{cap["max_surveys"]} per farmer / {cap["window_days"]} days</b>
 <div style="font-size:12px;margin-top:6px">{cap_state}</div></div></div></div>''')
@@ -250,12 +253,12 @@ Selected insight {badge((ins.get("severity") or "n/a").title() + " severity", se
                                       format_func=CH_NAME.get) or "app"
             lang = st.segmented_control("Language", list(surveys), default=ins["conversation_language"]) or "hi-IN"
             html(phone(clean(surveys[lang]), ch))
-        handoff_strip(h)
+        handoff_strip(h, d.send_time)
         with st.expander("Raw JSON: survey, channel payload, hand-off"):
             st.json(clean(surveys[lang]), expanded=False)
             st.json(render(clean(surveys[lang]), ch), expanded=False)
             st.json(h, expanded=False)
-        st.session_state["handoff"] = h
+        st.session_state["handoff"], st.session_state["send_time"] = h, d.send_time
 
 # ---------------------------------------------------------------- Simulate
 with tab_sim:
@@ -266,7 +269,9 @@ with tab_sim:
         ch = st.selectbox("Channel", CHANNELS)
         case = st.selectbox("Case", cases_for(ch))
         seed = st.number_input("Seed", 0, 999, 0)
-        rec = simulate(h["survey"], ch, case, seed=int(seed))
+        first = ch == h["channel_order"][0]["channel"]  # the recommended time is for the first channel
+        rec = simulate(h["survey"], ch, case, seed=int(seed),
+                       send_at=st.session_state["send_time"]["send_at"] if first else None)
         e = errors("response", rec)
         (st.error if e else st.success)(f"status={rec['status']} failure={rec['failure_code']} "
                                         f"follow_up={rec['follow_up_reasons']} schema={'FAIL' if e else 'ok'}")
@@ -337,7 +342,7 @@ def _follow_queue():
         t_item, t_val, t_reason = trig
         answers = {it["item_id"]: t_val if it["item_id"] == t_item else _safe_value(it)
                    for it in survey["items"]}
-        rec = simulate(survey, ch, "completed", seed=0, answers=answers)
+        rec = simulate(survey, ch, "completed", seed=0, answers=answers, send_at=out["decision"].send_time["send_at"])
         if not rec["needs_follow_up"]:
             continue
         t_def = next(it for it in survey["items"] if it["item_id"] == t_item)

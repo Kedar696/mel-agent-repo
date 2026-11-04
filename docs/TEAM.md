@@ -43,12 +43,16 @@ mel.data.load_insights_xlsx(p) / load_golden_xlsx(p) / load_farmers_xlsx(p) / lo
 mel.data.errors(kind, obj) -> list[str]; validate(kind, obj); failed_fields(kind, obj) -> list[str]                  # P1
 mel.data.why_junk(insight) -> list[str]; junk_row(insight) -> (category, detail) | None                              # P1
 mel.data.check_all_parity(pack=None) -> list[str]   (empty = workbooks, rules, schemas, scenarios, outcomes all agree) # P1
-mel.pipeline.run_insight(insight) -> {"decision", "surveys", "handoff"} | {"decision", "no_survey"}  # P1 (unchanged)
-mel.pipeline.run_pipeline(insights, limit=None, farmer=None) -> PipelineResult                       # P1: filter + loop, writes nothing
+mel.pipeline.run_insight(insight, farmer=None, history_hours=()) -> {"decision", "surveys", "handoff"} | {"decision", "no_survey"}  # P1
+mel.pipeline.run_pipeline(insights, limit=None, farmer=None, farmers=None) -> PipelineResult         # P1: filter + loop, writes nothing
+#   farmers = load_farmers(); each farmer's chat history is taken from `insights` (feeds P2's send time)
 #   PipelineResult.insights / .outputs (same order as the input) / .rows_processed / .counts()
 mel.pipeline.select_insights(insights, limit=None, farmer=None) -> list                              # P1: the shared --limit / --farmer filter
-mel.decision.decide(insight) -> Decision(survey, rule, reason_code, send_window)        # P2
+mel.decision.decide(insight, farmer=None, history_hours=()) -> Decision(survey, rule, reason_code, send_window, send_time)  # P2
+#   send_time = {"send_at", "slot", "rule", "assumption", "reason"} for surveys, else None: the recommended send moment
 mel.timing.send_window(insight) -> {"not_before", "not_after"} | None; expires_at(window) # P2
+mel.timing.pick_send_time(insight, window, farmer=None, history_hours=()) -> send_time    # P2 (decide calls it)
+mel.timing.chat_hours(insights, farmer_id, before) -> list[int]   (IST hours of earlier chats only) # P2
 mel.timing.is_past_harvest(crop, date) -> bool                                           # P2
 mel.writer.write_surveys(insight, window) -> {lang: survey}                              # P4
 mel.writer.check_survey(survey) -> list[str]   (empty list = safe)                       # P4
@@ -56,7 +60,8 @@ mel.writer.guards.relevance_score(survey, insight) -> float 0..1                
 mel.schedule.build_handoff(insight, survey) -> handoff                                   # P3
 mel.schedule.CapLedger().allow(handoff) -> bool; OptOutList().record(resp) / .blocks(h)  # P3
 mel.channels.render(survey, channel) -> payload                                          # P3
-mel.simulator.simulate(survey, channel, case, seed) -> response                          # P3
+mel.simulator.simulate(survey, channel, case, seed, send_at=None) -> response             # P3
+#   send_at = decision.send_time["send_at"] for the first channel; the CLI and the app pass it
 mel.evaluation.score_golden(golden=None) -> metrics                                      # P5
 ```
 

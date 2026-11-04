@@ -1,9 +1,14 @@
-"""P2: send time picks one moment inside the window, with a stated rule."""
+"""P2: send time picks one moment inside the window, with a stated rule; downstream sends at it."""
+from datetime import timedelta
+
 import pytest
 
+from mel.data import errors
 from mel.data.loader import load_farmers, load_insights
 from mel.decision import decide
-from mel.timing import chat_hours, parse_ist, pick_send_time
+from mel.pipeline import run_pipeline
+from mel.simulator import simulate
+from mel.timing import chat_hours, fmt_ist, parse_ist, pick_send_time
 from mel.timing.calendar import harvest_period
 
 WIN = {"not_before": "2026-11-20T07:00:00+05:30", "not_after": "2026-11-22T19:00:00+05:30"}
@@ -71,3 +76,27 @@ def test_every_survey_time_is_inside_its_window_and_send_hours():
         at = parse_ist(d.send_time["send_at"])
         assert parse_ist(d.send_window["not_before"]) <= at <= parse_ist(d.send_window["not_after"]), i["insight_id"]
         assert 7 <= at.hour < 19, i["insight_id"]
+
+
+def test_batch_run_sends_at_the_recommended_time():
+    """The CLI's path: run_pipeline -> first channel -> simulate(send_at=decision.send_time)."""
+    sent = 0
+    for out in run_pipeline(load_insights(), farmers=load_farmers()).outputs:
+        if "handoff" not in out:
+            continue
+        h, t = out["handoff"], out["decision"].send_time
+        r = simulate(h["survey"], h["channel_order"][0]["channel"], "completed", send_at=t["send_at"])
+        assert r["timestamps"]["sent"] == t["send_at"] and not errors("response", r)
+        sent += 1
+    assert sent
+
+
+def test_pipeline_passes_chat_history_to_the_send_time():
+    ins = next(i for i in load_insights() if decide(i).survey)
+    ins = {**ins, "farmer_id": "F-999999", "preferred_channel": "voice", "severity": "low",
+           "advice_summary": "Advised to weed the field."}
+    d0 = parse_ist(ins["created_at"])
+    past = [{**ins, "insight_id": f"I-99999{n}", "created_at": fmt_ist((d0 - timedelta(days=n + 1)).replace(hour=14))}
+            for n in range(6)]
+    t = run_pipeline(past + [ins]).outputs[-1]["decision"].send_time
+    assert (t["rule"], t["slot"]) == ("usual_time", "afternoon")
