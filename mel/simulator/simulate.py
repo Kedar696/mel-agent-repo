@@ -473,6 +473,22 @@ def _case_for_channel(persona: dict, channel: str) -> str | None:
     return persona["per_channel"].get(channel, persona["fallback_case"])
 
 
+def case_for_channel(persona_name: str, channel: str) -> str | None:
+    """Public: the simulate() case a named persona produces on a channel, or None if the
+    persona cannot be reached there (the broadcaster skips that channel). Lets the season
+    scheduler drive one channel step at a time with the same persona behaviour that
+    simulate_handoff() uses for a whole-walk."""
+    p = PERSONAS.get(persona_name)
+    if p is None:
+        raise ValueError(f"unknown persona {persona_name!r}; known: {sorted(PERSONAS)}")
+    return _case_for_channel(p, channel)
+
+
+# Re-exported so the season driver can apply the same stop/continue rules per step.
+STOP_DECISIONS = frozenset({"none", "give_up"})
+CONTINUE_DECISIONS = frozenset({"fall_back_to_next_channel"})
+
+
 def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> list[dict]:
     """Walk a hand-off's channel_order the way the broadcaster would and return the answer
     records produced, one per channel actually attempted.

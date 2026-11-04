@@ -3,4 +3,7 @@
 simulate(survey, channel, case, seed) -> one response record (reproduces the reference grid).
 simulate_handoff(handoff, persona, seed) -> list of records, walking the hand-off's channel_order.
 """
-from .simulate import simulate, simulate_handoff, simulate_sheet, cases_for, SUCCESS_CASES, PERSONAS
+from .simulate import (
+    simulate, simulate_handoff, simulate_sheet, cases_for, SUCCESS_CASES, PERSONAS,
+    case_for_channel, STOP_DECISIONS, CONTINUE_DECISIONS,
+)
