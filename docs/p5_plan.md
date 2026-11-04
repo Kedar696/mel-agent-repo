@@ -1,62 +1,69 @@
 # P5 plan: Evaluation & Demo
 
-Source of truth: the signed Team Contracts (P5 section). This file also folds in what Digital Green's
-**Technical** and **Vision** documents say judges will look for. Updated 3 Nov 2026.
+Source of truth: the FINAL Team Contracts (4 Nov), which now include Digital Green's Vision and Technical
+documents. Updated 4 Nov 2026.
 
-## What Digital Green's documents add
-- "Evaluation is the center of this project, not an afterthought." Quality and timing beat infrastructure.
-- **Hill-climb:** run, score, change something, rerun, show the trend. Their "done" list needs at least one
-  improvement round shown.
-- **Five things to score:** relevance, timeliness, format, safety, speed (time per survey and per batch).
-- **Their three user stories** (farmer gets a follow-up · MEL team checks quality · bad answer gets followed
-  up) are the three parts of our 3-minute demo.
+## What P5 must deliver (FINAL contract)
+- A scorecard covering Digital Green's five dimensions (relevance, timeliness, format, safety, speed), next
+  to our decision and rule accuracy.
+- Relevance scored by an **AI judge on Amazon Bedrock**, checked against 20 surveys the team scores by hand.
+- A **run history**: every eval run saved, with a chart per dimension. At least one improvement shown.
+- The 3-minute demo, including the simulated clock moving through the season. Slides, two clean-checkout
+  rehearsals, a backup video.
+- Bedrock is **required** for every model call (no longer optional). App Runner hosting stays optional.
 
-## Where the contract and Digital Green's documents differ
-| Topic | Contract | Digital Green | What we do |
-|---|---|---|---|
-| Bedrock / AWS | Optional, first thing to cut | Bedrock "required" for AI models | Templates stay the core; **P1 + P4 decide**, not P5 |
-| Scorecard fields | decision, rule, window, item similarity, confusion | relevance, timeliness, format, safety, speed | P5 owns the fields: add format, safety, speed (done) |
-| Improvement shown | "Rules we changed" list, before → after | Trend across runs | Run history feeds both (done) |
-| AI judge for relevance | Not in contract; relevance score is P4's | Suggested | Extra only, after core targets, with P4 |
+## Where things stand (4 Nov)
+| Contract item | Status |
+|---|---|
+| Per-rule confusion matrix, item similarity | Done |
+| Format, safety, speed on all 6,999 insights | Done |
+| Timeliness (after the action window, 07:00–19:00, in season, before harvest) | Done |
+| Run history + chart with a dimension picker | Done: runs 1–3 recorded |
+| At least one improvement run | Done: run 2 (R7 storage fix, 96.0% → 99.3%), run 3 (answer-key send-time setting) |
+| "Rules we changed" list | Done: generated from the history (README, app, offline scorecard) |
+| Both timing numbers shown | Done: README, app toggle, demo script |
+| README numbers by script; offline scorecard | Done (`mel/evaluation/report.py`) |
+| Follow-up queue page | Done; switch to P3's outcomes with late answers when they land |
+| Every `mel.cli eval` appends to the history | **Waiting on P1** to call `run_eval()` from `cmd_eval` |
+| AI judge on Bedrock + 20 hand-scored surveys | Not started: needs P1's Bedrock access |
+| Season screen with the simulated clock | Not started: needs P3's `SimClock` and `broadcast_due` |
+| Templates-vs-Bedrock table, token/cost/time totals | Waiting on P4 |
+| Slides, rehearsals, backup video | H+36 |
 
-**Correction for P2:** the contract says R7 misses are "R7 says survey when the key says no". It's the other
-way round. We say *no survey* (crop harvested) and the key says *survey*. All 6 are potato or cauliflower in
-post-harvest storage, so the fix makes R7 let stored crops through.
+**Finding worth showing:** the answer-key send-time setting matches the answer key 100%, but only 26.5% of
+its send windows pass the timeliness check. 1,982 surveys would open before the farmer's action window ends.
+The brief rules pass 100%. That is the evidence for keeping the brief as the default.
 
-## Tasks
-**H+4**
-- [ ] Post Scorecard fields (contract fields + format pass, safety pass, failing-but-scheduled, ms per insight)
-- [ ] Settle `score_golden` signature (`docs/h4_interface_decisions.md`; recommendation: keep)
-- [ ] Agree the 3-part storyline with the team (`docs/demo_script.md`)
+## Next steps
+**Workstream B: AI judge (needs Bedrock access from P1)**
+- `mel/evaluation/judge.py`. Rubric: Digital Green's if they have one (P1's question 4), otherwise ours from
+  the Vision principles: one farmer, one context; asks about the advice given; no new advice; short and
+  tappable. Scores 1–5 with a reason.
+- Uses P4's `ModelClient` once merged, else a small Bedrock `converse` adapter. Small model, IAM role, no key.
+  Off by default (`MEL_JUDGE=1`), cached on disk, tokens/cost/time logged. Runs on the 95 answer-key surveys.
+- `docs/results/hand_scores.csv`: 20 surveys scored by the team; report how often the judge agrees.
+- `boto3` in `requirements.txt` is a shared change: post in chat first.
 
-**H+12**
-- [x] Per-rule confusion matrix and item similarity in `score_golden`
-- [x] Scorecard in the app: format, safety, gate, relevance, speed over all 6,999 insights (`mel/evaluation/scorecard.py`)
-- [x] Run history + trend chart (`mel/evaluation/history.py`, `docs/results/eval_history.jsonl`); run 1 = baseline
-- [ ] "Rules we changed" entries as P2/P3 changes land: record a run per change
+**Workstream C: plug in teammates' work as it merges (P5 reviews P1 and P3 PRs)**
+- P3: follow-up queue from their outcomes (late answers shown); cap / opt-out / skip-move-merge counts on
+  Overview; "failing but scheduled" read from their gate; a Season screen with the clock.
+- P4: read `self_eval` and `GuardResult.codes`; agree a relevance threshold; templates-vs-Bedrock table.
+- P1: `RunResult` adapter for `score_golden`; one REST API example in the Q&A.
 
-**H+24**
-- [x] Follow-up queue page
-- [ ] Switch the queue to P3's `simulate(handoff, persona, seed)` outcomes, late answers included, when they land
-- [x] README numbers written by script, never typed (`python scripts/readme_numbers.py --write`)
-- [x] Offline scorecard for stage failures (`docs/results/scorecard.md`)
+**Workstream D (H+36):** slides (one per changed rule; AWS slide with Bedrock built and the rest "not
+built"), two clean-checkout rehearsals, backup video, freeze with P1.
 
-**H+36**
-- [x] 3-minute script in 3 parts (`docs/demo_script.md`)
-- [ ] Slides: one per changed rule with its numbers; "How this would run on AWS" marked not built
-- [ ] Two rehearsals from a clean checkout following only the README; backup video
-- [ ] Optional, last: App Runner hosting with P1
-
-## Inputs P5 is waiting on
-| From | What | For |
-|---|---|---|
-| P1 | `run_pipeline()`; the 3 Digital Green answers | eval entry point; window story |
-| P2 | R7 storage fix; 09:00 setting; final table | run history entries; changed-rule slides |
-| P3 | cap / opt-out / skip-move-merge counts; outcomes with `late` | follow-up queue; scorecard |
-| P4 | templates-vs-Claude table; better relevance score; Hindi sign-off | relevance number; "pending review" label |
+## Messages to send
+- **P1:** call `mel.evaluation.run_eval()` from `cmd_eval` (3 lines); Bedrock region/model + IAM access for the
+  judge; Digital Green question 4 (relevance rubric).
+- **P2:** runs 2 and 3 recorded from your merge. The contract still describes the R7 misses backwards. G-0145
+  (one-day 31 March window) is the last miss under the brief rules.
+- **P3:** your `simulate` changes touch the app's Simulate and Follow-up tabs; tell P5 before merging.
+- **P4:** your branch conflicts with `main`; send the `self_eval` field names; agree the relevance threshold.
 
 ## How to record an improvement
 ```
-python scripts/readme_numbers.py --write --record "R7 storage exception"
+python scripts/readme_numbers.py --write --record "what changed"
 ```
-Commit the README, `docs/results/scorecard.md` and `docs/results/eval_history.jsonl` together with the change.
+Add `--basis brief` or `--basis answer_key` to record only one send-time rule. Commit the README,
+`docs/results/scorecard.md` and `docs/results/eval_history.jsonl` together with the change.

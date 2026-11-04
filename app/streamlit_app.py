@@ -16,8 +16,8 @@ import streamlit as st
 from mel.channels import render
 from mel.channels.render import choices
 from mel.config import CHANNELS, PACK_DATA
-from mel.data import load_insights, errors, load_golden
-from mel.evaluation import score_golden, run_scorecard, load_history
+from mel.data import load_insights, errors
+from mel.evaluation import evaluate, load_history, rules_changed
 from mel.pipeline import run_insight, clean
 from mel.schedule.handoff import CapLedger
 from mel.simulator import simulate, cases_for
@@ -415,74 +415,98 @@ with tab_follow:
                     st.json(t["rec"])
 
 # ---------------------------------------------------------------- Evaluation
-@st.cache_data(show_spinner="Scoring mock golden set…")
-def _eval_mock():
-    return score_golden()
+# Digital Green's five dimensions (relevance, timeliness, format, safety, speed) next to our decision and
+# rule accuracy, under either send-time rule, plus the run history that shows each improvement.
+BASIS_LABEL = {"brief": "Brief rules (default)", "answer_key": "Answer-key setting"}
+DIMENSIONS = {"decision_acc": "Decision", "rule_acc": "Rule", "window_acc": "Window match",
+              "timeliness_pass": "Timeliness", "format_pass": "Format", "safety_pass": "Safety",
+              "item_similarity_avg": "Item similarity", "relevance_avg": "Relevance (P4)",
+              "judge_relevance": "Relevance (AI judge)", "s_per_survey": "Seconds per survey"}
 
-@st.cache_data(show_spinner="Scoring full 150-row golden set…")
-def _eval_full():
-    path = PACK_DATA / "golden_set.jsonl"
-    if not path.exists():
-        return None
-    return score_golden(load_golden(path))
 
-@st.cache_data(show_spinner="Checking every survey in the full dataset…")
-def _scorecard():
-    path = PACK_DATA / "insights.jsonl"
-    return run_scorecard(load_insights(path if path.exists() else None))
+@st.cache_data(show_spinner="Scoring the answer key and checking every survey in the full dataset…")
+def _evaluate(basis):
+    return evaluate(basis)
+
+
+def _pct(v):
+    return "—" if v is None else f"{v:.1%}"
+
 
 with tab_eval:
-    r_mock = _eval_mock()
-    r_full = _eval_full()
-    st.subheader("Golden set scores")
-    keys = ["decision_acc", "rule_acc", "channel_acc", "window_acc", "item_similarity_avg"]
-    labs = ["Decision", "Rule", "Channel", "Window", "Item sim"]
-    cm, cf = st.columns(2)
-    with cm:
-        st.caption(f"Mock subset ({r_mock['n']} rows)")
-        cols = st.columns(len(keys))
-        for c, k, lab in zip(cols, keys, labs):
-            c.metric(lab, f"{r_mock[k]:.1%}" if k != "item_similarity_avg" else f"{r_mock[k]:.2f}")
-    with cf:
-        if r_full:
-            st.caption(f"Full pack ({r_full['n']} rows)")
-            cols = st.columns(len(keys))
-            for c, k, lab in zip(cols, keys, labs):
-                c.metric(lab, f"{r_full[k]:.1%}" if k != "item_similarity_avg" else f"{r_full[k]:.2f}")
-        else:
-            st.info("Full pack not found. Copy the participant pack into the project to see 150-row scores.")
+    basis = st.radio("Send-time rule", list(BASIS_LABEL), format_func=BASIS_LABEL.get, horizontal=True,
+                     help="P2 built both. Brief rules = Digital Green's written brief (07:00, after the farmer's "
+                          "action window). Answer-key setting = what the 150-case answer key expects.")
+    res = {b: _evaluate(b) for b in BASIS_LABEL}
+    r = res[basis]
+    src, card = r["full"] or r["mock"], r["card"]
 
-    card = _scorecard()
+    st.subheader("Answer key")
+    st.caption(f"{'Full pack' if r['full'] else 'Mock subset'}: {src['n']} cases with the right answer. "
+               f"Mock subset ({r['mock']['n']} rows): decision {r['mock']['decision_acc']:.1%}, "
+               f"window {r['mock']['window_acc']:.1%}.")
+    g = st.columns(5)
+    g[0].metric("Decision", _pct(src["decision_acc"]), "survey or not", delta_color="off")
+    g[1].metric("Rule", _pct(src["rule_acc"]), "which of R1–R8", delta_color="off")
+    g[2].metric("First channel", _pct(src["channel_acc"]))
+    g[3].metric("Window match", _pct(src["window_acc"]), "exact, vs answer key", delta_color="off")
+    g[4].metric("Item similarity", f"{src['item_similarity_avg']:.2f}", "keyword overlap", delta_color="off")
+
     st.subheader("Every survey we write")
     st.caption(f"Checks on all {card['n_survey_files']:,} survey files (Hindi + English) from "
                f"{card['n_insights']:,} insights → {card['n_surveyed']:,} surveys. No answer key needed.")
-    q = st.columns(5)
-    q[0].metric("Format", f"{card['format_pass']:.1%}", "schema, 1–3 tap items, right language", delta_color="off")
-    q[1].metric("Safety", f"{card['safety_pass']:.1%}", "no new advice, no personal info", delta_color="off")
-    q[2].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off")
-    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}", "P4 baseline score, 0–1", delta_color="off")
-    q[4].metric("Speed", f"{card['ms_per_insight']} ms", f"per insight · {card['batch_seconds']} s batch", delta_color="off")
-    if card["examples"]:
-        with st.expander(f"Surveys that failed a check (first {len(card['examples'])})"):
-            st.dataframe(pd.DataFrame(card["examples"]), width="stretch", hide_index=True)
+    q = st.columns(6)
+    q[0].metric("Format", _pct(card["format_pass"]), "schema, 1–3 tap items, language", delta_color="off")
+    q[1].metric("Safety", _pct(card["safety_pass"]), "no new advice or personal info", delta_color="off")
+    q[2].metric("Timeliness", _pct(card["timeliness_pass"]), "after action window, daytime, in season",
+                delta_color="off")
+    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}", "P4 score, 0–1 · AI judge: not run", delta_color="off")
+    q[4].metric("Speed", f"{card['s_per_survey'] * 1000:.1f} ms", f"per survey · {card['batch_seconds']:.0f} s for all",
+                delta_color="off")
+    q[5].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off")
+    for title, rows in ((f"Surveys that failed format or safety (first {len(card['examples'])})", card["examples"]),
+                        (f"Send windows that failed timeliness (first {len(card['timeliness_examples'])})",
+                         card["timeliness_examples"])):
+        if rows:
+            with st.expander(title):
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+    st.subheader("Brief rules vs answer-key setting")
+    st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
+               "farmer could have acted on the advice. We keep the brief as the default until Digital Green confirms.")
+    cmp = []
+    for b, rr in res.items():
+        gg, cc = rr["full"] or rr["mock"], rr["card"]
+        cmp.append({"Send-time rule": BASIS_LABEL[b], "Decision": _pct(gg["decision_acc"]),
+                    "Window match": _pct(gg["window_acc"]), "Timeliness": _pct(cc["timeliness_pass"]),
+                    "Surveys": f"{cc['n_surveyed']:,}", "Misses": len(gg["misses"])})
+    st.dataframe(pd.DataFrame(cmp), width="stretch", hide_index=True)
 
     st.subheader("Run history")
     hist = load_history()
     if not hist:
         st.info('No recorded runs yet. Run `python scripts/readme_numbers.py --write --record "what changed"`.')
     else:
-        st.caption("Each row is one recorded eval run: what we changed and what it did to the scores.")
+        st.caption("Each recorded eval run: what we changed and what it did to the scores (the hill-climb).")
+        changed = rules_changed(hist)
+        if changed:
+            st.markdown("**Rules we changed**")
+            st.dataframe(pd.DataFrame([{
+                "Run": c["run"], "What changed": c["change"], "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
+                **{lab: (_pct(c[k][1]) if c[k][0] == c[k][1] else f"{_pct(c[k][0])} → {_pct(c[k][1])}")
+                   for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
+                                  ("timeliness_pass", "Timeliness"))},
+                "Misses": f"{c['misses'][0]} → {c['misses'][1]}"} for c in changed]),
+                width="stretch", hide_index=True)
         hd = pd.DataFrame(hist)
-        if len(hd) > 1:
-            st.line_chart(hd.set_index("run")[["decision_acc", "rule_acc", "window_acc", "item_similarity_avg"]],
-                          height=200)
-        st.dataframe(hd[["run", "at", "commit", "label", "decision_acc", "rule_acc", "window_acc",
-                         "item_similarity_avg", "misses"]],
-                     width="stretch", hide_index=True,
-                     column_config={k: st.column_config.NumberColumn(format="percent")
-                                    for k in ("decision_acc", "rule_acc", "window_acc")})
+        avail = [k for k in DIMENSIONS if k in hd and hd[k].notna().any()]
+        pick = st.multiselect("Dimensions to chart", avail, default=[k for k in ("decision_acc", "window_acc",
+                              "timeliness_pass") if k in avail], format_func=DIMENSIONS.get)
+        if len(hd) > 1 and pick:
+            st.line_chart(hd.set_index("run")[pick].rename(columns=DIMENSIONS), height=220)
+        with st.expander("All recorded runs"):
+            st.dataframe(hd, width="stretch", hide_index=True)
 
-    src = r_full or r_mock
     st.subheader("Per-rule confusion matrix")
     st.caption("Rows = expected rule, columns = our prediction. Diagonal = correct.")
     rules = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]

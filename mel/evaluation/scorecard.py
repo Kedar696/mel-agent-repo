@@ -4,18 +4,24 @@ Covers the dimensions Digital Green's technical brief asks for that don't need a
   format  - schema-valid, 1-3 tap-answer items, text in the right language (Hindi has Devanagari,
             English has none)
   safety  - no new advice, no personal-information request (P4's guards in mel/writer/guards.py)
+  timeliness - every send window: opens after the farmer could act (action window over), only
+            between 07:00 and 19:00, closes by season end, and (for standing crops) before harvest.
+            Independent of which timing rule is active; the exact match vs the answer key is in golden.py.
   gate    - surveys that fail format or safety but still got a scheduler hand-off (target 0)
-  speed   - time per insight and for the whole batch
+  speed   - seconds per survey, ms per insight, and seconds for the whole batch
   relevance - P4's relevance_score, averaged (reported here, owned and improved by P4)
 
-Relevance against the answer key (item similarity) and timeliness (window match) are in golden.py.
+Relevance against the answer key (item similarity) and exact window match are in golden.py.
 """
 import re
 import time
+from datetime import date, time as clock, timedelta
 
+from mel.config import rules
 from mel.data import errors
 from mel.pipeline import run_insight, clean
 from mel.writer import check_survey
+from mel.timing import parse_ist, is_past_harvest
 from mel.writer.guards import relevance_score
 
 TAP_TYPES = {"survey-single-select", "survey-confirm", "survey-scale"}
@@ -46,11 +52,35 @@ def safety_problems(survey: dict) -> list[str]:
     return [p for p in check_survey(survey) if "advice" in p or "personal" in p]
 
 
+def timeliness_problems(insight: dict, window: dict) -> list[str]:
+    """Is this send window sensible for this farmer? Uses the brief's principles, not the answer key."""
+    wr = rules()["window_rules"]
+    nb, na = parse_ist(window["not_before"]), parse_ist(window["not_after"])
+    created = parse_ist(insight["created_at"]).date()
+    aw = insight.get("action_window_days")
+    aw = wr["action_window_days_if_null"] if aw is None else aw
+    probs = []
+    if nb.date() < created + timedelta(days=aw):
+        probs.append(f"opens {nb.date()} before the action window ends ({created + timedelta(days=aw)})")
+    open_t, close_t = clock.fromisoformat(wr["not_before_time"]), clock.fromisoformat(wr["not_after_time"])
+    if nb.time() < open_t or nb.time() > close_t:
+        probs.append(f"opens at {nb.time():%H:%M}, outside {open_t:%H:%M}-{close_t:%H:%M}")
+    if na.time() > close_t or na.time() < open_t:
+        probs.append(f"closes at {na.time():%H:%M}, outside {open_t:%H:%M}-{close_t:%H:%M}")
+    if na.date() > date.fromisoformat(wr["season_end"]):
+        probs.append(f"closes {na.date()} after the season ends")
+    asset = insight.get("asset") or {}
+    storage = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
+    if asset.get("category") == "crop" and not storage and is_past_harvest(asset.get("name"), nb.date()):
+        probs.append(f"opens {nb.date()} after the {asset.get('name')} harvest")
+    return probs
+
+
 def run_scorecard(insights: list[dict], max_examples: int = 20) -> dict:
     """Run the pipeline over `insights` and score every survey it writes. Deterministic except timing."""
-    n_surveyed = n_files = fmt_ok = safe_ok = handoff_ok = gated_leak = 0
+    n_surveyed = n_files = fmt_ok = safe_ok = handoff_ok = gated_leak = timely_ok = 0
     rel = []
-    examples = []
+    examples, late_examples = [], []
     t0 = time.perf_counter()
     for ins in insights:
         out = run_insight(ins)
@@ -71,6 +101,10 @@ def run_scorecard(insights: list[dict], max_examples: int = 20) -> dict:
                 examples.append({"insight_id": ins.get("insight_id"), "language": lang, "problems": fp + sp})
         if "handoff" in out:
             handoff_ok += not errors("schedule_handoff", out["handoff"])
+            tp = timeliness_problems(ins, out["handoff"]["send_window"])
+            timely_ok += not tp
+            if tp and len(late_examples) < max_examples:
+                late_examples.append({"insight_id": ins.get("insight_id"), "problems": tp})
             gated_leak += bad_any
     secs = time.perf_counter() - t0
     n = len(insights)
@@ -80,7 +114,9 @@ def run_scorecard(insights: list[dict], max_examples: int = 20) -> dict:
         "format_pass": fmt_ok / files, "safety_pass": safe_ok / files,
         "handoff_valid": handoff_ok / max(n_surveyed, 1),
         "failed_but_scheduled": gated_leak,
+        "timeliness_pass": timely_ok / max(n_surveyed, 1),
         "relevance_avg": round(sum(rel) / len(rel), 2) if rel else 0.0,
         "batch_seconds": round(secs, 2), "ms_per_insight": round(secs / max(n, 1) * 1000, 2),
-        "examples": examples,
+        "s_per_survey": round(secs / max(n_surveyed, 1), 4),
+        "examples": examples, "timeliness_examples": late_examples,
     }

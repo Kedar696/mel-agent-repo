@@ -10,7 +10,7 @@ The three parts follow Digital Green's own three user stories (vision document, 
 
 Overview and Simulate answers are **backup screens** for questions only.
 
-Numbers below were last generated on **3 Nov 2026**. Before every rehearsal, run the check below; the
+Numbers below were last generated on **4 Nov 2026**. Before every rehearsal, run the check below; the
 README results section and `docs/results/scorecard.md` are regenerated from the same run. If the screen and
 this script disagree, **trust the screen** and fix this file afterwards.
 
@@ -55,34 +55,37 @@ streamlit run app/streamlit_app.py
 
 ## Part 2. The MEL team checks quality (80 seconds)
 
-**Screen:** Evaluation.
+**Screen:** Evaluation, with "Brief rules (default)" selected.
 
 **Say, top to bottom:**
-> **[golden scores, full pack]** Digital Green gave us an answer key of 150 cases. We agree on
-> *whether* to survey **96%** of the time, and pick the right first channel **every** time.
+> **[Answer key]** Digital Green gave us an answer key of 150 cases. We agree on *whether* to survey
+> **99.3%** of the time, and pick the right first channel **every** time.
 >
-> **[Every survey we write]** Then we ran all **6,999** conversations: 2,551 surveys, over 5,000 files in two
-> languages. **100%** are in the right format, **100%** pass the safety checks, and it takes under a
-> millisecond per farmer, so about 6 seconds for the whole season.
+> **[Every survey we write]** Then we ran all **6,999** conversations: about 2,600 surveys, over 5,000 files
+> in two languages. **100%** are in the right format, **100%** pass the safety checks, **100%** go out at
+> a sensible time, and it takes about 2 milliseconds per survey: 6 seconds for the whole season.
 >
-> **[Misses]** Where we disagree with the answer key, all 6 misses are the same case: potatoes already
-> dug up and sitting in storage. We said "harvested, nothing to ask"; the key says "they can still rot,
-> ask." **[Run history]** That's one specific rule, and this table tracks each fix and its score.
+> **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
+> potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
+> still rot. We fixed that one rule and went to **99.3%**.
 >
-> **[Window 0%]** One honest zero: send timing. Digital Green's brief says 7 am; their answer key says
-> 9 am. We followed the brief and asked them. It's a setting, not a rewrite.
+> **[Brief rules vs answer-key setting]** One real disagreement in Digital Green's own material: *when*
+> to send. Their brief says after the farmer's deadline to act; their answer key often says earlier.
+> We built both. The answer-key setting matches the key **100%**, but it would ask **3 out of 4**
+> farmers before they could have acted on the advice. So we keep the brief as the default and have asked
+> Digital Green to confirm.
 
 **Rules we changed on purpose** (contract: every one shown with its numbers, one slide each).
-As of 3 Nov **none**: the code follows the brief, and run 1 in the history is that baseline. When P2's
-changes land, record a run for each (`--record "what changed"`) and fill in:
+Generated from the run history; the same table is in the README and the Evaluation tab. As of 4 Nov:
 
-| Change (owner) | Why | Before (full pack) | After |
-|---|---|---|---|
-| Storage exception to R7 "already harvested" (P2) | All 6 misses are post-harvest storage | decision 96.0%, rule 96.0%, 6 misses | _fill in_ |
-| Answer-key window (09:00) behind a setting; brief rule stays default (P2) | Brief and answer key disagree | window 0% | _fill in, setting on_ |
+| Run | Change (owner) | Decision | Window match | Timeliness | Misses |
+|---|---|---|---|---|---|
+| 2 | R7 storage exception: stored crops still get a survey (P2) | 96.0% → 99.3% | 0% | 100% | 6 → 1 |
+| 3 | Answer-key send-time setting, off by default (P2) | 99.3% → 100% | 0% → 100% | 100% → 26.5% | 1 → 0 |
 
-If neither has landed: *"We kept the brief's rules on purpose and showed exactly where the answer key
-disagrees. Each one is a setting once Digital Green confirms."*
+The last miss under the brief rules is G-0145: the answer key accepts a one-day window on 31 March; the
+brief needs two days. Record each new change with
+`python scripts/readme_numbers.py --write --record "what changed"` and add a row here.
 
 ## Part 3. A bad answer gets followed up (30 seconds)
 
@@ -98,7 +101,8 @@ disagrees. Each one is a setting once Digital Green confirms."*
 > We only ask when there's something worth asking, in the farmer's language, at the right time, and every
 > bad answer gets a person's attention. Thank you.
 
-(AWS: one slide only, "How this would run on AWS", marked **not built**. Don't open any console.)
+(AWS slide: Bedrock (Amazon's AI service) is **built** and required by Digital Green; App Runner,
+EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any console on stage.)
 
 ---
 
@@ -106,7 +110,8 @@ disagrees. Each one is a setting once Digital Green confirms."*
 
 - **Is this real farmer data?** No. It's synthetic data from Digital Green's pack. Nothing is actually sent.
 - **Does it use AI to write the questions?** By default it uses checked templates: safe, free and
-  repeatable. A Claude option exists, off by default; the same safety checks apply.
+  repeatable. An AI option on Amazon Bedrock (P4) is being added; every AI-written survey goes through the
+  same safety checks and falls back to a template if it fails. *(Update once P4's Bedrock path lands.)*
 - **How do you stop it giving bad advice?** It never gives advice, only asks what happened. Checks block
   surveys that sound like advice or ask for personal information, and the scorecard proves 0 slipped through.
 - **How do you know the checks work?** Tests feed in a survey that gives advice ("You should spray…") and one
@@ -117,7 +122,11 @@ disagrees. Each one is a setting once Digital Green confirms."*
 - **How many get a survey?** *(Show Overview.)* In the 57-conversation sample, 16 do; 41 don't, each with a
   written reason: broken record, general information, still asking for details, or a critical case where a
   person should call instead.
-- **Why 0% on windows?** The brief and the answer key disagree; we followed the brief and asked Digital Green.
+- **Why 0% window match by default?** The brief and the answer key disagree on send times. The answer-key
+  setting scores 100% but asks 3 in 4 farmers before they could act, so the brief stays the default until
+  Digital Green confirms. *(Switch the Evaluation tab's send-time rule to show both.)*
+- **How fast is it?** About 2 ms per survey; all 6,999 conversations in about 6 seconds.
+- **Can the season be fast-forwarded?** *(Once P3's simulated clock lands: Season tab.)* Placeholder until then.
 
 ## If something breaks
 
