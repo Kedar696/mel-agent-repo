@@ -1,4 +1,4 @@
-# Slide draft: MEL Survey Agent (judges' deck)
+# Slide draft: Fasal Pulse - MEL Survey Agent (judges' deck)
 
 Owner: P5. A text draft for the team to review before we build the real deck. The deck supports the live
 3-minute demo (`docs/demo_script.md`); it doesn't replace it.
@@ -10,7 +10,7 @@ Numbers below are from 4 Nov.
 ---
 
 ## 1. Title
-**MEL Survey Agent**: short follow-up surveys about the advice each farmer actually got.
+**Fasal Pulse - MEL Survey Agent**: short follow-up surveys about the advice each farmer actually got.
 Team names · Digital Green × hackathon · Nov 2026
 
 ## 2. The problem
@@ -59,6 +59,13 @@ Most conversations get no survey, and each "no" has a written reason.
 
 *Speaker note:* this is the most important slide for "quality over volume". Show the toggle on the
 Evaluation tab live if time allows.
+
+## 6b. It remembers the farmer (P4's history rules)
+- Same crop and problem again → "Is this the same problem you told us about before?" (H1)
+- Said the input wasn't available or was too costly → ask about that directly next time (H2)
+- Ignored recent surveys → shorter survey (H3) · light user → at most 2 questions (H4)
+- Changes 1,343 of 2,616 surveys. Trade-off, shown with numbers: P4's relevance score 0.69 → 0.73, answer-key
+  wording match 0.99 → 0.93. On in the app, off for the headline scores. Only earlier data is used.
 
 ## 7. When the answer is bad, a person follows up
 - "It didn't work", "my animal is worse", "couldn't reach the vet" → a ticket for FarmerChat staff, with a

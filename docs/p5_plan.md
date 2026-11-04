@@ -40,8 +40,8 @@ documents. Updated 4 Nov 2026 (evening).
 3. Send `docs/results/hand_scores.csv` + `hand_scoring_guide.md` to the team (unblocks the judge box).
 4. Chase P1: Bedrock access (region, model id), `boto3`, `run_eval` in `mel.cli eval`, `late` in the schema,
    weekly limit in `mel.cli run`.
-5. Agree with P4: one demo or two, one product name ("Fasal Pulse" vs "MEL Survey Agent"), whether H1–H4
-   move into the team writer.
+5. ✅ Decided 4 Nov: one demo (P4's folded into the team app), name "Fasal Pulse - MEL Survey Agent", H1–H4 moved into
+   `mel/writer/history.py` (on in the app, off for scoring; run 6–7 shows the trade-off). P4 reviews the PR.
 6. Host our app on Streamlit Cloud next to P4's; add links between the two.
 7. When Bedrock works: switch the judge to P4's `ModelClient`, run `--run` and `--calibrate`, record a run.
 8. Build the slide deck from `docs/slides_draft.md` (one slide per changed rule).

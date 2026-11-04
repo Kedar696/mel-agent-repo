@@ -12,7 +12,7 @@ import re
 from contextlib import contextmanager
 
 from mel.config import PACK_DATA, ROOT
-from mel.data import load_golden, load_insights
+from mel.data import load_farmers, load_golden, load_insights
 
 from .golden import score_golden
 from .history import load_history, record_run
@@ -39,27 +39,37 @@ def timing_basis(basis: str):
             os.environ["MEL_TIMING_BASIS"] = old
 
 
-def evaluate(basis: str = "brief") -> dict:
-    """Golden set (full pack if present, and the mock subset) plus the batch scorecard, under one timing rule."""
+def farmer_memory():
+    """P4's FarmerMemory over the full pack (or the mock sample): what the agent knows about each farmer."""
+    from mel.writer import FarmerMemory
+    ins_path, farm_path = PACK_DATA / "insights.jsonl", PACK_DATA / "farmers.csv"
+    return FarmerMemory(load_insights(ins_path if ins_path.exists() else None),
+                        load_farmers(farm_path if farm_path.exists() else None))
+
+
+def evaluate(basis: str = "brief", history: bool = False) -> dict:
+    """Golden set (full pack if present, and the mock subset) plus the batch scorecard, under one timing rule.
+    `history=True` scores with P4's history rules on (off by default: team decision 4 Nov)."""
     full_path, ins_path = PACK_DATA / "golden_set.jsonl", PACK_DATA / "insights.jsonl"
+    memory = farmer_memory() if history else None
     with timing_basis(basis):
-        mock = score_golden()
-        full = score_golden(load_golden(full_path)) if full_path.exists() else None
-        card = run_scorecard(load_insights(ins_path if ins_path.exists() else None))
+        mock = score_golden(memory=memory)
+        full = score_golden(load_golden(full_path), memory=memory) if full_path.exists() else None
+        card = run_scorecard(load_insights(ins_path if ins_path.exists() else None), memory=memory)
         if os.environ.get("MEL_JUDGE") == "1":  # AI judge on Bedrock; off by default (costs money)
             from .judge import BedrockClient, golden_pairs, judge_batch
             j = judge_batch(golden_pairs(load_golden(full_path) if full_path.exists() else None), BedrockClient())
             card["judge_relevance"] = j["judge_relevance"]
             card["judge"] = {k: v for k, v in j.items() if k != "rows"}
-    return {"basis": basis, "full": full, "mock": mock, "card": card}
+    return {"basis": basis, "history": history, "full": full, "mock": mock, "card": card}
 
 
-def run_eval(bases=BASES, record: str | None = None) -> dict:
+def run_eval(bases=BASES, record: str | None = None, history: bool = False) -> dict:
     """Score each timing rule in `bases`; with `record`, append one history row per rule."""
-    results = {b: evaluate(b) for b in bases}
+    results = {b: evaluate(b, history) for b in bases}
     if record:
         for b, r in results.items():
-            record_run(record, r["full"] or r["mock"], r["card"], timing_basis=b)
+            record_run(record, r["full"] or r["mock"], r["card"], timing_basis=b, history=history)
     return results
 
 
@@ -79,10 +89,14 @@ def rules_changed(history: list[dict] | None = None) -> list[dict]:
     hist = load_history() if history is None else history
     out = []
     for i, cur in enumerate(hist[1:], 1):
-        same = [h for h in hist[:i] if h["timing_basis"] == cur["timing_basis"]]
+        same = [h for h in hist[:i] if h["timing_basis"] == cur["timing_basis"]
+                and h.get("history", False) == cur.get("history", False)]
+        if not same and cur.get("history"):  # first history-on run: compare with history off, same timing rule
+            same = [h for h in hist[:i] if h["timing_basis"] == cur["timing_basis"]]
         prev = same[-1] if same else hist[i - 1]
         out.append({"run": cur["run"], "vs_run": prev["run"], "change": cur["label"],
-                    "timing_basis": cur["timing_basis"], **{k: (prev.get(k), cur.get(k)) for k in CHANGED_KEYS}})
+                    "timing_basis": cur["timing_basis"], "history": cur.get("history", False),
+                    **{k: (prev.get(k), cur.get(k)) for k in CHANGED_KEYS}})
     return out
 
 
@@ -103,7 +117,8 @@ def rules_changed_md() -> str:
     out = ["| Run (vs) | What changed | Timing rule | Decision | Rule | Window match | Timeliness | Item sim | Relevance (P4) | Misses |",
            "|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
-        out.append(f"| {r['run']} (vs {r['vs_run']}) | {r['change']} | {BASIS_LABEL.get(r['timing_basis'], r['timing_basis'])} "
+        rule = BASIS_LABEL.get(r['timing_basis'], r['timing_basis']) + (" + history on" if r["history"] else "")
+        out.append(f"| {r['run']} (vs {r['vs_run']}) | {r['change']} | {rule} "
                    f"| {_arrow(r['decision_acc'])} | {_arrow(r['rule_acc'])} | {_arrow(r['window_acc'])} "
                    f"| {_arrow(r['timeliness_pass'])} | {_arrow(r['item_similarity_avg'], _num)} "
                    f"| {_arrow(r['relevance_avg'], _num)} | {_arrow(r['misses'], _num)} |")
