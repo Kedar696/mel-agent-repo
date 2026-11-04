@@ -5,6 +5,7 @@ import sys, json, random, collections
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+import os; os.chdir(ROOT)
 import streamlit as st
 from mel import core
 from mel.writer import history
