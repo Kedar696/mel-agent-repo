@@ -5,6 +5,7 @@ from .broadcast import (
     Broadcaster, Broadcast, quality_failures, passes_quality, within_send_hours,
 )
 from .season import SeasonScheduler, StepResult
+from .batch import run_batch, BatchResult, BatchItem
 from .frequency import (
     FrequencyMonitor, FrequencyPeak, FrequencyScheduler, RankedHandoff,
     SeasonStageContext, ClimateContext, frequency_config, topic_of,

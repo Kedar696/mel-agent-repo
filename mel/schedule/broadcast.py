@@ -142,10 +142,19 @@ class Broadcaster:
     def __init__(self, clock=None):
         self._queue: list[dict] = []
         self._clock = clock
+        # P5 metrics: running totals of rejected (quality-gate) and expired hand-offs the
+        # broadcaster has dropped over this object's life. Counted from actual decisions in
+        # broadcast_due / drop_expired_and_rejected, never hard-coded.
+        self.rejected_count = 0
+        self.expired_count = 0
 
     @property
     def clock(self):
         return self._clock
+
+    def counts(self) -> dict:
+        """P5: cumulative rejected/expired totals from actual broadcaster decisions."""
+        return {"rejected": self.rejected_count, "expired": self.expired_count}
 
     def _resolve_clock(self, clock):
         c = clock if clock is not None else self._clock
@@ -208,7 +217,16 @@ class Broadcaster:
                 keep.append(h)
         self._queue = keep
         self._resort()
+        self._tally(dropped)
         return dropped
+
+    def _tally(self, broadcasts) -> None:
+        """Add expired/rejected outcomes to the running P5 totals (actual decisions)."""
+        for b in broadcasts:
+            if b.action == "rejected":
+                self.rejected_count += 1
+            elif b.action == "expired":
+                self.expired_count += 1
 
     def next_due(self, clock=None, *, relevance_threshold: float):
         """The single next hand-off that would be sent right now (earliest window first), as
@@ -242,6 +260,7 @@ class Broadcaster:
                 keep.append(h)
         self._queue = keep
         self._resort()
+        self._tally(results)
         return results
 
     @staticmethod

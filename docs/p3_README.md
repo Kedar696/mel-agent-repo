@@ -100,6 +100,70 @@ Tests: `tests/test_frequency.py`.
 
 ---
 
+## 5. Batch admission + cap/opt-out policy — `mel/schedule/batch.py`
+
+`run_batch(handoffs, *, relevance_threshold, simulate=False, persona, seed, cap, opt_out,
+reachability)` applies the cap and opt-out gate to a batch of pipeline hand-offs in
+**send-window-start order** and returns a `BatchResult` with P5 counts computed from actual
+decisions (never hard-coded).
+
+### The skip / move / merge policy (final, matches `docs/cap_policy.md` and the tests)
+At most **one non-high-priority survey per farmer per 7 days**, counted across all surveys
+and channels. For each hand-off, `CapLedger.admit` decides:
+
+| decision | when | effect |
+|---|---|---|
+| `sent` | within the cap, or high-priority (exempt) | scheduled as-is; counts toward the window |
+| `opted_out` | the farmer is on the opt-out list | nothing is sent, ever |
+| `moved` | capped, but a later day still inside this survey's `[not_before, expires_at]` is free | rescheduled to that day (07:00 kept); window width + expiry recomputed |
+| `merged` | capped, cannot move, an earlier survey to the same farmer is still open on this day | questions ride along with it; **both** surveys' `source_insight_ids` preserved, de-duplicated |
+| `skipped` | capped, cannot move, no open survey to merge into | dropped |
+
+- **High priority is exempt** (sent even when the cap is full) **and still counts** toward
+  later cap decisions.
+- **Opt-outs always win.** An opt-out produced *during* a simulated send is fed back into the
+  `OptOutList`, so a later hand-off for that same farmer in the batch is blocked — zero
+  surveys to an opted-out farmer.
+- `counts`: `sent`, `moved`, `merged`, `skipped`, `opted_out`, and `cap_violations`
+  (= skipped + opted_out). All from actual admit decisions.
+
+Delivery stays simulated (`run_batch(simulate=True)` calls `mel.simulator.simulate`).
+
+## 6. Farmer channel reachability — `mel/channels/reachability.py`
+`FarmerReachability(load_farmers(), unreachable_by_farmer=...)` answers "can this farmer be
+reached on this channel?". The farmers.csv has only `preferred_channel` and no per-channel
+reachability column, so the documented rule is: preferred channel always reachable; every
+other channel reachable by default (no data rules it out — we do **not** read
+`preferred_channel` as "others unreachable"); explicit override marks gaps; an unknown
+farmer falls back to all-reachable. `SeasonScheduler(reachability=...)` and
+`run_batch(reachability=...)` skip unreachable channels while preserving `channel_order`.
+**Input contract to add real data (request to P1):** a `reachable_channels` column on
+farmers.csv (pipe-separated) or a provider; until then the fallback above applies.
+
+## 7. Reference-grid comparison tool — `mel/simulator/reference_check.py`
+`python -m mel.simulator.reference_check` regenerates each of the 183 reference records and
+reports mismatches **by field**, exiting non-zero on any mismatch or if not all 183 are
+present. Nothing is ignored by default (the simulator is fully deterministic, including
+`response_key`); the `ignore_fields` hook is empty and documented for a future generated ID
+only — never a non-ID field. The existing exact-match test
+(`test_simulate_matches_all_183_reference_records`) stays as the gate; this is the
+human-readable companion for when something drifts.
+
+## P5 metrics surfaced
+- `SeasonScheduler.metrics()` -> `{"admitted": {...}, "steps": {...}}` from actual decisions.
+- `Broadcaster.counts()` -> `{"rejected": n, "expired": n}` (quality-gate rejections and
+  expired drops), accumulated from actual broadcaster decisions.
+- `run_batch(...).counts` -> sent / moved / merged / skipped / opted_out / cap_violations.
+
+## Cross-owner requests (not done here, by design — ownership + parity)
+- **Batch wiring into the CLI (P1):** `mel/cli.py cmd_run` can call `mel.schedule.run_batch`
+  to apply the gate and report the counts (the "thin helper" option in
+  `docs/p3_batch_wiring_request.md`). P3 did not edit P1's `cmd_run`/`pipeline.py`.
+- **`late` schema field (P1 + Digital Green):** adding the optional boolean `late` to
+  `config/schemas/response.schema.json` is P1's change (the schema is pack-parity-checked).
+  The P3 side already computes `late` (gated by `MEL_RESPONSE_LATE_FIELD`); flipping that on
+  is one constant once the field lands. See `docs/h4_schema_change_request_late.md`.
+
 ## Protections preserved across all of the above
 Send windows, expiry, send hours, opt-outs, the 1-per-7-day frequency cap, and the survey
 quality gate behave exactly as before. The new features orchestrate and rank around these
