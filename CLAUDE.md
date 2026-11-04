@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-03_
+_Last updated: 2026-11-04_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -29,17 +29,21 @@ streamlit run app/streamlit_app.py
 Full pack: `MEL_DATA_DIR=<pack>/data python -m mel.cli eval`. Write scratch output with `MEL_OUT_DIR=...`.
 
 ## Status (mock data)
-- 20 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey. Full pack: 6,999 insights →
-  2,551 surveys (5,102 files), format 100%, safety 100%, 0 failing-but-scheduled, ~0.9 ms/insight.
-- Golden eval — mock subset (35 rows): decision 97.1%, rule 97.1%, channel 100%, **window 0%**, item-sim 0.62
-  (1 miss). Full pack (150 rows): decision 96.0%, rule 96.0%, channel 100%, **window 0%**, item-sim 0.50
-  (6 misses). The Evaluation tab also shows a per-rule confusion matrix and item-similarity (keyword overlap)
-  vs the golden set's expected items, plus the batch scorecard (`mel/evaluation/scorecard.py`) and run history
-  (`docs/results/eval_history.jsonl`, run 1 = baseline). `python scripts/readme_numbers.py --write [--record "label"]`
-  regenerates the README results block and `docs/results/scorecard.md` (offline backup); never type numbers.
+- 71 tests pass. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
+- Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
+  brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
+  answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity 0.50.
+- Batch scorecard on all 6,999 insights (`mel/evaluation/scorecard.py`): brief → 2,616 surveys, format 100%,
+  safety 100%, **timeliness 100%**, 0 failing-but-scheduled, ~2.4 ms/survey (~6 s total). Under answer_key,
+  timeliness is **26.5%** (1,982 windows open before the farmer's action window ends): the case for brief.
+- Run history `docs/results/eval_history.jsonl`: run 1 baseline (96.0%), run 2 R7 storage fix (99.3%),
+  run 3 answer-key setting. `python scripts/readme_numbers.py --write [--record "label"] [--basis ...]`
+  (logic in `mel/evaluation/report.py`) regenerates the README results block, the generated "Rules we changed"
+  table and `docs/results/scorecard.md` (offline backup). Never type numbers.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app: Overview, Survey Studio (insight card, bilingual question cards, phone preview, hand-off strip),
-  Simulate answers, Follow-up queue, Evaluation. Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
+  Simulate answers, Follow-up queue, Evaluation (send-time rule toggle, five-dimension scorecard, brief-vs-
+  answer-key comparison, rules-we-changed table, run-history chart with dimension picker). Theme in `.streamlit/config.toml` (light only). All numbers come from the pipeline.
 - Added beyond the scaffold: `OptOutList` (mel/schedule), basic `relevance_score` (mel/writer/guards.py).
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
@@ -50,27 +54,28 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 `run_pipeline`, `CapLedger.admit`, `simulate_handoff`, `item_similarity`).
 
 ## Open items (owner)
-- P2: window accuracy 0%. Golden opens 09:00; brief + scenarios say 07:00 after action window. Plan: brief rule
-  default, answer-key rule behind a setting, ask Digital Green. Missing-crop fallback in `mel/timing/calendar.py`.
-  Decision misses: all 6 full-pack misses (G-0125/0128/0129/0131/0139/0141) are R7-vs-R8 on post_harvest
-  storage (5 potato, 1 cauliflower): key still surveys stored produce; candidate R7 storage exception.
-  Answer-key windows also start earlier days, not only 09:00. R1–R8 are inferred from golden; confirm R2.
+- P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
+  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2.
+  `compute_window()` must read P3's simulated clock (FINAL contract).
 - P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
   app/web sent once; channel fallback; reproduce the 183 reference answer records.
 - P4: concern-specific templates; native-speaker Hindi review; stronger guards; better relevance score;
   LLM path (off by default; `.env` is NOT auto-loaded); templates vs Claude table.
-- P5: plan in `docs/p5_plan.md`. 3-minute script done (`docs/demo_script.md`). Next: record a run per P2/P3 change
-  and fill "Rules we changed"; switch follow-up queue to P3 outcomes; slides; clean-checkout rehearsals; video.
-  Note: the pipeline does not itself block failing surveys from the hand-off; the scorecard only counts them (P1/P4).
+- P5: plan + status table in `docs/p5_plan.md`. Next: AI judge on Bedrock + 20 hand-scored surveys (needs
+  P1's Bedrock access); P1 to call `mel.evaluation.run_eval()` from `cmd_eval`; plug in P3 (outcomes with late,
+  cap counts, Season tab with SimClock) and P4 (`self_eval`, templates-vs-Bedrock table); slides, rehearsals, video.
+  The `self_eval` gate (never schedule a failing survey) is P4 sets / P3 enforces; P5 only counts.
 - P1: Excel loader + parity check; `--limit`/`--farmer`; junk-row reasons; CI; real usernames in CODEOWNERS.
-- Questions owed to Digital Green: 09:00 vs 07:00; critical → survey or human call; golden set v2 timing;
-  does the MEL team have a relevance rubric (for an LLM-as-judge)?
-- Team decision needed (P1 + P4): DG's technical doc says Bedrock is *required* for models; contract says AWS is
-  optional. Contract also states R7 misses backwards (we say no-survey, key says survey); tell P2.
+- Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
+  MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
+- FINAL contract (4 Nov) also adds: REST API + Dockerfile + infra/ + LICENSE + public repo (P1); SimClock +
+  broadcaster stub + self_eval gate (P3); Bedrock `ModelClient`, BCP 47 `lang`, self_eval (P4). Its P2 section
+  still describes the R7 misses backwards (we said no-survey, key said survey); tell P2.
 
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.
-- AWS is optional polish after core targets: S3, Bedrock, App Runner, Secrets Manager; the rest is slides only.
+- Bedrock is **required** for every model call (FINAL contract, 4 Nov), via the account's IAM role, no key.
+  Everything else on AWS is after core targets; App Runner optional; EventBridge/RDS/Connect are slide-only.
 - Rules follow the brief as the baseline; deliberate changes must be shown with numbers in the demo.
 
 ## How the user likes to work

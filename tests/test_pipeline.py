@@ -54,3 +54,47 @@ def test_history_records_runs(tmp_path):
     hist = load_history(path)
     assert [h["run"] for h in hist] == [1, 2] and row["label"] == "second"
     assert hist[0]["decision_acc"] == round(g["decision_acc"], 4)
+
+
+def _a_surveyed_insight():
+    for ins in load_insights():
+        out = run_insight(ins)
+        if out["decision"].survey:
+            return ins, out["handoff"]["send_window"]
+    raise AssertionError("mock data has no surveyed insight")
+
+
+def test_timeliness_passes_our_windows_and_catches_bad_ones():
+    from mel.evaluation import timeliness_problems
+    ins, win = _a_surveyed_insight()
+    assert timeliness_problems(ins, win) == []
+    created = ins["created_at"][:10]
+    too_early = {"not_before": f"{created}T09:00:00+05:30", "not_after": win["not_after"]}
+    assert any("before the action window ends" in p for p in timeliness_problems(ins, too_early))
+    at_night = {"not_before": win["not_before"].replace("T07:00", "T05:00"),
+                "not_after": win["not_after"].replace("T19:00", "T22:00")}
+    probs = timeliness_problems(ins, at_night)
+    assert any("opens at 05:00" in p for p in probs) and any("closes at 22:00" in p for p in probs)
+    late = {"not_before": "2027-04-02T07:00:00+05:30", "not_after": "2027-04-05T19:00:00+05:30"}
+    assert any("after the season ends" in p for p in timeliness_problems(ins, late))
+
+
+def test_timing_basis_switches_and_restores(monkeypatch):
+    import os
+    from mel.evaluation import timing_basis
+    monkeypatch.delenv("MEL_TIMING_BASIS", raising=False)
+    with timing_basis("answer_key"):
+        assert os.environ["MEL_TIMING_BASIS"] == "answer_key"
+    assert "MEL_TIMING_BASIS" not in os.environ
+
+
+def test_rules_changed_compares_each_run_with_the_previous(tmp_path):
+    from mel.evaluation import rules_changed
+    g = score_golden()
+    c = run_scorecard(load_insights()[:5])
+    path = tmp_path / "h.jsonl"
+    record_run("baseline", {**g, "decision_acc": 0.9}, c, path=path)
+    record_run("fix", g, c, path=path, timing_basis="answer_key")
+    (row,) = rules_changed(load_history(path))
+    assert row["change"] == "fix" and row["timing_basis"] == "answer_key"
+    assert row["decision_acc"] == (0.9, round(g["decision_acc"], 4))
