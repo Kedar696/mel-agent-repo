@@ -4,6 +4,7 @@ import re
 from mel.config import LANGS
 from . import llm
 from .guards import check_survey, self_eval
+from .relevance import relevance   # re-exported
 from .templates import template_items
 
 RATIONALE = {
