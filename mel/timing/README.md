@@ -69,6 +69,27 @@ It does not infer a storage stage from free text. The reference's cauliflower R7
 row lacks a structured storage marker, even though its text mentions storage;
 that ambiguity needs organizer clarification before changing this rule further.
 
+## Send time
+
+For surveys, `decision.send_time` picks one moment inside the window:
+`{send_at, slot, rule, assumption, reason}`. `decide(insight, farmer=None, history_hours=())`
+keeps the old call working; the optional farmers.csv row and `chat_hours(...)` history
+only refine the time, never the decision. Rules, first match wins:
+
+| Rule | When | Send at |
+|---|---|---|
+| `high_severity` | severity high or critical | window opens |
+| `advice_evening` | advice text says "evening" | next morning, 07:00-10:00 |
+| `usual_time` | call or light user, and past chats cluster in one slot (binomial test, p < 0.01) | that slot |
+| `async_channel` | app, web, WhatsApp, Telegram | window opens |
+| `harvest_busy` * | call during the crop's harvest period | 16:00-19:00 |
+| `livestock_chores` * | call, farmer keeps livestock | 13:00-16:00 |
+| `call_default` * | any other call | 16:00-19:00 |
+
+\* Domain assumptions, flagged `assumption: true`; no data supports them. The pack's chat
+times are spread evenly over the day, so `usual_time` rarely fires on it. The output is
+not in `schedule_handoff` yet: that schema forbids extra fields, so P3 must agree first.
+
 ## Reproduce validation
 
 From the repository root, activate an environment with the project dependencies:

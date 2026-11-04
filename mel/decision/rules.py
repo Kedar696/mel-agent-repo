@@ -15,7 +15,7 @@ from datetime import date
 
 from mel.config import rules
 from mel.data.validate import is_valid
-from mel.timing import send_window, parse_ist, is_past_harvest
+from mel.timing import send_window, parse_ist, is_past_harvest, pick_send_time
 
 # no_survey.schema.json only allows these two reason codes; extended code goes in `reason`.
 SCHEMA_REASON = {
@@ -42,6 +42,7 @@ class Decision:
     reason_code: str | None = None
     send_window: dict | None = None
     notes: list[str] = field(default_factory=list)
+    send_time: dict | None = None  # {send_at, slot, rule, assumption, reason}; surveys only
 
     def no_survey_record(self, insight: dict) -> dict:
         def record_id(key):
@@ -61,7 +62,8 @@ def _no(rule, code):
     return Decision(False, rule, code)
 
 
-def decide(insight: dict) -> Decision:
+def decide(insight: dict, farmer: dict | None = None, history_hours=()) -> Decision:
+    """`farmer` (farmers.csv row) and `history_hours` only refine the send time, never the decision."""
     if insight.get("quality_flag") == "junk" or not is_valid("insight", insight):
         return _no("R1", "junk_insight")
     # The shared schema validator checks patterns but does not enable date-time
@@ -84,4 +86,4 @@ def decide(insight: dict) -> Decision:
     post_harvest = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
     if asset.get("category") == "crop" and not post_harvest and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
         return _no("R7", "crop_already_harvested")
-    return Decision(True, "R8", None, win)
+    return Decision(True, "R8", None, win, send_time=pick_send_time(insight, win, farmer, history_hours))

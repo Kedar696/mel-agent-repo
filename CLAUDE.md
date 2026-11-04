@@ -60,6 +60,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
   see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2.
   `compute_window()` must read P3's simulated clock (FINAL contract).
+- P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`);
+  not in the hand-off yet (schema forbids extra fields): P3 must agree, P1 must pass farmer + `chat_hours`.
 - P3: wire `OptOutList` + `CapLedger` into batch run; two-in-a-week policy (skip/move/merge); late answers;
   app/web sent once; channel fallback; reproduce the 183 reference answer records.
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
