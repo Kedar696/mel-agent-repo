@@ -46,6 +46,11 @@ def evaluate(basis: str = "brief") -> dict:
         mock = score_golden()
         full = score_golden(load_golden(full_path)) if full_path.exists() else None
         card = run_scorecard(load_insights(ins_path if ins_path.exists() else None))
+        if os.environ.get("MEL_JUDGE") == "1":  # AI judge on Bedrock; off by default (costs money)
+            from .judge import BedrockClient, golden_pairs, judge_batch
+            j = judge_batch(golden_pairs(load_golden(full_path) if full_path.exists() else None), BedrockClient())
+            card["judge_relevance"] = j["judge_relevance"]
+            card["judge"] = {k: v for k, v in j.items() if k != "rows"}
     return {"basis": basis, "full": full, "mock": mock, "card": card}
 
 
@@ -136,6 +141,8 @@ def results_md(results: dict) -> str:
                lambda b: pct(c[b]["timeliness_pass"])),
            row("Failing surveys handed to the scheduler", lambda b: str(c[b]["failed_but_scheduled"])),
            row("Relevance (P4's score, 0–1)", lambda b: f"{c[b]['relevance_avg']:.2f}"),
+           row("Relevance (AI judge on Bedrock, 1–5; see the rubric below)",
+               lambda b: "not run" if c[b].get("judge_relevance") is None else f"{c[b]['judge_relevance']:.2f}"),
            row("Speed", lambda b: f"{c[b]['s_per_survey'] * 1000:.1f} ms per survey · {c[b]['batch_seconds']:.0f} s for all"),
            "", "**Rules we changed** (each recorded run vs the one before it)", "", rules_changed_md()]
     misses = g[bases[0]]["misses"]

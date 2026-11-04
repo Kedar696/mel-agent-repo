@@ -25,10 +25,11 @@ documents. Updated 4 Nov 2026.
 | README numbers by script; offline scorecard | Done (`mel/evaluation/report.py`) |
 | Follow-up queue page | Done; switch to P3's outcomes with late answers when they land |
 | Every `mel.cli eval` appends to the history | **Waiting on P1** to call `run_eval()` from `cmd_eval` |
-| AI judge on Bedrock + 20 hand-scored surveys | Not started: needs P1's Bedrock access |
+| AI judge on Bedrock + 20 hand-scored surveys | Built and tested with a stand-in model (`mel/evaluation/judge.py`); hand-scoring sheet ready (`docs/results/hand_scores.csv`, guide alongside). Real run needs P1's Bedrock access + `boto3` |
 | Season screen with the simulated clock | Not started: needs P3's `SimClock` and `broadcast_due` |
 | Templates-vs-Bedrock table, token/cost/time totals | Waiting on P4 |
-| Slides, rehearsals, backup video | H+36 |
+| Slides | Text draft: `docs/slides_draft.md` |
+| Rehearsals, backup video | H+36 |
 
 **Finding worth showing:** the answer-key send-time setting matches the answer key 100%, but only 26.5% of
 its send windows pass the timeliness check. 1,982 surveys would open before the farmer's action window ends.

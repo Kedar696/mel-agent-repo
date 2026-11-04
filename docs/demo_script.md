@@ -130,6 +130,8 @@ EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any con
 
 ## If something breaks
 
+- **App shows an ImportError after a `git pull`:** a Streamlit server started before the pull still has the
+  old code loaded. Stop it (`Ctrl+C`, or `pkill -f "streamlit run"`) and start it again.
 - **App won't start:** open `docs/results/scorecard.md` (offline scorecard, same numbers), then play the
   backup video.
 - **Evaluation says "Full pack not found":** the folder `mel-survey-agent-participant-pack/participant-pack/`

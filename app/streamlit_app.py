@@ -460,7 +460,9 @@ with tab_eval:
     q[1].metric("Safety", _pct(card["safety_pass"]), "no new advice or personal info", delta_color="off")
     q[2].metric("Timeliness", _pct(card["timeliness_pass"]), "after action window, daytime, in season",
                 delta_color="off")
-    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}", "P4 score, 0–1 · AI judge: not run", delta_color="off")
+    jr = card.get("judge_relevance")
+    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}",
+                "P4 score, 0–1 · AI judge: " + ("not run" if jr is None else f"{jr:.2f} / 5"), delta_color="off")
     q[4].metric("Speed", f"{card['s_per_survey'] * 1000:.1f} ms", f"per survey · {card['batch_seconds']:.0f} s for all",
                 delta_color="off")
     q[5].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off")
