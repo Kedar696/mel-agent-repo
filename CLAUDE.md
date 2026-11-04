@@ -63,7 +63,10 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
   (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey Studio
   shows "What the agent remembers", a history on/off switch, a "pretend survey history" demo and generic vs
-  adapted questions; Overview has "How it fits FarmerChat". History rules H1–H4 now live in
+  adapted questions, and "Answer as the farmer" (real tap-through on all 5 channels: finish, close, opt out,
+  free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
+  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
+  skipping a middle sheet question drops later answers, so the tap-through has no Skip button. History rules H1–H4 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
