@@ -214,4 +214,4 @@ def test_junk_report_categories_on_full_pack(tmp_path):
         else:
             assert "schema" not in (r["category"] + r["detail"]).lower()
     s = _summary(tmp_path)
-    assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875, "R5": 1312, "R6": 111, "R7": 115, "R8": 2551}
+    assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875, "R5": 1312, "R6": 147, "R7": 14, "R8": 2616}

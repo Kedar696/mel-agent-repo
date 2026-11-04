@@ -68,19 +68,20 @@ mel.evaluation.score_golden(golden=None) -> metrics                             
   `data/mock/outcomes` against the committed pack; `scripts/compare_golden.py`; CI; Kiro steering and spec.
   Still open: real usernames in `.github/CODEOWNERS`; sending the questions to Digital Green
   ([questions_for_digital_green.md](questions_for_digital_green.md)); the P3 wiring request (see Merge order).
-- **P2:** decision and rule accuracy 97.1% (one miss: G-0131, R7 fired, answer key says R8).
-  **Window accuracy 0%** (top priority). The brief and the 5 worked scenarios open at 07:00 after the
-  action window; the answer key opens at 09:00 on created + timing start and seasonal starts ~day 30.
-  Plan: brief rule as default, answer-key rule behind a setting, ask Digital Green.
-  Crops missing from the calendar (cauliflower, cabbage) need a fallback (`mel/timing/calendar.py`).
+- **P2:** merged 4 Nov. Decision and rule accuracy 99.3% under the brief rules (one miss: G-0145, a one-day
+  31 March window); 100% with 100% window match under the answer-key setting (`MEL_TIMING_BASIS=answer_key`).
+  R7 now lets stored crops through. Details: `mel/timing/README.md`.
 - **P3:** priority, channel order, expiry and flow ids match the scenarios. Channel messages match the
   pack's reference files exactly (tested). `OptOutList` and `CapLedger` exist but aren't used in the batch run.
   Not yet: two-in-a-week policy, late answers, app/web sent once, fallback across channels, the 183-record match.
 - **P4:** generic templates in both languages pass the guards; opt-in Claude writer with template fallback;
   basic relevance score on every survey. Not yet: problem-specific templates, Hindi review, stronger guards,
   Claude retries/cache/logs, templates-vs-Claude table.
-- **P5:** Streamlit app with Overview, Survey Studio (phone preview), Simulate, Evaluation; all numbers from
-  the pipeline. Not yet: per-rule confusion, item similarity, follow-up queue, README numbers by script.
+- **P5:** app (Overview, Survey Studio, Simulate, Follow-up queue, Evaluation), five-dimension scorecard on all
+  6,999 insights (timeliness 100% brief / 26.5% answer-key), both send-time rules side by side, run history
+  with improvement runs, generated "Rules we changed" table, README + offline scorecard by script, 3-minute
+  script. Not yet: AI judge on Bedrock, Season screen, P3/P4 hook-ups, slides, rehearsals, video.
+  Status table: `docs/p5_plan.md`.
 
 **Channel order (P3), as the brief and code define it:** 1) the farmer's preferred channel, 2) the channel the
 advice's check method names, if different, 3) WhatsApp, 4) voice, only for high priority. Wait 6 h (high),
@@ -139,19 +140,24 @@ Draft with real examples: [questions_for_digital_green.md](questions_for_digital
 1. The answer key opens windows at 09:00; the brief says 07:00. Which is right?
 2. Critical cases: high-priority survey, or no survey and a human call?
 3. Will there be a new answer key (golden set version 2), and when?
+4. Is there an MEL rubric for judging relevance?
+5. Does our survey JSON match your agent-to-UI format?
+Also ask event staff which Bedrock models and region are enabled.
 
-## AWS, in plain English (optional, only after the core targets)
-Nothing needs AWS to run or to score well. One account, owned by P1. Budget alert ~$20 on day one,
-Mumbai region (`ap-south-1`), delete everything after the event, never put AWS keys in git or chat.
+## AWS, in plain English
+Bedrock is **required** for every model call (FINAL contract, 4 Nov); everything else comes after the core
+targets. One Workshop Studio account, owned by P1, in the region where event staff enabled the Bedrock
+models. Bedrock uses the account's IAM role, so there is no model key. Every resource we create is defined
+in `infra/`; never put AWS keys in git or chat.
 
 | Plain words | AWS name | Use | Owner |
 |---|---|---|---|
 | A shared online folder | **S3** | Data pack and our output files | P1 |
 | A locked box for keys | **Secrets Manager** | Keep keys out of the code | P1 |
-| Claude through Amazon | **Bedrock** | Third writer option behind a setting | P4 |
+| Amazon's AI models | **Bedrock** | **Required**: the AI writer (P4) and the AI relevance judge (P5) | P4, P5 |
 | A web link for the demo | **App Runner** | Judges open a link; laptop demo stays the main plan | P5 with P1 |
 | Alarm clock and retry | **EventBridge / Step Functions** | *Slide only*: send at 07:00, retry on WhatsApp after 24 h | P3 notes → P5 slide |
-| Shared online table | **DynamoDB** | *Slide only*: weekly limit and opt-outs in real life | P3 notes → P5 slide |
+| Digital Green's database | **RDS for PostgreSQL** | *Slide only*: weekly limit and opt-outs in real life | P3 notes → P5 slide |
 | Automated phone calls | **Amazon Connect** | *Slide only*: real voice surveys | P3 notes → P5 slide |
 
 ## Words you'll hear
