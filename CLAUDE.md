@@ -33,8 +33,9 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 
 ## Status (mock data)
 - On `main` (4 Nov): PRs #1–#2 (P5), #3 (P2), #4 `p5-eval-v2`, #5 `p5-judge`, plus P1 (`lucas-p1`) and P4
-  (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Nothing left unmerged.
-- 462 tests pass (~19 s). `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
+  (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Open: P5 `p5-full-data` (pushed, PR to open);
+  P4 `kedar-p4` one-line fix for their hosted demo.
+- 462 tests pass on `main` (~19 s), 463 on `p5-full-data`. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
   CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`, `validate`, `eval` on every PR.
 - Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
   brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
@@ -55,11 +56,14 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app (5 tabs) loads the full pack (6,999) by default, mock sample only if the pack is missing or
   `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. Overview shows P3's weekly-limit decisions (full data:
-  1,614 sent, 452 moved, 442 merged, 108 skipped); Survey Studio has demo picks + filters:
-  Overview, Survey Studio, Simulate answers, Follow-up queue, Evaluation (send-time rule toggle,
-  five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table, run-history chart).
-  Restart Streamlit after `git pull`. P4 also added a static preview (`docs/preview/survey_studio_preview.html`)
-  and a standalone demo copy (`demo/p4_standalone/`); the Streamlit app stays the real UI.
+  1,614 sent, 452 moved, 442 merged, 108 skipped); Survey Studio has demo picks + filters; Evaluation has the
+  send-time rule toggle, five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table and
+  run-history chart. (Full-data app is on `p5-full-data`; `main` still shows the 57-row sample.)
+  **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
+- P4 hosts a separate standalone demo, "Fasal Pulse" (https://fasal-pulse.streamlit.app/, from
+  `demo/p4_standalone/`, its own copy of `mel/`, Streamlit Community Cloud, not AWS). It adds survey-history
+  rules H1–H4 that are not in the team pipeline, so they are not scored. Open: one demo vs two, one product
+  name, whether H1–H4 move into `mel/writer/`. Our app could be hosted the same way as a backup judge link.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
@@ -79,18 +83,22 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   hand-off strip shows it. Hand-off JSON unchanged (organisers' schema forbids extra fields; `parity` checks it).
 - P3: merged into main 4 Nov (`Semdon-P3`): `CapLedger.admit` (sent/moved/merged/skipped/opted_out),
   `simulate_handoff`, personas, `late` flag (off until P1 adds it to the response schema). Not started: SimClock,
-  `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1.
+  `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1; a persona that
+  sometimes reports failure (so the follow-up queue can use real P3 outcomes).
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
-- P5: plan + status table `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
-  `docs/slides_draft.md`. Next: get the 20 hand scores; switch the judge to P4's `ModelClient` and run it +
-  `--calibrate` once Bedrock access exists; add a window-overlap measure (87 of 94 brief windows overlap the
-  key's); move app pages to the full 6,999 data with Studio filters; plug in P3 (outcomes with late, cap
-  counts, Season tab) and P4 (self_eval counts, templates-vs-Bedrock table); real deck; rehearsals; video.
+- P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
+  `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
+  send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
+  backup link; switch the judge to P4's `ModelClient` and run it + `--calibrate` once Bedrock access exists;
+  window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
+  Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
+  not in the response schema, so P3's outcomes would give an empty queue.
 - P1: merged: batch runner, `run_pipeline()`/`PipelineResult`, `--limit`/`--farmer`, junk report, Excel parity,
   CI. Open: call `mel.evaluation.run_eval()` from `cmd_eval` (history on every eval); REST API + Dockerfile;
   `infra/` + LICENSE + public repo; Bedrock account access (region/models) for P4 and P5; `boto3` in
-  requirements; `late` in the response schema (P3 request); P3's batch-wiring request; real usernames in
+  requirements; `late` in the response schema (P3 request); P3's batch-wiring request (weekly limit and
+  opt-outs are applied in the app but not in `mel.cli run`); real usernames in
   CODEOWNERS (still `@p1..@p5`).
 - Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
   MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
