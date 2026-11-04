@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04 (judge calibrated)_
+_Last updated: 2026-11-04 (p5-merge-all: P3/P4/P1 branches + judge in app)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -56,7 +56,9 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   sheet's exact question text via `survey_from_text`): AI vs person within 1 point 95%, gap 0.63, r=0.58 with the
   team average; person vs person 83%, 0.82, r 0.00-0.49; "always 5" 79%, 0.79. AI used only 4/5 and is a bit
   lenient. Write-up: `docs/results/judge_calibration.md` (PR `p5-hand-scores`). `--run` on all 94 rows: AI relevance
-  **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
+  **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Both commands now also write `docs/results/judge_summary.json`
+  (committed; incl. `rank_r`); the app's Evaluation tab shows "Can we trust the AI judge?" from it, never calling
+  Bedrock. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
   the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
@@ -118,6 +120,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
+  redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
+  Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
   send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a

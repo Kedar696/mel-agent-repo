@@ -23,18 +23,20 @@ import streamlit as st
 def _reload_mel_if_changed():
     """Streamlit reruns this file when code changes (local `git pull`, or Streamlit Cloud pulling a merge),
     but keeps already-imported packages in memory, so new mel/ code would not be used and calls fail with
-    'unexpected keyword argument'. If any mel/*.py file changed since the last run, drop the old modules
-    and cached results so everything below is imported and computed fresh."""
+    'unexpected keyword argument'. The loaded `mel` package is marked with the code timestamp it came from;
+    if it has no mark (loaded by an older version of this app) or an older one, drop the old modules and
+    cached results so everything below is imported and computed fresh."""
     stamp = max(p.stat().st_mtime for p in (Path(__file__).resolve().parents[1] / "mel").rglob("*.py"))
-    if getattr(sys, "_mel_code_stamp", stamp) != stamp:
+    loaded = sys.modules.get("mel")
+    if loaded is not None and getattr(loaded, "_code_stamp", None) != stamp:
         for name in [m for m in sys.modules if m == "mel" or m.startswith("mel.")]:
             del sys.modules[name]
         st.cache_data.clear()
         st.cache_resource.clear()
-    sys._mel_code_stamp = stamp
+    return stamp
 
 
-_reload_mel_if_changed()
+_MEL_STAMP = _reload_mel_if_changed()
 
 from mel.channels import render
 from mel.config import CHANNELS, PACK_DATA
@@ -46,6 +48,8 @@ from mel.schedule.handoff import CapLedger
 from mel.simulator import simulate
 from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
                         history_notes)
+
+sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
 from app import custom_context as cc
 from app.display_time import ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text
@@ -751,6 +755,13 @@ def _evaluate(basis):
     return evaluate(basis)
 
 
+def _model_name(model_id: str) -> str:
+    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' -> 'Claude Haiku 4.5'."""
+    import re
+    m = re.search(r"claude-([a-z]+)-(\d+)(?:-(\d)(?!\d))?", model_id or "")
+    return f"Claude {m.group(1).title()} {m.group(2)}{'.' + m.group(3) if m.group(3) else ''}" if m else (model_id or "a model")
+
+
 def _pct(v):
     return "—" if v is None else f"{v:.1%}"
 
@@ -784,7 +795,11 @@ with tab_over:
     q[1].metric("Safety", _pct(card["safety_pass"]), "no new advice or personal info", delta_color="off", delta_arrow="off")
     q[2].metric("Timeliness", _pct(card["timeliness_pass"]), "after action window, daytime, in season",
                 delta_color="off", delta_arrow="off")
+    from mel.evaluation.judge import load_summary
+    judge = load_summary()   # committed results of the last Bedrock run, so the app never calls Bedrock itself
     jr = card.get("judge_relevance")
+    if jr is None:
+        jr = (judge.get("run") or {}).get("judge_relevance")
     q[3].metric("Relevance", f"{card['relevance_avg']:.2f}",
                 "P4 score, 0–1. AI judge: " + ("not run" if jr is None else f"{jr:.2f} / 5"), delta_color="off", delta_arrow="off")
     q[4].metric("Speed", f"{card['s_per_survey'] * 1000:.1f} ms", f"per survey, {card['batch_seconds']:.0f} s for all",
@@ -796,6 +811,34 @@ with tab_over:
         if ex_rows:
             with st.expander(title):
                 table(pd.DataFrame(ex_rows), width="stretch", hide_index=True)
+
+    cal, jrun = judge.get("calibration"), judge.get("run")
+    if cal:
+        st.subheader("Can we trust the AI judge?")
+        pr = [v for v in (cal.get("people_rank_r") or {}).values() if v is not None]
+        st.caption(f"Five of us scored 20 surveys by hand (1–5), each on our own. The AI judge "
+                   f"({_model_name(cal['model'])} on Amazon Bedrock) scored the same questions. "
+                   "It agrees with us at least as well as we agree with each other.")
+        j = st.columns(3)
+        j[0].metric("Within 1 point of a person", _pct(cal["within_1"]),
+                    f"people with each other: {_pct(cal['people_vs_people']['within_1'])}", delta_color="off", delta_arrow="off")
+        j[1].metric("Average gap", f"{cal['mean_abs_diff']:.2f} points",
+                    f"people with each other: {cal['people_vs_people']['mean_abs_diff']:.2f}", delta_color="off", delta_arrow="off")
+        if cal.get("rank_r") is not None:
+            j[2].metric("Follows the team's ranking", f"r = {cal['rank_r']:.2f}",
+                        f"each person: {min(pr):.2f}–{max(pr):.2f}" if pr else None, delta_color="off", delta_arrow="off")
+        with st.expander("How to read this, and the limits"):
+            st.markdown(
+                f"- A judge that always says 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, "
+                "because people mostly gave 4s and 5s. So the strongest sign is the ranking: the AI gives its 4s to the "
+                "surveys people rated lower, and follows the team's average more closely than any one of us does.\n"
+                "- Small sample (20 surveys). The AI only used 4 and 5, and is a little lenient.\n"
+                "- People caught a data problem the AI missed: the cauliflower advice in G-0129 talks about grain.\n"
+                "- Details: `docs/results/judge_calibration.md`.")
+        if jrun:
+            st.caption(f"On all {jrun['n']} answer-key surveys: average {jrun['judge_relevance']:.2f} / 5 "
+                       f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
+                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost almost always on a generic second question.")
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "

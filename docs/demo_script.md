@@ -93,7 +93,7 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 >
 > **[Every survey we write]** Then we ran all **6,999** conversations: about 2,600 surveys, over 5,000 files
 > in two languages. **100%** are in the right format, **100%** pass the safety checks, **100%** go out at
-> a sensible time, and it takes about 2 milliseconds per survey: 6 seconds for the whole season.
+> a sensible time, and it takes under 4 milliseconds per survey: about 10 seconds for the whole season.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
@@ -164,7 +164,7 @@ EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any con
 - **Why 0% window match by default?** The brief and the answer key disagree on send times. The answer-key
   setting scores 100% but asks 3 in 4 farmers before they could act, so the brief stays the default until
   Digital Green confirms. *(Switch Send-time rule in the Evaluation section to show both.)*
-- **How fast is it?** About 2 ms per survey; all 6,999 conversations in about 6 seconds.
+- **How fast is it?** Under 4 ms per survey; all 6,999 conversations in about 10 seconds.
 - **Can the season be fast-forwarded?** Not on screen yet: P3's simulated clock is in the code
   (`mel/schedule/clock.py`), but the app has no season screen.
 
