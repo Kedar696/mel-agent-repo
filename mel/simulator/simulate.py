@@ -51,14 +51,17 @@ def _pick(item, rnd, want_bad: bool | None):
 
 
 def simulate(survey: dict, channel: str, case: str = "completed", seed: int = 0,
-             answers: dict | None = None, attempt: int = 1) -> dict:
+             answers: dict | None = None, attempt: int = 1, send_at: str | None = None) -> dict:
+    """`send_at`: P2's recommended send time (decision.send_time["send_at"]) for the first channel.
+    Without it the send goes out at the window opening plus a fixed per-channel offset."""
     rnd = random.Random(f"{survey['survey_id']}{channel}{case}{seed}")
     oc = outcome_codes()
     fail = oc["failures"].get(case)
     sheet_case = oc["sheet_cases"].get(case)
     sid, items = survey["survey_id"], survey["items"]
 
-    t0 = parse_ist(survey["send_window"]["not_before"]) + timedelta(hours=SEND_OFFSET_H[channel])
+    t0 = (parse_ist(send_at) if send_at else
+          parse_ist(survey["send_window"]["not_before"]) + timedelta(hours=SEND_OFFSET_H[channel]))
     ts = {"sent": fmt_ist(t0), "delivered": fmt_ist(t0 + timedelta(minutes=1)),
           "opened": fmt_ist(t0 + timedelta(minutes=20)), "answered": fmt_ist(t0 + timedelta(minutes=25))}
 

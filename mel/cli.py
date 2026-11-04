@@ -16,7 +16,8 @@ import shutil
 import sys
 from pathlib import Path
 from mel.config import DATA, OUT, PACK
-from mel.data import load_insights, load_golden, errors, why_junk, junk_row, check_insights_parity, check_all_parity
+from mel.data import (load_insights, load_golden, load_farmers, errors, why_junk, junk_row,
+                      check_insights_parity, check_all_parity)
 from mel.pipeline import run_pipeline, select_insights, clean
 
 OUT_SUBDIRS = ("surveys", "handoffs", "no_survey", "responses")   # the only folders --clean touches
@@ -81,7 +82,11 @@ def cmd_run(a):
         _fail(f"insights file not found: {path}")
     if a.clean:
         _clean_out(OUT)
-    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer)
+    try:
+        farmers = load_farmers()
+    except FileNotFoundError:
+        farmers = {}  # send time then uses the insight alone
+    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers)
     for ins, out in zip(result.insights, result.outputs):
         if "no_survey" in out:
             _dump(OUT / "no_survey" / f"{ins.get('insight_id','unknown')}.json", out["no_survey"])
@@ -92,7 +97,7 @@ def cmd_run(a):
         _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
         if a.simulate:
             ch = h["channel_order"][0]["channel"]
-            r = simulate(h["survey"], ch, "completed")
+            r = simulate(h["survey"], ch, "completed", send_at=out["decision"].send_time["send_at"])
             _dump(OUT / "responses" / f"{r['response_key']}.json", r)
     junk = _write_junk_report(OUT / "junk_report.csv", result.insights)
     counts = result.counts()

@@ -87,8 +87,15 @@ only refine the time, never the decision. Rules, first match wins:
 | `call_default` * | any other call | 16:00-19:00 |
 
 \* Domain assumptions, flagged `assumption: true`; no data supports them. The pack's chat
-times are spread evenly over the day, so `usual_time` rarely fires on it. The output is
-not in `schedule_handoff` yet: that schema forbids extra fields, so P3 must agree first.
+times are spread evenly over the day, so `usual_time` rarely fires on it.
+
+Downstream: `run_pipeline(insights, farmers=load_farmers())` passes each farmer's profile
+and earlier chats, and the senders use the result. `mel.cli run --simulate` and the
+Streamlit app call `simulate(..., send_at=decision.send_time["send_at"])` for the first
+channel, and the app's hand-off strip shows the recommended time with its reason. The
+hand-off JSON itself is unchanged: `schedule_handoff.schema.json` is the organisers' file
+(`parity` checks it) and forbids extra fields, so a real scheduler reads the time from
+the decision.
 
 ## Reproduce validation
 

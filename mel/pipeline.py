@@ -1,11 +1,12 @@
 """End-to-end glue: insight -> decision -> surveys -> hand-off. Owner: P1 (integration lead).
 Keep this thin: each step lives in its owner's package."""
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from mel.config import CHANNELS, LANGS
 from mel.decision import decide
 from mel.schedule import build_handoff
+from mel.timing import chat_hours
 from mel.writer import write_surveys
 
 RULE_IDS = tuple(f"R{n}" for n in range(1, 9))
@@ -16,9 +17,11 @@ def clean(survey: dict) -> dict:
     return {k: v for k, v in survey.items() if not k.startswith("_")}
 
 
-def run_insight(insight: dict) -> dict:
-    """Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in farmer's language)."""
-    d = decide(insight)
+def run_insight(insight: dict, farmer: dict | None = None, history_hours=()) -> dict:
+    """Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in farmer's language).
+    `farmer` (farmers.csv row) and `history_hours` only refine decision.send_time, P2's recommended send time.
+    The hand-off file cannot carry it (the organisers' schema forbids extra fields); senders read it from the decision."""
+    d = decide(insight, farmer, history_hours)
     if not d.survey:
         return {"decision": d, "no_survey": d.no_survey_record(insight)}
     surveys = write_surveys(insight, d.send_window)
@@ -64,8 +67,19 @@ class PipelineResult:
                 "by_first_channel": dict(by_channel), "by_priority": dict(by_priority)}
 
 
-def run_pipeline(insights: list[dict], limit: int | None = None, farmer: str | None = None) -> PipelineResult:
+def run_pipeline(insights: list[dict], limit: int | None = None, farmer: str | None = None,
+                 farmers: dict[str, dict] | None = None) -> PipelineResult:
     """Run the filtered batch through ``run_insight``. Pure: it writes nothing, so the CLI (or
-    a test) decides where output goes. Order follows the input, so two runs give equal results."""
+    a test) decides where output goes. Order follows the input, so two runs give equal results.
+    `farmers` (load_farmers()) and each farmer's earlier chats in `insights`, including rows the
+    filter left out, feed P2's recommended send time."""
     chosen = select_insights(insights, limit=limit, farmer=farmer)
-    return PipelineResult(insights=chosen, outputs=[run_insight(i) for i in chosen], rows_read=len(insights))
+    farmers = farmers or {}
+    by_farmer = defaultdict(list)
+    for i in insights:
+        if isinstance(i, dict):
+            by_farmer[i.get("farmer_id")].append(i)
+    outputs = [run_insight(i, farmers.get(i.get("farmer_id")),
+                           chat_hours(by_farmer[i.get("farmer_id")], i.get("farmer_id"), i.get("created_at")))
+               for i in chosen]
+    return PipelineResult(insights=chosen, outputs=outputs, rows_read=len(insights))

@@ -54,8 +54,12 @@ def usual_slot(history_hours) -> str | None:
 
 
 def chat_hours(insights, farmer_id: str, before: str) -> list[int]:
-    """IST hours of the farmer's chats strictly before `before`, so nothing from the future leaks in."""
-    cutoff = parse_ist(before)
+    """IST hours of the farmer's chats strictly before `before`, so nothing from the future leaks in.
+    An unusable `before` (missing or broken timestamp) gives no history."""
+    try:
+        cutoff = parse_ist(before)
+    except (TypeError, ValueError, OverflowError):
+        return []
     hours = []
     for i in insights:
         if not isinstance(i, dict) or i.get("farmer_id") != farmer_id:
@@ -117,7 +121,7 @@ def pick_send_time(insight: dict, window: dict, farmer: dict | None = None, hist
         return _at(window, usual, "usual_time", f"The farmer usually chats in the {usual.replace('_', ' ')}.")
     if not is_call:
         return _at(window, None, "async_channel",
-                   f"{channel or 'This channel'} can be read later, so send when the window opens.")
+                   f"The {channel or 'chosen'} channel can be read later, so send when the window opens.")
     if _in_harvest(insight, parse_ist(window["not_before"]).date()):
         return _at(window, "evening", "harvest_busy",
                    "Assumption: harvest keeps farmers in the field all day, so call in the evening.", True)
