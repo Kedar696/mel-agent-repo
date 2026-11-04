@@ -102,7 +102,6 @@ ACTION_RULES = [
     (r'pull out wilted plants', 'Did you remove the wilted plants?', 'क्या आपने मुरझाए पौधे निकाले?'),
     (r'remove (badly affected plants|the worst leaves|lower affected leaves)', 'Did you remove the affected plants or leaves and spray?', 'क्या आपने खराब पौधे या पत्ते हटाकर छिड़काव किया?'),
     (r'remove (affected|dead|dried)', 'Did you remove the affected parts?', 'क्या आपने खराब या सूखे हिस्से हटाए?'),
-    (r'bees are not active', 'Did you spray in the evening?', 'क्या आपने शाम को कीटनाशक छिड़का?'),
     (r'certified seed', 'Did you buy certified seed?', 'क्या आपने प्रमाणित बीज लिया?'),
     (r'variety suited to late sowing', 'Did you choose a late-sowing variety?', 'क्या आपने देर से बुवाई वाली किस्म चुनी?'),
     (r'rotten tubers', 'Did you sort out rotten tubers?', 'क्या आपने सड़े कंद अलग किए?'),

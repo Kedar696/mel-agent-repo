@@ -250,3 +250,9 @@ def test_every_pack_insight_gets_a_valid_survey_in_both_languages():
             for s in write_surveys(i, d.send_window).values():
                 assert check_survey(clean(s)) == [], i['insight_id']; n += 1
     assert n > 0
+
+
+def test_brief_mustard_scenario_asks_about_the_main_action_not_the_evening_detail():
+    """The brief's worked scenario 1: 'Spray the recommended insecticide within 2 days ... Spray in the evening when bees are not active.'"""
+    i = mk(asset={'name': 'mustard', 'category': 'crop', 'growth_stage': None}, advice_summary='These are aphids. Spray the recommended insecticide within 2 days if no rain is forecast. Spray in the evening when bees are not active.')
+    assert prompts(i)[0] == 'Did you spray the insecticide?' and prompts(i, 'hi-IN')[0] == 'क्या आपने कीटनाशक का छिड़काव किया?'
