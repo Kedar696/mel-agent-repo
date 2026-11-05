@@ -132,7 +132,8 @@ def batch():
     schema-valid files once, so later clicks stay fast even on the full dataset."""
     res = run_pipeline(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
                        farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # farmers feed send time
-                       history=True)  # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
+                       history=True,     # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
+                       attention=True)   # activity attention: on in the app, off for scoring (same decision)
     rows = list(zip(res.insights, res.outputs))
     # Contract order: send-window start, then created time, then farmer. Copies, because admit() edits the
     # hand-off it merges into, and Survey demo must keep showing the original survey.
@@ -250,6 +251,39 @@ with tab_over:
         html(f'<div class="mel-card"><b>First channel planned</b><div class="mel-note">'
              f'Where each survey goes first</div>{ch_bars}</div>')
 
+    # Highlighted farmers: SURGE only (quiet, then a jump or an urgent question). steady_high is deliberately
+    # not highlighted: the representative asked us to attend to positive CHANGE, not to constant high activity.
+    st.subheader("Highlighted farmers")
+    st.caption("Farmers whose activity is rising: quiet, then a jump or a sudden urgent question. The "
+               "beneficiary's representative asked us to focus attention on this positive change, not on "
+               "constantly-busy farmers. Sorted by weight, then most recent.")
+    surges = [(i, o) for i, o in rows
+              if (getattr(o["decision"], "attention", None) or {}).get("tier") == "surge"]
+    if not surges:
+        st.info("No surge farmers in this run.")
+    else:
+        # One row per farmer: keep that farmer's most recent surge insight.
+        latest_by_farmer: dict[str, tuple] = {}
+        for i, o in surges:
+            fid = i.get("farmer_id")
+            prev = latest_by_farmer.get(fid)
+            if prev is None or (i.get("created_at") or "") > (prev[0].get("created_at") or ""):
+                latest_by_farmer[fid] = (i, o)
+        highlighted = sorted(latest_by_farmer.values(),
+                             key=lambda io: (io[1]["decision"].attention["weight"], io[0].get("created_at", "")),
+                             reverse=True)
+        REASON_LABEL = {"quiet_then_high_weight": "Quiet, then urgent", "activity_jump": "Activity jump"}
+        table(pd.DataFrame([{
+            "Farmer": i.get("farmer_id"),
+            "Crop / animal": (i.get("asset") or {}).get("name"),
+            "Why": REASON_LABEL.get(o["decision"].attention["reason"], o["decision"].attention["reason"]),
+            "Weight": o["decision"].attention["weight"],
+            "What we noticed": o["decision"].attention["explanation"],
+            "When": short(i["created_at"]) if i.get("created_at") else "—",
+        } for i, o in highlighted[:50]]), width="stretch", hide_index=True, height=260)
+        st.caption(f"{len(highlighted):,} farmers highlighted (from {len(surges):,} surge insights; "
+                   f"most recent surge per farmer, showing up to 50).")
+
 # ---------------------------------------------------------------- Survey demo
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
           f"{'survey' if o['decision'].survey else 'no survey ' + o['decision'].rule}": (i, o) for i, o in rows}
@@ -316,6 +350,18 @@ DEMO_PICKS = {"I-001253": "High — Goat veterinary follow-up", "I-001645": "Med
               "I-000291": "Edge case — No survey (critical cow)"}
 BROWSE = "Browse all conversations"
 PRETEND = ["none", "said the input was not available nearby", "said it was too costly", "ignored the last 3 surveys"]
+PRETEND_ATT = {
+    "as computed from the real data": None,
+    "quiet, then urgent (surge)": {"tier": "surge", "reason": "quiet_then_high_weight", "weight": 1.5,
+                                   "baseline_per_week": 0.0, "recent_count": 1,
+                                   "explanation": "This farmer was quiet, then raised an urgent question: worth extra attention."},
+    "steady heavy user (steady_high)": {"tier": "steady_high", "reason": "none", "weight": 0.5,
+                                        "baseline_per_week": 2.5, "recent_count": 3,
+                                        "explanation": "This farmer is consistently busy, so no extra priority by default."},
+    "went quiet (neutral)": {"tier": "neutral", "reason": "declining", "weight": 1.0,
+                             "baseline_per_week": 2.0, "recent_count": 1,
+                             "explanation": "This farmer's activity has dropped below their usual rate: treated normally."},
+}
 
 
 
@@ -540,6 +586,9 @@ with tab_studio:
         d = out["decision"]
         a = ins.get("asset") or {}
         mem, pretend, restart = None, "none", False
+        # The attention the batch computed for this insight (the app runs with attention on). The demo picker
+        # below can override it with a made-up tier, because the pack's activity is flat with no designed surges.
+        attention, pretend_att = getattr(d, "attention", None), next(iter(PRETEND_ATT))
         if d.survey:
             # One settings bar for everything that changes what the farmer sees in the preview. History rules
             # H1-H4 are always on here (team decision 4 Nov); scoring and the CLI keep them off.
@@ -549,6 +598,11 @@ with tab_studio:
             restart = tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
                                     width="content", help="Restart survey")
             pretend = bar[3].selectbox("Pretend this farmer's survey history (demo)", PRETEND)
+            pretend_att = st.selectbox("Pretend activity pattern (attention demo)", list(PRETEND_ATT),
+                                       help="The pack's activity is flat with no designed surges, so this made-up "
+                                            "pattern shows how a surge or steady-high farmer is treated differently.")
+            if PRETEND_ATT[pretend_att] is not None:
+                attention = PRETEND_ATT[pretend_att]
             mem = copy.copy(memory())
             mem.responses = __import__("collections").defaultdict(list)
             when = lambda days: (datetime.fromisoformat(ins["created_at"]) - __import__("datetime").timedelta(days=days)).isoformat()
@@ -561,10 +615,11 @@ with tab_studio:
             elif pretend.startswith("ignored"):
                 for days in (6, 4, 2):
                     mem.record_response(fake("expired", {}, days))
-            if pretend != "none":  # the batch was built with history on and no answers yet
-                surveys_now = write_surveys(ins, d.send_window, memory=mem)
+            # The batch was built with history on, no answers yet, and the data-computed attention.
+            if pretend != "none" or attention is not getattr(d, "attention", None):
+                surveys_now = write_surveys(ins, d.send_window, memory=mem, attention=attention)
                 farmer_copy = clean(surveys_now.get(ins["conversation_language"]) or surveys_now["hi-IN"])
-                out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy)}
+                out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy, attention)}
             h = out["handoff"]
             first_ch = h["channel_order"][0]["channel"]  # P2's recommended send time is for this channel
             ch = bar[0].segmented_control("Channel", CHANNELS, default=first_ch, required=True, format_func=CH_NAME.get,
@@ -591,8 +646,16 @@ with tab_studio:
     <div class="f"><span>Farmer asked</span>“{escape(ins.get("query_summary") or "—")}”</div>
     <div class="f"><span>Advice given</span>“{escape(ins.get("advice_summary") or "—")}”</div>
     <div class="mel-why">{"What the survey checks" if d.survey else f"Why no survey ({d.rule})"}<p>{escape(why)}</p></div></div>''')
+            if attention and d.survey:  # P1's activity attention (main, 4 Nov), shown under the redesigned card
+                TIER_TONE = {"surge": "green", "steady_high": "slate", "neutral": "slate"}
+                html(f'<div class="mel-card"><b>Activity attention</b><p>'
+                     f'{badge(attention["tier"].replace("_", " ").title(), TIER_TONE.get(attention["tier"], "slate"))}'
+                     f'{badge(attention["reason"].replace("_", " "), "slate")}</p>'
+                     f'<p>{escape(attention["explanation"])}</p>'
+                     f'<div class="mel-note">Baseline per week {attention["baseline_per_week"]}, '
+                     f'recent {attention["recent_count"]}, weight {attention["weight"]}</div></div>')
             if mem is not None:
-                notes = [(r, us_text(w)) for r, w in history_notes(ins, mem)]
+                notes = [(r, us_text(w)) for r, w in history_notes(ins, mem, attention)]
                 lines = [us_text(x) for x in summary_lines(build_context(ins, mem))]
                 html('<div class="mel-card"><b>What the agent remembers</b><ul>'
                      + "".join(f"<li>{escape(x)}</li>" for x in lines) + "</ul>"
@@ -611,7 +674,7 @@ with tab_studio:
             with col_p:
                 # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
                 # "Start over", so the settings bar's Restart is the only reset control.
-                pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{mem is not None}"
+                pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"
                 rec = render_channel_preview(sv, ch, key=pkey, send_at=d.send_time["send_at"] if ch == first_ch else None,
                                              restart=restart, show_restart=False)
                 if ch == "voice":
@@ -722,12 +785,14 @@ def _follow_queue():
             continue
         t_def = next(it for it in survey["items"] if it["item_id"] == t_item)
         a = ins.get("asset") or {}
+        att = getattr(out["decision"], "attention", None) or {}
         tickets.append({
             "response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
             "asset": a.get("name"), "concern": ins.get("concern"),
             "survey_id": rec["survey_id"], "channel": ch, "recorded_at": rec["recorded_at"],
             "reason": t_reason, "item_id": t_item, "prompt": t_def.get("prompt", ""),
             "answer": _answer_label(t_def, t_val), "rec": rec, "insight": ins, "survey": survey,
+            "weight": att.get("weight", 1.0), "tier": att.get("tier", "neutral"),
         })
     return tickets
 
@@ -763,7 +828,8 @@ on {CH_NAME.get(t["channel"], t["channel"])}.</div></div>''')
 
 
 with tab_follow:
-    tickets = sorted(_follow_queue(), key=lambda t: t["recorded_at"])  # a queue: oldest answer first
+    # Rising-activity farmers first (activity attention), then a normal queue: oldest answer first.
+    tickets = sorted(_follow_queue(), key=lambda t: (-t["weight"], t["recorded_at"]))
     st.caption("Farmers whose answer says the advice failed, the crop or animal was harmed, or they could not act "
                "on it. Pick one with the circle at the start of its row to see the next step and the conversation. "
                "Simulated: one trouble answer per survey.")
@@ -785,6 +851,7 @@ with tab_follow:
             left, right = st.columns([1.35, 1], gap="medium")
             with left:
                 ev = table(pd.DataFrame([{
+                    "Weight": t["weight"],
                     "Farmer": t["farmer_id"],
                     "Crop / animal": str(t["asset"] or "—").title(),
                     "Why": FU_REASON.get(t["reason"], t["reason"]),
@@ -793,7 +860,7 @@ with tab_follow:
                     "Answered": t["recorded_at"],
                 } for t in view]), width="stretch", hide_index=True, height=460, on_select="rerun",
                     selection_mode="single-row-required", key=f"fu_rows|{reason}|{chan}")  # new filter, first row
-                st.caption(f"{len(view):,} farmers, oldest answer first.")
+                st.caption(f"{len(view):,} farmers, rising activity first, then oldest answer first.")
             picked = ev.selection.rows
             with right:
                 ticket_card(view[picked[0]] if picked and picked[0] < len(view) else view[0])
@@ -868,12 +935,16 @@ with tab_over:
                 table(pd.DataFrame(ex_rows), width="stretch", hide_index=True)
 
     cal, jrun = judge.get("calibration"), judge.get("run")
+    from mel.evaluation.judge_models import load as load_models
+    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
+    names = {m.get("call_id"): f"{m['provider']} {m['name']}" for m in sweep.get("models", []) if m.get("call_id")}
     if cal:
         st.subheader("Can we trust the AI judge?")
         pr = [v for v in (cal.get("people_rank_r") or {}).values() if v is not None]
         st.caption(f"Five of us scored 20 surveys by hand (1–5), each on our own. The AI judge "
-                   f"({_model_name(cal['model'])} on Amazon Bedrock) scored the same questions. "
-                   "It agrees with us at least as well as we agree with each other.")
+                   f"({names.get(cal['model']) or _model_name(cal['model'])} on Amazon Bedrock, picked below for "
+                   "accuracy and cost) scored the same questions. It agrees with us at least as well as we agree with "
+                   "each other.")
         j = st.columns(3)
         j[0].metric("Within 1 point of a person", _pct(cal["within_1"]),
                     f"people with each other: {_pct(cal['people_vs_people']['within_1'])}", delta_color="off", delta_arrow="off")
@@ -887,13 +958,131 @@ with tab_over:
                 f"- A judge that always says 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, "
                 "because people mostly gave 4s and 5s. So the strongest sign is the ranking: the AI gives its 4s to the "
                 "surveys people rated lower, and follows the team's average more closely than any one of us does.\n"
-                "- Small sample (20 surveys). The AI only used 4 and 5, and is a little lenient.\n"
-                "- People caught a data problem the AI missed: the cauliflower advice in G-0129 talks about grain.\n"
+                f"- Small sample (20 surveys). The AI used the scores {', '.join(sorted(str(k) for k in cal.get('judge_scores', {})))}.\n"
+                "- People caught a data problem: the cauliflower advice in G-0129 talks about grain. A judge scores the "
+                "survey, not the advice, so data errors still need a person.\n"
                 "- Details: `docs/results/judge_calibration.md`.")
         if jrun:
             st.caption(f"On all {jrun['n']} answer-key surveys: average {jrun['judge_relevance']:.2f} / 5 "
                        f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
-                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost almost always on a generic second question.")
+                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost mostly on a generic second question "
+                       "(\"Do you need more help?\", \"How is your goat now?\").")
+
+    if sweep.get("models"):
+        st.subheader("Which model makes the best judge?")
+        ok = [m for m in sweep["models"] if m.get("rank")]
+        pv = sweep.get("people_vs_people") or {}
+        st.caption(f"Every text model on Amazon Bedrock that our account could call ({len(sweep['models'])} listed, "
+                   f"{len(ok)} answered every survey) judged the same {sweep.get('surveys', 20)} hand-scored surveys. "
+                   "Best first: how closely it follows the team's ranking (r), then the smallest gap. People with each "
+                   f"other: within 1 point {_pct(pv.get('within_1'))}, gap {pv.get('mean_abs_diff', '—')}. "
+                   f"Run {sweep.get('date', '')}, {sweep.get('region', '')}.")
+        used = (cal or {}).get("model", "")
+        by_id = {m["model_id"]: m for m in sweep["models"]}
+        pick, top = by_id.get(sweep.get("best_value") or ""), by_id.get(sweep.get("most_accurate") or "")
+        qm = sweep.get("quality_margin") or {}
+
+        def _usd(v):
+            return "price unknown" if v is None else (f"${v:,.2f}" if v >= 0.1 else f"${v:,.4f}")
+
+        if pick or top:
+            shown = pick or top
+            b = st.columns(4)
+            b[0].metric("Best value" if pick else "Most accurate (no prices yet)", shown["name"], shown["provider"],
+                        delta_color="off", delta_arrow="off")
+            b[1].metric("Its ranking match", f"r = {shown['rank_r']:.2f}" if shown.get("rank_r") is not None else "—",
+                        f"within 1 point {_pct(shown['within_1'])}", delta_color="off", delta_arrow="off")
+            b[2].metric("Cost per 1,000 surveys", _usd(shown.get("usd_per_1000_surveys")),
+                        f"whole season ({sweep.get('season_surveys', 2616):,} surveys): {_usd(shown.get('usd_per_season'))}",
+                        delta_color="off", delta_arrow="off")
+            b[3].metric("Speed", f"{shown['seconds_per_call']:.1f} s" if shown.get("seconds_per_call") is not None else "—",
+                        "per survey", delta_color="off", delta_arrow="off")
+            note = (f"Best value = the cheapest model whose quality is close to the most accurate one (ranking match "
+                    f"within {qm.get('rank_r', 0.1)} and gap within {qm.get('mean_abs_diff', 0.15)}), so we don't pay "
+                    "for accuracy we can't measure.")
+            if pick and top and pick is not top:
+                note += (f" The most accurate is {top['provider']} {top['name']} (r = {top.get('rank_r')}, "
+                         f"{_usd(top.get('usd_per_1000_surveys'))} per 1,000 surveys).")
+            if not pick:
+                note += (" No priced model is close enough to the most accurate one: add its price to "
+                         "docs/results/bedrock_prices.json and re-run."
+                         if any(m.get("usd_per_1000_surveys") is not None for m in sweep["models"]) else
+                         " No model has a price yet: run `python -m mel.evaluation.judge_models --prices`.")
+            st.caption(note)
+            ok_c = [m for m in ok if m.get("usd_per_1000_surveys") is not None]
+            if ok_c:
+                chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok_c],
+                                      "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok_c]}).set_index("model")
+                st.markdown("**Ranking match by model** (higher is better; models with a known price)")
+                st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok_c)), sort=False)
+        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Pick": m.get("pick") or "",
+                "Provider": m["provider"], "Model": m["name"] + ("  (judge used above)" if used and m.get("call_id") == used else ""),
+                "Within 1 point": _pct(m.get("within_1")), "Average gap": m.get("mean_abs_diff"),
+                "Ranking match (r)": m.get("rank_r"), "Close to best": "yes" if m.get("close_to_best") else "",
+                "Cost per 1,000 surveys": _usd(m.get("usd_per_1000_surveys")) if m.get("status") == "ok" else "",
+                "Seconds per survey": m.get("seconds_per_call"), "Surveys answered": m.get("surveys_scored"),
+                "Result": {"ok": "ok", "skipped": "not callable on demand", "error": "error"}.get(m["status"], m["status"])}
+               for m in sweep["models"]]
+        with st.expander(f"All {len(tab)} models"):
+            table(pd.DataFrame(tab), width="stretch", hide_index=True)
+            errs = [m for m in sweep["models"] if m.get("error")]
+            if errs:
+                st.caption("Why some models have no score: " + "; ".join(
+                    f"{m['name']}: {m['error'][:90]}" for m in errs[:8]) + (" …" if len(errs) > 8 else ""))
+
+    # Activity attention: the deliberate change, shown with numbers (CLAUDE.md). Reads the report JSON written
+    # by scripts/activity_report.py; the app itself runs with attention on.
+    _att_json = Path(__file__).resolve().parents[1] / "docs" / "results" / "activity_attention.json"
+    if _att_json.exists():
+        am = __import__("json").loads(_att_json.read_text(encoding="utf-8"))
+        st.subheader("Activity attention (deliberate change)")
+        st.caption("Why: " + am["reason"] + ". We attend to rising activity (surge), step constantly-busy "
+                   "farmers down by default (steady_high), and leave everyone else unchanged. Decision, rule and "
+                   "send window are identical with attention off vs on — only priority, question count and the "
+                   "send moment change. Full pack: " + f"{am['n_insights']:,} insights.")
+        tt = am["tier_totals"]
+        ac = st.columns(4)
+        ac[0].metric("Surge", tt.get("surge", 0), "quiet, then a jump / urgent", delta_color="off")
+        ac[1].metric("Steady-high", tt.get("steady_high", 0), "stepped down by default", delta_color="off")
+        ac[2].metric("Neutral", tt.get("neutral", 0), "unchanged", delta_color="off")
+        sc_on = am["scorecard_on"]
+        ac[3].metric("Format / safety / timeliness",
+                     f"{sc_on['format_pass']:.0%} / {sc_on['safety_pass']:.0%} / {sc_on['timeliness_pass']:.0%}",
+                     "held at 100%", delta_color="off")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.markdown("**Priority, off vs on**")
+            st.dataframe(pd.DataFrame([{"Priority": k, "off": am["priority_off"].get(k, 0),
+                                        "on": am["priority_on"].get(k, 0)} for k in ("high", "normal", "low")],
+                                      ), hide_index=True, width="stretch")
+            st.markdown("**Golden set, off vs on**")
+            g_off, g_on = am["golden_off"], am["golden_on"]
+            # Every value in the off/on columns is a string, so item similarity (a 0-1 ratio) renders the same
+            # way as the percentage rows instead of pandas mixing numbers and text in one column.
+            _sim = lambda v: f"{v:.3f}"
+            st.dataframe(pd.DataFrame([
+                {"Metric": "Decision", "off": _pct(g_off["decision_acc"]), "on": _pct(g_on["decision_acc"])},
+                {"Metric": "Rule", "off": _pct(g_off["rule_acc"]), "on": _pct(g_on["rule_acc"])},
+                {"Metric": "Channel", "off": _pct(g_off["channel_acc"]), "on": _pct(g_on["channel_acc"])},
+                {"Metric": "Item similarity", "off": _sim(g_off["item_similarity_avg"]), "on": _sim(g_on["item_similarity_avg"])},
+            ]), hide_index=True, width="stretch")
+        with cc2:
+            st.markdown("**Tier by activity level (on)**")
+            st.dataframe(pd.DataFrame([{"Activity": al, "surge": c.get("surge", 0), "neutral": c.get("neutral", 0),
+                                        "steady_high": c.get("steady_high", 0)}
+                                       for al, c in sorted(am["tier_by_activity"].items())]),
+                         hide_index=True, width="stretch")
+            st.markdown("**Avg questions / survey, off vs on**")
+            st.dataframe(pd.DataFrame([{"Activity": al, "off": am["avg_questions_off"].get(al, "—"),
+                                        "on": am["avg_questions_on"].get(al, "—")}
+                                       for al in sorted(am["avg_questions_on"])]), hide_index=True, width="stretch")
+        st.caption("Surge is concentrated in light and regular farmers (rising change), not in heavy users — a "
+                   "plain 'activity doubled' ratio over-flagged heavy/regular users, so we use a Poisson jump "
+                   "test against each farmer's own baseline instead. Thresholds live in "
+                   "`config/activity_attention.json` (starting values, tuned with this evidence).")
+    else:
+        st.subheader("Activity attention (deliberate change)")
+        st.info("Run `python scripts/activity_report.py` to generate the before/after numbers for this section.")
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
@@ -970,10 +1159,11 @@ PERSONA_LABEL = {
     "never_answers": "Never answers: the survey expires",
     "opts_out_first": "Opts out on the first message",
     "no_voice": "Cannot take phone calls",
+    "sometimes_fails": "Sometimes says the advice didn't work (about 1 in 4)",
 }
 STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
                 "declined": "Opted out", "partial": "Partly answered"}
-SEASON_THRESHOLD = 0.5   # provisional relevance bar for P3's quality check; P4 and P5 to agree the final number
+from mel.writer import RELEVANCE_THRESHOLD as SEASON_THRESHOLD   # the agreed send bar (0.3, P4 + P5, 4 Nov)
 
 
 def _india(ts: str) -> str:
@@ -1032,7 +1222,8 @@ with tab_season:
     cfg = st.columns([1.2, 1.6, 0.8], vertical_alignment="bottom")
     threshold = cfg[0].slider("Relevance needed to send", 0.0, 1.0, SEASON_THRESHOLD, 0.05,
                               help="P3's quality check blocks any survey whose relevance score (P4's, 0–1) is below "
-                                   "this. 0.5 is provisional until P4 and P5 agree the number.")
+                                   f"this. The agreed bar is {SEASON_THRESHOLD}: it blocks only surveys that name neither the "
+                                   "crop, the problem nor the advice. Slide it to see the trade-off.")
     persona = cfg[1].selectbox("How farmers respond", list(PERSONA_LABEL), format_func=PERSONA_LABEL.get,
                                help="P3's simulated farmers. Pick one to see fall-back, expiry and opt-out.")
     reset = cfg[2].button("Restart season", width="stretch")
@@ -1078,7 +1269,8 @@ with tab_season:
                 delta_color="off", delta_arrow="off")
     st.caption(f"Weekly limit at the start of the season: {adm.get('sent', 0):,} on time, {adm.get('moved', 0):,} moved "
                f"to a later week, {adm.get('merged', 0):,} merged into an earlier survey, {adm.get('skipped', 0):,} "
-               f"skipped. {drops['expired']:,} expired in the queue.")
+               f"skipped. {drops['expired']:,} expired in the queue. "
+               f"{sum(1 for e in log if e['needs a person']):,} answers need a person to follow up.")
 
     if season["days"]:
         weeks = Counter()

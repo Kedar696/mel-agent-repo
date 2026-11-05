@@ -19,14 +19,38 @@ What the checklist asks of it:
     is always passed in explicitly -- there is no shared default invented here, because the
     "right" relevance bar is a P4/P5 decision, not P3's to hard-code.
 """
+import json
 from datetime import datetime, time
 
 from mel.config import rules
-from mel.timing import parse_ist
+
+from mel.timing import parse_ist, fmt_ist
 
 
 # -------------------------------------------------------------- P4 quality gate
+_QUALITY_CACHE: dict = {}
+_QUALITY_CACHE_MAX = 50_000
+
+
 def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
+    """Cached front for `_quality_failures` (same contract). The broadcaster re-checks every queued survey on every
+    step, and the check (P4's guards plus a JSON Schema validation) is the slow part of a season walk. The result
+    depends only on the survey's content and the threshold, so it is cached on exactly those: a survey that is
+    changed in any way is checked again. Added by P5 for the Season tab's speed; P3 to review."""
+    try:
+        key = (json.dumps(survey, sort_keys=True, ensure_ascii=False, default=str), relevance_threshold)
+    except (TypeError, ValueError):
+        return _quality_failures(survey, relevance_threshold)
+    hit = _QUALITY_CACHE.get(key)
+    if hit is None:
+        hit = tuple(_quality_failures(survey, relevance_threshold))   # raises for a bad threshold, like before
+        if len(_QUALITY_CACHE) >= _QUALITY_CACHE_MAX:
+            _QUALITY_CACHE.clear()
+        _QUALITY_CACHE[key] = hit
+    return list(hit)
+
+
+def _quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
     """Why this survey must not be sent, or [] if it is clear to send.
 
     Reads only the survey's own `self_eval` block (the shape P4 writes, defined in
@@ -36,6 +60,12 @@ def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
 
     A survey with no `self_eval` at all is treated as not-yet-evaluated and rejected: the
     broadcaster will not send something the writer never cleared.
+
+    Guard failures: `self_eval` only summarises three of P4's guards (schema, new advice,
+    personal info). Other guard failures -- label_too_long, bad_option_count,
+    duplicate_option_value, confirm_needs_two and the rest -- leave `self_eval` looking clean.
+    So the gate also runs P4's public `mel.writer.check_survey()` on the survey and rejects on
+    any failure it reports. P3 calls P4's function; it does not re-implement or change it.
     """
     if not isinstance(relevance_threshold, (int, float)) or isinstance(relevance_threshold, bool):
         raise TypeError("relevance_threshold must be a number supplied by the caller")
@@ -61,6 +91,10 @@ def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
         out.append(f"relevance_score {score} is outside 0..1")
     elif float(score) < float(relevance_threshold):
         out.append(f"relevance_score {score} is below threshold {relevance_threshold}")
+
+    # Every P4 guard, not just the three self_eval summarises.
+    from mel.writer import check_survey
+    out += [f"guard: {g}" for g in check_survey(survey)]
     return out
 
 
@@ -85,6 +119,39 @@ def within_send_hours(when: datetime, send_hours: dict | None = None) -> bool:
     return _hm(sh["from"]) <= t <= _hm(sh["to"])
 
 
+# ------------------------------------------------------------------ queue order
+def queue_key(handoff: dict, rank: float | None = None):
+    """Deterministic send order for hand-offs: send-window start first (always), then, only to
+    break ties between hand-offs opening at the same instant, a higher frequency rank, then the
+    contract's order (created time, then farmer), then handoff_id. A rank never moves a
+    hand-off ahead of one whose window opens earlier."""
+    return (parse_ist(handoff["send_window"]["not_before"]),
+            -(rank if rank is not None else 0.0),
+            handoff.get("created_at") or "",
+            handoff.get("frequency_cap", {}).get("key", ""),
+            handoff.get("handoff_id") or "")
+
+
+# ---------------------------------------------------------------- simulated app
+class SimulatedApp:
+    """The stand-in for the farmer's app: the broadcaster's only delivery target. Real delivery
+    (FarmerChat push, WhatsApp, Telegram, voice) is outside P3, so a "send" here only appends
+    to `inbox`. Each entry holds ids and the time only, no farmer contact details."""
+
+    def __init__(self):
+        self.inbox: list[dict] = []
+
+    def deliver(self, handoff: dict, at, channel: str | None = None) -> None:
+        self.inbox.append({"handoff_id": handoff.get("handoff_id"),
+                           "survey_id": handoff["survey"]["survey_id"],
+                           "farmer_id": handoff["survey"]["farmer_id"],
+                           "channel": channel or handoff["channel_order"][0]["channel"],
+                           "delivered_at": fmt_ist(at)})
+
+    def __len__(self) -> int:
+        return len(self.inbox)
+
+
 # -------------------------------------------------------------- the broadcaster
 class Broadcast:
     """One broadcaster decision for one hand-off at the clock's current instant.
@@ -94,10 +161,12 @@ class Broadcast:
       waiting  -- due (window open) but outside the day's send hours: hold for later today
                   or a later day; stays in the queue.
       pending  -- the send window has not opened yet; stays in the queue.
-      expired  -- past expires_at: dropped from the queue, never sent.
+      expired  -- past expires_at, or its send window has closed: dropped, never sent.
       rejected -- failed the P4 quality gate: dropped, never sent.
+      opted_out -- the farmer is on the opt-out list (possibly since it was queued): dropped,
+                  never sent.
     """
-    ACTIONS = ("sent", "waiting", "pending", "expired", "rejected")
+    ACTIONS = ("sent", "waiting", "pending", "expired", "rejected", "opted_out")
 
     def __init__(self, action: str, handoff: dict, reason: str = ""):
         assert action in self.ACTIONS, action
@@ -139,22 +208,31 @@ class Broadcaster:
     that call (older callers passed one positionally).
     """
 
-    def __init__(self, clock=None):
+    def __init__(self, clock=None, opt_out=None, app=None):
         self._queue: list[dict] = []
+        self._rank: dict[str, float] = {}     # optional frequency rank per handoff_id (tie-break only)
         self._clock = clock
-        # P5 metrics: running totals of rejected (quality-gate) and expired hand-offs the
-        # broadcaster has dropped over this object's life. Counted from actual decisions in
+        # The opt-out list is checked on every decision, not only at admission: a farmer who opts
+        # out while one of their surveys is still queued must not get it. SeasonScheduler passes
+        # the same OptOutList its steps feed.
+        self._opt_out = opt_out
+        # Where sent surveys are delivered: the simulated app (no real messaging in P3).
+        self.app = app if app is not None else SimulatedApp()
+        # P5 metrics: running totals of rejected (quality-gate), expired and opted-out hand-offs
+        # the broadcaster has dropped over this object's life. Counted from actual decisions in
         # broadcast_due / drop_expired_and_rejected, never hard-coded.
         self.rejected_count = 0
         self.expired_count = 0
+        self.opted_out_count = 0
 
     @property
     def clock(self):
         return self._clock
 
     def counts(self) -> dict:
-        """P5: cumulative rejected/expired totals from actual broadcaster decisions."""
-        return {"rejected": self.rejected_count, "expired": self.expired_count}
+        """P5: cumulative rejected/expired/opted-out totals from actual broadcaster decisions."""
+        return {"rejected": self.rejected_count, "expired": self.expired_count,
+                "opted_out": self.opted_out_count}
 
     def _resolve_clock(self, clock):
         c = clock if clock is not None else self._clock
@@ -163,12 +241,15 @@ class Broadcaster:
         return c
 
     # -- queue management ----------------------------------------------------
-    def queue(self, handoff: dict) -> None:
+    def queue(self, handoff: dict, rank: float | None = None) -> None:
         """Add one hand-off. Idempotent on handoff_id: re-queuing the same hand-off replaces
-        the earlier copy rather than sending twice. The queue stays window-start ordered."""
+        the earlier copy rather than sending twice. The queue stays window-start ordered;
+        `rank` (optional, e.g. a frequency score) only breaks ties at the same start."""
         hid = handoff.get("handoff_id")
         self._queue = [h for h in self._queue if h.get("handoff_id") != hid]
         self._queue.append(handoff)
+        if rank is not None:
+            self._rank[hid] = float(rank)
         self._resort()
 
     def queue_all(self, handoffs) -> None:
@@ -176,7 +257,7 @@ class Broadcaster:
             self.queue(h)
 
     def _resort(self) -> None:
-        self._queue.sort(key=lambda h: parse_ist(h["send_window"]["not_before"]))
+        self._queue.sort(key=lambda h: queue_key(h, self._rank.get(h.get("handoff_id"))))
 
     @property
     def pending(self) -> list[dict]:
@@ -211,7 +292,7 @@ class Broadcaster:
         keep: list[dict] = []
         for h in self._queue:
             b = self._decide_one(h, now, relevance_threshold)
-            if b.action in ("expired", "rejected"):
+            if b.action in ("expired", "rejected", "opted_out"):
                 dropped.append(b)
             else:
                 keep.append(h)
@@ -221,21 +302,27 @@ class Broadcaster:
         return dropped
 
     def _tally(self, broadcasts) -> None:
-        """Add expired/rejected outcomes to the running P5 totals (actual decisions)."""
+        """Add expired/rejected/opted-out outcomes to the running P5 totals (actual decisions)."""
         for b in broadcasts:
             if b.action == "rejected":
                 self.rejected_count += 1
             elif b.action == "expired":
                 self.expired_count += 1
+            elif b.action == "opted_out":
+                self.opted_out_count += 1
 
-    def next_due(self, clock=None, *, relevance_threshold: float):
+    def next_due(self, clock=None, *, relevance_threshold: float, ready=None):
         """The single next hand-off that would be sent right now (earliest window first), as
         a Broadcast with action 'sent', or None if nothing is sendable at this instant.
 
         This is the per-step read the manual trigger builds on: it looks only at what is due,
-        quality-clear and inside send hours now, without touching the queue."""
+        quality-clear and inside send hours now, without touching the queue. `ready` is an
+        optional predicate(handoff) -> bool; a hand-off it rejects is skipped (the scheduler
+        uses it to hold a hand-off until its wait interval has passed)."""
         now = self._resolve_clock(clock).now()
         for h in self._queue:
+            if ready is not None and not ready(h):
+                continue
             b = self._decide_one(h, now, relevance_threshold)
             if b.action == "sent":
                 return b
@@ -246,9 +333,10 @@ class Broadcaster:
 
         `relevance_threshold` is required and explicit (keyword-only): the caller states the
         P4 relevance bar; P3 does not invent one. Returns a Broadcast per queued hand-off,
-        in send-window-start order. `sent`, `expired` and `rejected` hand-offs leave the
-        queue; `pending` and `waiting` stay for a later call. Reads the bound shared clock
-        unless a clock is passed for this call.
+        in send-window-start order. `sent` hand-offs are delivered to the simulated app
+        (`self.app`) and leave the queue, as do `expired`, `rejected` and `opted_out` ones
+        (never delivered); `pending` and `waiting` stay for a later call. Reads the bound
+        shared clock unless a clock is passed for this call.
         """
         now = self._resolve_clock(clock).now()
         results: list[Broadcast] = []
@@ -256,21 +344,33 @@ class Broadcaster:
         for h in self._queue:
             b = self._decide_one(h, now, relevance_threshold)
             results.append(b)
-            if b.action in ("pending", "waiting"):
+            if b.action == "sent":
+                self.app.deliver(h, now)
+            elif b.action in ("pending", "waiting"):
                 keep.append(h)
         self._queue = keep
         self._resort()
         self._tally(results)
         return results
 
-    @staticmethod
-    def _decide_one(handoff: dict, now: datetime, relevance_threshold: float) -> Broadcast:
+    def _decide_one(self, handoff: dict, now: datetime, relevance_threshold: float) -> Broadcast:
+        # Opt-outs always win, even for a survey that was queued before the farmer opted out.
+        if self._opt_out is not None and self._opt_out.blocks(handoff):
+            return Broadcast("opted_out", handoff, reason="farmer opted out of all surveys")
         not_before = parse_ist(handoff["send_window"]["not_before"])
+        not_after = parse_ist(handoff["send_window"]["not_after"])
         expires = parse_ist(handoff["expires_at"])
 
         # Expired work is dropped before anything else: never send a stale survey.
         if now > expires:
             return Broadcast("expired", handoff, reason=f"past expiry {handoff['expires_at']}")
+        # The send window has closed: schedule_handoff.schema.json says the scheduler must not
+        # send outside it. Nothing can go out any more, so it is dropped like expired work.
+        # (Answers to an earlier send are still accepted until expires_at; that is the
+        # simulator's job, not a new send.)
+        if now > not_after:
+            return Broadcast("expired", handoff,
+                             reason=f"send window closed {handoff['send_window']['not_after']}")
 
         # Window not open yet: hold.
         if now < not_before:

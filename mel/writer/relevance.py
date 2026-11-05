@@ -5,6 +5,13 @@ Baseline in the shared repo was: share of questions that mention the asset or an
 """
 from mel.writer import i18n
 
+# The send bar: P3's quality check never schedules a survey whose relevance is below this (contract: P4 sets it,
+# P3 enforces it). Agreed 4 Nov by P4 and P5 at 0.3: it blocks only surveys that name neither the crop, the concern
+# nor the advice ("a missed survey is better than an irrelevant one"). At 0.5 it blocked 21% of surveys, including
+# specific ones such as "Did you treat the nursery bed?", and P4's score agrees only weakly with people (r = 0.29 on
+# the hand-scored sheet; the AI judge: 0.58). See docs/results/judge_calibration.md.
+RELEVANCE_THRESHOLD = 0.3
+
 # ---------------------------------------------------------------- relevance score v2 (0 to 1), same logic in both languages
 # crop mention (0.3) + concern words (0.3) + advice words (0.4). Each table: (what to look for in the advice, English forms, Hindi forms in the survey)
 CONCERN_WORDS = {

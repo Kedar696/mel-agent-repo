@@ -519,3 +519,68 @@ def test_comparison_measures_raw_model_output_for_each_model(bedrock):
     big = r['rows'][1]
     assert big['writer'].startswith('bedrock large') and big['guard_pass_rate'] == 1.0 and big['calls'] == len(pairs) and big['input_tokens'] == 10 * len(pairs)
     assert big['cost_usd'] > 0
+
+
+# ---------------------------------------------------------------- plan surveys name the first step and the crop (4 Nov)
+def test_plan_survey_asks_first_step_and_names_the_crop():
+    from mel.writer.templates import build_items
+    ins = {"resolution_type": "plan_created", "concern": "nutrient_deficiency", "severity": "medium",
+           "asset": {"name": "mustard", "category": "crop"},
+           "advice_summary": "Gave a plan in stages: first apply zinc as per soil test advice, then watch for new leaves."}
+    items = build_items(ins)
+    assert items[0][1] == "Did you apply zinc?"
+    assert items[1][1] == "Is the plan working for your mustard so far?" and "सरसों" in items[1][2]
+    ins["advice_summary"] = "Gave a plan in stages."                       # no recognisable first step
+    assert build_items(ins)[0][1] == "How much of the plan have you done?"  # answer-key wording stays as fallback
+
+
+def test_send_bar_is_agreed_and_blocks_no_template_survey():
+    from mel.data import load_insights
+    from mel.pipeline import run_pipeline
+    from mel.writer import RELEVANCE_THRESHOLD
+    assert RELEVANCE_THRESHOLD == 0.3
+    scores = [o["handoff"]["survey"]["self_eval"]["relevance_score"]
+              for o in run_pipeline(load_insights(None)).outputs if "handoff" in o]
+    assert scores and min(scores) >= RELEVANCE_THRESHOLD
+
+
+def test_comparison_adds_ai_judge_relevance_when_given_a_judge(bedrock, tmp_path):
+    """P5's AI judge scores the templates and each model's usable surveys on the same 1-5 scale."""
+    from mel.writer.compare import compare, markdown, sample_insights
+    pairs = sample_insights(load_insights(), decide, 4)
+    class Echo(FakeRuntime):
+        def converse(self, **kw):
+            self.calls.append(kw)
+            text = kw['messages'][0]['content'][0]['text']
+            ins = next(i for i, _ in pairs if i['advice_summary'] in text)
+            return {'output': {'message': {'content': [{'text': items_json(ins, 'en-IN')}]}}, 'usage': {'inputTokens': 10, 'outputTokens': 5}}
+    llm.set_client(llm.ModelClient(runtime=Echo([]), sleep=lambda s: None))
+    class Judge:
+        model_id = "judge-x"
+        def complete(self, system, user):
+            return ('{"score": 4, "reason": "ok"}', {"input_tokens": 1, "output_tokens": 1})
+    import mel.evaluation.judge as J
+    J_CACHE, J.CACHE = J.CACHE, tmp_path / "jc"
+    try:
+        r = compare(pairs, {'large': 'test-write-model'}, judge=Judge())
+        r2 = compare(pairs, {'large': 'judge-x'}, judge=Judge())
+    finally:
+        J.CACHE = J_CACHE
+    assert [row['judge_relevance'] for row in r['rows']] == [4.0, 4.0]
+    assert all(row['judged'] == len(pairs) for row in r['rows'])
+    assert 'judge_relevance' in markdown(r) and 'judge-x' in r['note']
+    assert 'grades its own writing' in r2['note']
+
+
+def test_prices_fall_back_to_the_team_price_file(monkeypatch):
+    """No MEL_BEDROCK_PRICES: cost comes from docs/results/bedrock_prices.json (per 1M -> per 1K), and an inference
+    profile id (us....) costs what its model costs."""
+    import json
+    from mel.config import ROOT
+    monkeypatch.delenv("MEL_BEDROCK_PRICES", raising=False)
+    f = json.loads((ROOT / "docs" / "results" / "bedrock_prices.json").read_text(encoding="utf-8"))
+    mid = next(k for k, v in f.items() if v.get("in") is not None and v.get("out") is not None)
+    want = round(1000 / 1000 * f[mid]["in"] / 1000 + 1000 / 1000 * f[mid]["out"] / 1000, 6)
+    assert llm.cost_usd(mid, 1000, 1000) == want
+    assert llm.cost_usd("us." + mid, 1000, 1000) == want
+    assert llm.cost_usd("no-such-model", 1000, 1000) is None

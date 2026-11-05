@@ -289,19 +289,22 @@ def test_full_season_walk_over_real_pipeline_handoffs():
     sched.admit_all(handoffs)
 
     sent = 0
-    for _ in range(12):                         # ~1 year in month jumps -> the season in a dozen steps
+    # Walk the season one day at a time (about 150 steps, no sleeps). Month-sized jumps skip
+    # over most 3-day send windows, and the old version of this test only "sent" by landing
+    # after not_after -- outside the send window, which the scheduler must never do.
+    for _ in range(200):
         for r in sched.run_due():
             if r.kind == "sent":
                 sent += 1
                 rec = r.record
                 assert not errors("response", rec), r.handoff_id
-                # Sent at the shared clock instant, inside the window and before expiry.
+                # Sent at the shared clock instant, inside the send window (not just before expiry).
                 sent_at = parse_ist(rec["timestamps"]["sent"])
                 h = next(x for x in handoffs if x["handoff_id"] == r.handoff_id)
-                assert parse_ist(h["send_window"]["not_before"]) <= sent_at <= parse_ist(h["expires_at"])
-        if not sched.broadcaster:
+                assert parse_ist(h["send_window"]["not_before"]) <= sent_at <= parse_ist(h["send_window"]["not_after"])
+        if not sched.broadcaster or sched.is_season_over():
             break
-        sched.advance(30)
+        sched.advance(1)
 
     assert sent > 0
     assert len(sched.broadcaster) == 0          # the whole queue is resolved by season end

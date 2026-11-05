@@ -24,6 +24,7 @@ TEMPLATES = {
     'help': ('Do you need more help?', 'क्या आपको और मदद चाहिए?'),
     'plan_progress': ('How much of the plan have you done?', 'आपने योजना का कितना काम किया?'),
     'plan_working': ('Is the plan working so far?', 'क्या योजना अब तक काम कर रही है?'),
+    'plan_working_crop': ('Is the plan working for your {name} so far?', 'क्या {ke} {name_hi} के लिए योजना अब तक काम कर रही है?'),
     # Hindi avoids "मिले/गए" (verb would have to agree with the farmer's gender); "मुलाकात हो पाई" does not
     'expert_met_vet': ('Did you meet the veterinary doctor?', 'क्या पशु डॉक्टर से मुलाकात हो पाई?'),
     'expert_met_agri': ('Did you meet the agriculture expert?', 'क्या कृषि विशेषज्ञ से मुलाकात हो पाई?'),
@@ -224,12 +225,17 @@ def watch_question(insight):
     return None
 
 
-def question_count(insight):
-    """2-vs-3 rule (from the answer key): direct_action gets 3 questions unless severity is low; every other type gets 2."""
-    return 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+def question_count(insight, attention=None):
+    """2-vs-3 rule (from the answer key): direct_action gets 3 questions unless severity is low; every other
+    type gets 2. Activity attention (optional, off by default): a `steady_high` farmer is capped at 2. The cap
+    lives here (not only in personalize) so it holds with history OFF and on both the template and model paths."""
+    n = 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+    if attention and attention.get('tier') == 'steady_high':
+        n = min(n, 2)
+    return n
 
 
-def build_items(insight, style='golden'):
+def build_items(insight, style='golden', attention=None):
     """-> list of (type, prompt_en, prompt_hi, options). Options are dicts with value, en, hi and optional follow_up."""
     i = insight; rt = i['resolution_type']; cn = i.get('concern') or 'growth_issue'
     S = i18n.slots(i['asset'].get('name')); live = i['asset'].get('category') == 'livestock'
@@ -241,7 +247,7 @@ def build_items(insight, style='golden'):
     if rt == 'direct_action':
         en, hi = action_question(i)
         items = [_q('survey-single-select', en, hi, YNN()), outcome]
-        if question_count(i) == 3:
+        if question_count(i, attention) == 3:
             en, hi = T('barrier'); items.append(_q('survey-single-select', en, hi, BARRIER()))
         return items
     if rt == 'do_not_act':
@@ -256,9 +262,14 @@ def build_items(insight, style='golden'):
         return [_q('survey-single-select', en, hi, opts), _q('survey-confirm', en2, hi2, [opt('yes', 'yes', 'needs_more_help'), opt('no', 'no')])]
     if rt == 'plan_created':
         a, b = T('plan_progress'), T('plan_working')
-        step = first_step_question(i) if style == 'concern' else None
-        if step:   # concern style: ask about the plan's first step, as the brief says
-            return [_q('survey-single-select', step[0], step[1], YNN()), _q('survey-single-select', *b, [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
+        # Both styles ask about the plan's FIRST step, as the brief says, and name the crop or animal in the second
+        # question (decided 4 Nov, P4 + P5): people scored the generic "How much of the plan have you done?" lowest
+        # (3.85/5), and P4's relevance score blocked 80 of those at the 0.3 send bar. The answer key's generic
+        # wording stays as the fallback when the plan text has no recognisable first step.
+        step = first_step_question(i)
+        if step:
+            return [_q('survey-single-select', step[0], step[1], YNN()),
+                    _q('survey-single-select', *T('plan_working_crop'), [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
         return [_q('survey-single-select', *a, [opt('all', 'all_steps'), opt('some', 'some_steps'), opt('none', 'not_started')]),
                 _q('survey-single-select', *b, [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
     if rt == 'escalate_to_expert':
@@ -275,13 +286,17 @@ FOLLOW_UP_MAP = {'problem_growing': 'crop_or_animal_damaged', 'needs_more_help':
                  'input_not_available': 'could_not_get_input', 'cost_barrier': 'could_not_get_input'}
 
 
-def template_items(insight, lang, style=None, memory=None):
+def template_items(insight, lang, style=None, memory=None, attention=None):
     """Survey `items` (survey.schema.json) for one insight in one language. Same call the shared compose.py used before.
-    With `memory` (history.FarmerMemory) the history rules H1-H4 adapt the questions to what we know about the farmer."""
-    raw = build_items(insight, style or STYLE)
+    With `memory` (history.FarmerMemory) the history rules H1-H4 adapt the questions to what we know about the farmer.
+    `attention` (activity-attention, off by default): `steady_high` caps at 2 questions (via question_count,
+    applied on the no-memory path too); `surge` lets the H4 light-user cap be skipped inside personalize."""
+    raw = build_items(insight, style or STYLE, attention)
     if memory is not None:
         from .history import personalize
-        raw, _ = personalize(raw, insight, memory)
+        raw, _ = personalize(raw, insight, memory, attention)
+    elif attention and attention.get('tier') == 'steady_high' and len(raw) > 2:
+        raw = raw[:2]   # history off: enforce the steady_high cap here too
     k = 'hi' if str(lang).startswith('hi') else 'en'
     items = []
     for n, (typ, pen, phi, opts) in enumerate(raw, 1):

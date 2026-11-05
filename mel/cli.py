@@ -86,7 +86,8 @@ def cmd_run(a):
         farmers = load_farmers()
     except FileNotFoundError:
         farmers = {}  # send time then uses the insight alone
-    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers)
+    attention = getattr(a, "attention", False)   # tolerate Namespaces that omit it (older arg builders)
+    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers, attention=attention)
     for ins, out in zip(result.insights, result.outputs):
         if "no_survey" in out:
             _dump(OUT / "no_survey" / f"{ins.get('insight_id','unknown')}.json", out["no_survey"])
@@ -113,6 +114,8 @@ def cmd_run(a):
         "junk_rows": junk,
         **counts,
     }
+    if attention:   # only when on, so the off path writes a byte-for-byte identical summary
+        summary.update(result.attention_counts())
     _dump(OUT / "run_summary.json", summary)
     print(f"insights={result.rows_processed}  surveys={surveys}  no_survey={summary['no_survey']}  "
           f"junk={junk}  input={path}")
@@ -204,6 +207,8 @@ def main():
     r.add_argument("--farmer", help="process only this farmer_id")
     r.add_argument("--clean", action="store_true",
                    help="first empty surveys/, handoffs/, no_survey/ and responses/ in the output folder")
+    r.add_argument("--attention", action="store_true",
+                   help="turn on activity attention (off by default; changes priority, question count and send time)")
     r.set_defaults(f=cmd_run)
     e = sp.add_parser("eval"); e.add_argument("--golden"); e.set_defaults(f=cmd_eval)
     v = sp.add_parser("validate")
