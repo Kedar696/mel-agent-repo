@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04_
+_Last updated: 2026-11-04 (p5-merge-all: P3/P4/P1 branches + judge in app)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -50,23 +50,50 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   the last run under the same send-time rule. `python scripts/readme_numbers.py --write [--record "label"]
   [--basis ...]` (logic in `mel/evaluation/report.py`) regenerates README block + `docs/results/scorecard.md`.
 - AI relevance judge `mel/evaluation/judge.py` (Bedrock Converse, off unless `MEL_JUDGE=1`, cached, logs
-  tokens/cost/time; rubric v1 in README): tested with a stand-in model only, **not yet run on Bedrock**. It
-  has its own small Bedrock adapter; P4's `ModelClient.converse()` exists now, so switching to it is next.
-  Hand-scoring sheet `docs/results/hand_scores.csv` (20 surveys, 4 per resolution type) + guide: unscored.
+  tokens/cost/time; rubric v1 in README). **Ran on Bedrock 4 Nov** (Claude Haiku 4.5, inference profile
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`, us-east-1; plain `anthropic.` id fails "on-demand throughput").
+  Hand scores: 5 people x 20 surveys = 100 rows in `docs/results/hand_scores.csv`. Calibration (judge scores the
+  sheet's exact question text via `survey_from_text`): AI vs person within 1 point 95%, gap 0.63, r=0.58 with the
+  team average; person vs person 83%, 0.82, r 0.00-0.49; "always 5" 79%, 0.79. AI used only 4/5 and is a bit
+  lenient. Write-up: `docs/results/judge_calibration.md` (PR `p5-hand-scores`). `--run` on all 94 rows: AI relevance
+  **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Both commands now also write `docs/results/judge_summary.json`
+  (committed; incl. `rank_r`); the app's Evaluation tab shows "Can we trust the AI judge?" from it, never calling
+  Bedrock. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
+  the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
-- Streamlit app (5 tabs) loads the full pack (6,999) by default, mock sample only if the pack is missing or
-  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. Overview shows P3's weekly-limit decisions (full data:
-  1,614 sent, 452 moved, 442 merged, 108 skipped); Survey Studio has demo picks + filters; Evaluation has the
-  send-time rule toggle, five-dimension scorecard, brief-vs-answer-key comparison, rules-we-changed table and
-  run-history chart. (Full-data app is on `p5-full-data`; `main` still shows the 57-row sample.)
+- Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
+  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. UI/UX redesign (branch `willF-uiux`, 4 Nov, not yet
+  merged): a compact masthead, then 3 tabs. **Dashboard** (default; below). **Survey demo**: a toolbar with the Demo picks list (four
+  demo picks: High goat, Medium lentil, Low stored mustard, no-survey critical cow, then Browse with filters) and
+  the primary **Add your own insight** button (own-insight mode replaces the picker with a "Source: Your insight" label and
+  shows the **Edit insight / Hide editor** toggle and **Back to the demos**; **Your insight** returns from demo mode;
+  the editor draft, result and last demo pick survive hiding and switches), a
+  report title line ("Your insight" / "Demo insight"), a settings bar (channel; language with **English default**, Hindi one tap away; an icon-only
+  **Restart** that resets the phone only; pretend history), then the green insight card | the interactive
+  channel preview (`app/channel_preview.py`, one 378x700 phone for all channels, restart/show_restart API) |
+  the scheduler hand-off, survey checks and the answer record; JSON in collapsed developer details. History
+  rules H1-H4 are always on in the app (the old toggle is gone). **Your own insight** (`app/custom_context.py`): the editor (farmer's question, advice, Details for crop/problem/severity/advice
+  type/timing/channel/language/district) runs once through `run_insight` on submit and then collapses; ids `I-9000NN`, real IST
+  `created_at`, session only, never in the batch or the numbers; empty advice = "No advice given yet." and R4;
+  tests in `tests/test_custom_context.py`. **Dashboard**: P3's weekly-limit decisions (full data:
+  1,614 sent, 452 moved, 442 merged, 108 skipped), then the send-time rule toggle, five-dimension scorecard,
+  brief-vs-answer-key comparison, rules-we-changed table and run-history chart; its metrics count up and the rule
+  bars grow in on first view (`COUNT_UP_JS`, ported from the Success Metrics site; none under reduced motion).
+  **Follow-up queue**: reason and channel filters with counts, a pick-one list (oldest answer first) and the open
+  ticket beside it: next step, conversation log (insight summaries, then the survey Q&A), record JSON.
+  The Simulate answers tab, the static all-questions panel and the data caption are gone. Theme: `app/theme.py`
+  + `.streamlit/config.toml` (Mukta, ivory/green/marigold, see `docs/uiux-design.md`). Dates and times on screen are
+  Eastern Time, MM/DD/YYYY, 12-hour via `app/display_time.py`; stored timestamps and JSON stay ISO/IST.
+  Voice channel: "Read the call aloud" plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
+  in `.env`; see `.env.example`); off and silent without a key.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
-  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey Studio
-  shows "What the agent remembers", a history on/off switch, a "pretend survey history" demo and generic vs
-  adapted questions, and "Answer as the farmer" (real tap-through on all 5 channels: finish, close, opt out,
-  free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
+  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey demo
+  shows "What the agent remembers", a "pretend survey history" demo and generic vs
+  adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
+  channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
   FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the tap-through has no Skip button. History rules H1–H4 now live in
+  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H4 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
@@ -95,10 +122,17 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
+  +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
+  0.5; full data: 2,066 queued, 1,711 sends, 355 blocked by the quality check, whole season ~6 s). Shows India
+  time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
+- P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
+  redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
+  Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
   send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
-  backup link; switch the judge to P4's `ModelClient` and run it + `--calibrate` once Bedrock access exists;
+  backup link; judge calibrated on Bedrock (done 4 Nov); left: switch to P4's `ModelClient`;
   window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
   Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
   not in the response schema, so P3's outcomes would give an empty queue.
