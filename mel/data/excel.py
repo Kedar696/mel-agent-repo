@@ -299,7 +299,6 @@ def check_farmers_parity(xlsx_path: Path, csv_path: Path) -> list[str]:
 
 
 def check_crop_calendar_parity(xlsx_path: Path, csv_path: Path) -> list[str]:
-    key = lambda r, n: f"row {n} ({r.get('crop')}/{r.get('growth_stage') or '-'})"
     with open(csv_path, encoding="utf-8", newline="") as f:
         csv_rows = list(csv.DictReader(f))
     xl_rows = load_crop_calendar_xlsx(xlsx_path)

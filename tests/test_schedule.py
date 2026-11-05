@@ -28,7 +28,7 @@ def test_opt_out_blocks_future_surveys():
 # --- P3 additions: cap policy (admit), opt-out gate, high-priority exemption ---
 import copy
 
-from mel.schedule import CapLedger, Admit
+from mel.schedule import CapLedger
 
 
 def _handoff(scenario="1-mustard-aphid-spray"):

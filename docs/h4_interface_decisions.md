@@ -33,3 +33,10 @@ high priority only (see `docs/TEAM.md`).
 
 Once decided: the owner updates their code (if renaming/adding), P1 updates `docs/TEAM.md` → "Interfaces",
 and the contract's "What you hand over" lines are edited to match.
+
+## Decided 5 Nov: how late answers are recorded (row 15, `docs/h4_schema_change_request_late.md`)
+**Option B.** No change to `config/schemas/response.schema.json` (it must stay identical to the organisers'
+pack, `mel.cli parity`). A late answer is one whose `timestamps.answered` is after the hand-off's
+`expires_at`; `mel.simulator.is_late(record, expires_at)` derives that from the record itself, and
+`mel.cli run` writes the count as `schedule.late_answers` in `run_summary.json`. `MEL_RESPONSE_LATE_FIELD`
+stays off. Revisit only if Digital Green adds a `late` field to the pack.

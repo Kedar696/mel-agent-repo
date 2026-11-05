@@ -57,15 +57,14 @@ from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
 from mel.schedule import SeasonScheduler
 from mel.simulator import simulate
-from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
-                        history_notes, llm)
+from mel.writer import (check_survey, write_surveys, FarmerMemory, history_notes, llm)
 from mel.writer.templates import template_items
 
 sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
 from app import custom_context as cc
 from app import tts
-from app.display_time import (ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text,
+from app.display_time import (format_clock, format_date, format_datetime, format_dates_in_text,
                               use as use_zone, zone_label)
 
 use_zone(None)   # the numbers in Eastern Time; one farmer's screen switches to India time below (Survey demo, queue)

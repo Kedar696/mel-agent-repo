@@ -172,7 +172,7 @@ def main():
         except Exception as e:
             raise SystemExit(f"Guardrail check failed in region {llm.region() or '(none set)'}: {e}\n"
                              "Check that MEL_GUARDRAIL_ID / MEL_GUARDRAIL_VERSION come from the fasal-pulse stack's "
-                             "Outputs, and that the stack is in the same region as MEL_BEDROCK_REGION.")
+                             "Outputs, and that the stack is in the same region as MEL_BEDROCK_REGION.") from e
         if blocked:                             # it would reject every survey and send all of them to the template
             raise SystemExit(f"The guardrail blocks a harmless survey question ({blocked}). Loosen it in "
                              "infra/fasal-pulse.yaml and update the stack, or unset MEL_GUARDRAIL_ID for this run.")

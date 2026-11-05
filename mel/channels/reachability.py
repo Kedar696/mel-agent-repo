@@ -35,7 +35,6 @@ per farmer, e.g. a `reachable_channels` column (pipe-separated like `crops`) or 
 table. Until then, construct `FarmerReachability(load_farmers(), unreachable_by_farmer=...)`
 to inject known gaps for a demo (clearly a stand-in, not real data).
 """
-from mel.config import CHANNELS
 
 
 class FarmerReachability:

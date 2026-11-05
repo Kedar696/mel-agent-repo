@@ -8,9 +8,7 @@ Covers the acceptance criteria:
   * a peak never bypasses opt-out, send window, expiry, quality gate, or the frequency cap
   * duplicate inputs, sparse history, out-of-order timestamps, boundary dates are deterministic
 """
-import copy
 
-import pytest
 
 from mel.data import load_scenario
 from mel.schedule import (
@@ -153,7 +151,6 @@ def test_peak_raises_score_but_keeps_signal_visible():
 
 
 def test_ranking_is_deterministic_tie_break_by_id():
-    fid = _clear_handoff()["survey"]["farmer_id"]
     h1 = _clear_handoff(); h1["handoff_id"] = "H-AAA"; h1["priority"] = "normal"
     h2 = _clear_handoff(); h2["handoff_id"] = "H-BBB"; h2["priority"] = "normal"
     sched = FrequencyScheduler(FrequencyMonitor([]))

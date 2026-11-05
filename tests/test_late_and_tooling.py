@@ -6,12 +6,9 @@ emitted only when MEL_RESPONSE_LATE_FIELD=1, so default records stay schema-vali
 183 reference records still match. These tests exercise the P3 computation and the boundary,
 and confirm default records carry no `late` field.
 """
-import json
 from datetime import timedelta
 
-import pytest
 
-from mel.config import FIXTURES
 from mel.data import load_scenario, errors
 from mel.simulator import simulate_sheet
 from mel.timing import parse_ist, fmt_ist, expires_at
@@ -89,6 +86,7 @@ def test_reference_check_reports_a_field_mismatch():
     rather than hiding it."""
     from mel.simulator import reference_check
     report = reference_check.compare()
+    assert report["matched"] == report["total"] == 183 and not report["mismatches"]
     # sanity: the comparator's field-diff helper flags a changed non-ID field
     ref = {"status": "completed", "answered_by": "F-1"}
     got = {"status": "partial", "answered_by": "F-1"}

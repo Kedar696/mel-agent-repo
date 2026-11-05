@@ -31,7 +31,6 @@ class Runtime:
         self.calls += 1
         text = kw["messages"][0]["content"][0]["text"]
         if "Translate" in (kw.get("system") or [{}])[0].get("text", ""):   # Hindi = a translation of the English lines
-            from mel.writer.llm import lines_from
             lang = "hi-IN"
             ins = next(i for i in self.by_advice.values() if _lines(i) == text)
         else:

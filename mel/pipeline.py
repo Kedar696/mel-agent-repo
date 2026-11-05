@@ -121,7 +121,7 @@ def _attention_by_insight_id(insights: list[dict]) -> dict[str, dict]:
             per_farmer[i["farmer_id"]].append(i)
 
     result: dict[str, dict] = {}
-    for fid, rows in per_farmer.items():
+    for rows in per_farmer.values():
         last_promoted = None  # created_at of the last allowed activity_jump->high for this farmer
         for i in sorted(rows, key=_sort_key):
             att = hist.attention_for(i)

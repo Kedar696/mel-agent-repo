@@ -5,7 +5,6 @@ cross-cutting guarantees: the 7-day high-promotion budget, opt-out/fatigue still
 full runs agree, robustness to broken rows, and the full-pack on/off invariants.
 """
 import datetime
-import json
 
 import pytest
 
@@ -232,7 +231,6 @@ def test_no_survey_chat_does_not_spend_the_high_budget():
 
 
 def test_adjust_priority_honours_the_spent_budget():
-    base = settings()
     surge = Attention("surge", "activity_jump", 0.1, 4, 1.5, "x").as_dict()
     spent = with_high_budget_spent(Attention("surge", "activity_jump", 0.1, 4, 1.5, "x")).as_dict()
     i = ins("I", "F", "C", 40, severity="medium")   # brief priority normal

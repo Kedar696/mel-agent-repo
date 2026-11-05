@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mel.config import ROOT
-from mel.data import load_insights, load_farmers, errors
+from mel.data import load_insights, load_farmers
 from mel.evaluation.golden import item_similarity
 from mel.evaluation.scorecard import run_scorecard
 from mel.pipeline import run_pipeline, clean
@@ -180,7 +180,7 @@ def write_report(m):
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "activity_attention.json").write_text(json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    md = [f"# Activity attention: before / after\n",
+    md = ["# Activity attention: before / after\n",
           f"**Why this change:** {m['reason']}. Per `CLAUDE.md`, a deliberate change to the brief is shown "
           f"with numbers. Attention is OFF by default (scoring and the CLI) and ON in the app.\n",
           f"Full pack: **{m['n_insights']:,} insights**.\n",

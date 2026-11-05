@@ -24,7 +24,7 @@ from mel.schedule import (
     FrequencyScheduler, FrequencyMonitor, ClimateContext,
 )
 from mel.schedule.batch import cap_violations
-from mel.schedule.broadcast import SimulatedApp, queue_key
+from mel.schedule.broadcast import SimulatedApp
 from mel.schedule.handoff import max_source_insight_ids
 from mel.channels import FarmerReachability
 from mel.simulator import simulate, simulate_handoff, simulate_sheet
