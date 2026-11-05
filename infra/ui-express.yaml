@@ -159,7 +159,10 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: bedrock-agentcore:InvokeAgentRuntime
-                Resource: !Sub arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*
+                # Either hackathon region: the agent runs in us-west-2 while this UI may run in us-east-1.
+                Resource:
+                  - !Sub arn:${AWS::Partition}:bedrock-agentcore:us-east-1:${AWS::AccountId}:runtime/*
+                  - !Sub arn:${AWS::Partition}:bedrock-agentcore:us-west-2:${AWS::AccountId}:runtime/*
 
   # ---- The service ------------------------------------------------------------------------------
   UiCluster:

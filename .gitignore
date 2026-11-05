@@ -6,3 +6,6 @@ out/
 .pytest_cache/
 v0-sketch/
 .bedrock_agentcore.yaml
+
+# Digital Green's Vision and Technical documents (theirs, not ours to publish); summary in docs/deliverables_coverage.md
+docs/*Digital Green FarmerChat*.docx

@@ -192,6 +192,13 @@ def test_template_comparison_is_english_only(one):
         assert any("send bar" in p for p in v["problems"])
 
 
+def test_remote_client_uses_the_runtime_region():
+    from mel.agent.remote import region_of, _client
+    arn = "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/fasal_pulse-abc"
+    assert region_of(arn) == "us-west-2" and region_of("") is None and region_of("not-an-arn") is None
+    assert _client(arn).meta.region_name == "us-west-2"
+
+
 # ---------------------------------------------------------------- compact lines + Hindi by translation (5 Nov)
 def _lines(insight, lang="en-IN"):
     from mel.writer.llm import lines_from
