@@ -133,6 +133,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   Gemma 3 12B** (`google.gemma-3-12b-it`, on-demand): r 0.72, within 1 pt 97%, gap 0.54, ~$0.05 per 1,000 surveys;
   now the main judge (judge_summary.json; 94-row relevance 4.48). `ModelClient.converse` accepts `system=None` and
   `temperature=None` (newer models refuse them; P4 to review).
+- **P4 comparison + AI judge (P5, 5 Nov; P4 to review):** `mel.writer.compare.compare(..., judge=)` adds a
+  `judge_relevance` column (1-5, the AI judge, over surveys that passed the guards; warns if a writer is also the
+  judge). `scripts/p4_compare.py`: `MEL_JUDGE=1 MEL_JUDGE_MODEL=...` turns it on; samples 50 from the full pack.
 - **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
   (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4

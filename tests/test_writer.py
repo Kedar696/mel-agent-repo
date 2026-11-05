@@ -542,3 +542,31 @@ def test_send_bar_is_agreed_and_blocks_no_template_survey():
     scores = [o["handoff"]["survey"]["self_eval"]["relevance_score"]
               for o in run_pipeline(load_insights(None)).outputs if "handoff" in o]
     assert scores and min(scores) >= RELEVANCE_THRESHOLD
+
+
+def test_comparison_adds_ai_judge_relevance_when_given_a_judge(bedrock, tmp_path):
+    """P5's AI judge scores the templates and each model's usable surveys on the same 1-5 scale."""
+    from mel.writer.compare import compare, markdown, sample_insights
+    pairs = sample_insights(load_insights(), decide, 4)
+    class Echo(FakeRuntime):
+        def converse(self, **kw):
+            self.calls.append(kw)
+            text = kw['messages'][0]['content'][0]['text']
+            ins = next(i for i, _ in pairs if i['advice_summary'] in text)
+            return {'output': {'message': {'content': [{'text': items_json(ins, 'en-IN')}]}}, 'usage': {'inputTokens': 10, 'outputTokens': 5}}
+    llm.set_client(llm.ModelClient(runtime=Echo([]), sleep=lambda s: None))
+    class Judge:
+        model_id = "judge-x"
+        def complete(self, system, user):
+            return ('{"score": 4, "reason": "ok"}', {"input_tokens": 1, "output_tokens": 1})
+    import mel.evaluation.judge as J
+    J_CACHE, J.CACHE = J.CACHE, tmp_path / "jc"
+    try:
+        r = compare(pairs, {'large': 'test-write-model'}, judge=Judge())
+        r2 = compare(pairs, {'large': 'judge-x'}, judge=Judge())
+    finally:
+        J.CACHE = J_CACHE
+    assert [row['judge_relevance'] for row in r['rows']] == [4.0, 4.0]
+    assert all(row['judged'] == len(pairs) for row in r['rows'])
+    assert 'judge_relevance' in markdown(r) and 'judge-x' in r['note']
+    assert 'grades its own writing' in r2['note']
