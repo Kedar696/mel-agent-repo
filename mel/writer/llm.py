@@ -89,7 +89,8 @@ class ModelClient:
         return code in RETRYABLE_CODES or type(e).__name__ in RETRYABLE_CLASSES
 
     def converse(self, model_id, system, user, purpose="write", tag="", max_tokens=1200, temperature=0.2) -> str:
-        """Returns the model's text. Raises ModelUnavailable. `purpose` is 'write' or 'check'; `tag` is e.g. the insight id (for the log)."""
+        """Returns the model's text. Raises ModelUnavailable. `purpose` is 'write' or 'check'; `tag` is e.g. the insight id (for the log).
+        `system=None` sends no system prompt and `temperature=None` no temperature (newer models refuse one or the other)."""
         key = hashlib.sha256(json.dumps([model_id, system, user, max_tokens, temperature], ensure_ascii=False).encode()).hexdigest()
         cached = cache_dir() / f"{key}.json"
         if cached.exists():
@@ -110,7 +111,7 @@ class ModelClient:
                 resp = self._rt().converse(
                     modelId=model_id, **kw,
                     messages=[{"role": "user", "content": [{"text": user}]}],
-                    inferenceConfig={"maxTokens": max_tokens, "temperature": temperature})
+                    inferenceConfig={"maxTokens": max_tokens, **({} if temperature is None else {"temperature": temperature})})
             except ModelUnavailable:
                 raise
             except Exception as e:

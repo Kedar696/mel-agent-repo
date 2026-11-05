@@ -209,25 +209,31 @@ class _Metered:
 
 
 class _SweepClient:
-    """BedrockClient with more room to answer, and a retry without a system prompt for models that refuse one."""
+    """BedrockClient with more room to answer. Some models refuse a system prompt, and newer ones refuse a temperature
+    setting; each refusal is remembered and the call is retried without it."""
 
     def __init__(self, call_id, runtime):
         self.model_id = call_id
         self._inner = J.BedrockClient(call_id, runtime=runtime)
-        self._no_system = False
+        self._no_system = self._no_temperature = False
 
     def complete(self, system, user):
         c = self._inner._client
-        if not self._no_system:
+        for _ in range(3):
+            sys_, usr = (None, system + "\n\n" + user) if self._no_system else (system, user)
             try:
-                text = c.converse(self.model_id, system, user, purpose="judge", max_tokens=MAX_TOKENS, temperature=0)
+                text = c.converse(self.model_id, sys_, usr, purpose="judge", max_tokens=MAX_TOKENS,
+                                  temperature=None if self._no_temperature else 0)
                 return text, dict(c.last_usage)
             except Exception as e:      # ModelUnavailable from P4's client
-                if "system" not in str(e).lower():
+                msg = str(e).lower()
+                if "temperature" in msg and not self._no_temperature:
+                    self._no_temperature = True
+                elif "system" in msg and not self._no_system:
+                    self._no_system = True
+                else:
                     raise
-                self._no_system = True
-        text = c.converse(self.model_id, None, system + "\n\n" + user, purpose="judge", max_tokens=MAX_TOKENS, temperature=0)
-        return text, dict(c.last_usage)
+        raise RuntimeError("model refused both the system prompt and the temperature setting")
 
 
 def evaluate_model(model: dict, pairs, runtime_factory, full: bool = False, cache_dir=J.CACHE) -> dict:

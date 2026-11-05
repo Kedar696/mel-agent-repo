@@ -46,6 +46,8 @@ class Runtime:
             raise RuntimeError("AccessDeniedException: You don't have access to the model")
         if self.kind == "nosys" and "system" in kw:
             raise RuntimeError("ValidationException: This model doesn't support system messages")
+        if self.kind == "notemp" and "temperature" in kw["inferenceConfig"]:
+            raise RuntimeError("ValidationException: This model doesn't support the temperature field.")
         return {"output": {"message": {"content": [{"text": '{"score": 5, "reason": "ok"}'}]}},
                 "usage": {"inputTokens": 100, "outputTokens": 10}}
 
@@ -58,9 +60,9 @@ def pairs():
 def test_sweep_scores_ranks_and_reports_failures(pairs, tmp_path, monkeypatch):
     monkeypatch.setenv("MEL_CACHE_DIR", str(tmp_path / "mc"))
     monkeypatch.setenv("MEL_LLM_LOG", str(tmp_path / "log.jsonl"))
-    models = [{"model_id": k, "call_id": k, "provider": "P", "name": k, "via": "on-demand"} for k in ("good", "denied", "nosys")]
+    models = [{"model_id": k, "call_id": k, "provider": "P", "name": k, "via": "on-demand"} for k in ("good", "denied", "nosys", "notemp")]
     models.append({"model_id": "prov", "call_id": None, "provider": "P", "name": "prov", "via": "provisioned throughput only (skipped)"})
-    kinds = iter(["good", "denied", "nosys", "unused"])
+    kinds = iter(["good", "denied", "nosys", "notemp", "unused"])
     import threading
     lock = threading.Lock()
 
@@ -73,6 +75,7 @@ def test_sweep_scores_ranks_and_reports_failures(pairs, tmp_path, monkeypatch):
     n = len({r["golden_id"] for r in J.read_sheet()})
     assert by["good"]["status"] == "ok" and by["good"]["surveys_scored"] == n and by["good"]["avg_score"] == 5
     assert by["nosys"]["status"] == "ok"                      # retried without a system prompt
+    assert by["notemp"]["status"] == "ok"                     # retried without a temperature
     assert by["denied"]["status"] == "error" and "AccessDenied" in by["denied"]["error"]
     assert by["prov"]["status"] == "skipped"
     assert res["models"][0]["rank"] == 1 and by["denied"]["rank"] is None
