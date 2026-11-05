@@ -23,6 +23,7 @@ import streamlit as st
 from mel.channels.render import UI, choices, render
 from mel.timing import parse_ist
 from app.display_time import format_clock, format_date
+from app.theme import MARK
 from app.preview_state import (PreviewState, SHEET, build_record, chat_log, label_for, open_time, send_time,
                                tap_time)
 
@@ -94,7 +95,13 @@ _CSS = """
 .mel-pv-bar{display:flex;align-items:center;gap:10px;padding:8px 10px 9px;color:#fff}
 .mel-pv-wa .mel-pv-sb,.mel-pv-wa .mel-pv-bar{background:#008069;color:#fff}
 .mel-pv-tg .mel-pv-sb,.mel-pv-tg .mel-pv-bar{background:#517da2;color:#fff}
-.mel-pv-app .mel-pv-sb{background:#fff;color:#1a2a20}.mel-pv-app .mel-pv-bar{background:var(--mel-green,#266b4a)}
+.mel-pv-app .mel-pv-sb{background:#032e15;color:#fff}
+.mel-pv-app .mel-pv-fcbar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 12px;color:#fff;
+  background:linear-gradient(180deg,#032e15 0%,#0a5a2e 100%)}
+.mel-pv-app .mel-pv-fcbar .mel-pv-btn{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.35)}
+.mel-pv-app .mel-pv-fcbar .mel-pv-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,.35);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}
+.mel-pv-app .mel-pv-fcbrand{display:flex;align-items:center;gap:7px;font-size:15px;font-weight:700}
+.mel-pv-app .mel-pv-fcbrand .mel-mark{font-size:22px;line-height:1}
 .mel-pv-voice .mel-pv-sb{color:#eaf3ec}
 .mel-pv-av{width:36px;height:36px;border-radius:50%;background:#dfe5e7;color:#1f3b2c;display:grid;place-items:center;font-weight:800;font-size:16px;flex:none}
 .mel-pv-tg .mel-pv-av{background:#e7f0fb;color:#2b5f8f}
@@ -366,7 +373,9 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
         head = ('<div class="mel-pv-sb"><span>● ● ●</span><span class="mel-pv-tab">FarmerChat</span><span></span></div>'
                 '<div class="mel-pv-url">🔒 FarmerChat web chat</div>')
     else:
-        head = _status_bar(now) + _app_bar("FarmerChat", ("more",))
+        # The real FarmerChat app header: forest green, a round menu button, the mark and wordmark, a dark pill
+        head = (_status_bar(now) + '<div class="mel-pv-fcbar"><span class="mel-pv-btn">&#9776;</span>'
+                f'<span class="mel-pv-fcbrand">{MARK}FarmerChat</span><span class="mel-pv-pill">&#9728; 35°</span></div>')
     push = (f'<div class="mel-pv-push"><b>FarmerChat · {_clock(t0)}</b>{escape(u["invite"])}</div>'
             if channel == "app" else "")
     _html(kind, head, "mel-pv-head")

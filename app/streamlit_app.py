@@ -27,22 +27,30 @@ def _reload_mel_if_changed():
     'unexpected keyword argument'. The loaded `mel` package is marked with the code timestamp it came from;
     if it has no mark (loaded by an older version of this app) or an older one, drop the old modules and
     cached results so everything below is imported and computed fresh."""
-    stamp = max(p.stat().st_mtime for p in (Path(__file__).resolve().parents[1] / "mel").rglob("*.py"))
+    root = Path(__file__).resolve().parents[1]
+    stamp = max(p.stat().st_mtime for p in (root / "mel").rglob("*.py"))
     loaded = sys.modules.get("mel")
     if loaded is not None and getattr(loaded, "_code_stamp", None) != stamp:
         for name in [m for m in sys.modules if m == "mel" or m.startswith("mel.")]:
             del sys.modules[name]
         st.cache_data.clear()
         st.cache_resource.clear()
-    return stamp
+    # The app's own helper modules (app/theme.py, app/channel_preview.py, ...) are imported the same way and
+    # go stale the same way: a long-running server would otherwise fail on a new name with ImportError.
+    app_stamp = max(p.stat().st_mtime for p in (root / "app").glob("*.py") if p.name != "streamlit_app.py")
+    loaded_app = sys.modules.get("app")
+    if loaded_app is not None and getattr(loaded_app, "_code_stamp", None) != app_stamp:
+        for name in [m for m in sys.modules if m == "app" or m.startswith("app.")]:
+            del sys.modules[name]
+    return stamp, app_stamp
 
 
-_MEL_STAMP = _reload_mel_if_changed()
+_MEL_STAMP, _APP_STAMP = _reload_mel_if_changed()
 
 from mel.channels import render
 from mel.config import CHANNELS, PACK_DATA
 from mel.data import load_insights, load_farmers, errors
-from mel.evaluation import evaluate, load_history, rules_changed
+from mel.evaluation import evaluate
 from mel.pipeline import run_pipeline, run_insight, clean
 from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
@@ -56,8 +64,11 @@ sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 from app import custom_context as cc
 from app import tts
 from app.display_time import ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text
+from app import dashboard
 from app.channel_preview import render_channel_preview
-from app.theme import PALETTE, apply_theme
+from app.theme import LOCKUP, MASCOT, PALETTE, apply_theme
+
+sys.modules["app"]._code_stamp = _APP_STAMP  # see _reload_mel_if_changed
 
 APP_NAME = "Fasal Pulse - MEL Survey Agent"
 st.set_page_config(page_title=APP_NAME, layout="wide")
@@ -165,8 +176,8 @@ def memory():
 
 rows, admits, upcoming, n_valid, n_files = batch()
 INSIGHT_BY_ID = {i.get("insight_id"): i for i, _ in rows}
-html('<div class="mel-mast"><div class="mel-brand"><i class="mel-mark">✻</i>FarmerChat <span>Fasal Pulse</span></div>'
-     '<div class="mel-tag">MEL Survey Agent</div></div>')
+html(f'<div class="mel-mast"><div class="mel-brand">{LOCKUP}</div>'
+     '<div class="mel-head"><h1 class="mel-title">MEL Survey Agent</h1></div></div>')
 tab_over, tab_studio, tab_season, tab_follow = st.tabs(["Dashboard", "Survey demo", "Season", "Follow-up queue"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
@@ -203,7 +214,7 @@ COUNT_UP_JS = """
     e.target.matches('.mel-fill') ? grow(e.target) : count(e.target);
   }), {threshold: 0.4});
   const seen = new WeakSet();
-  const scan = () => document.querySelectorAll('[data-testid="stMetricValue"], .mel-fill').forEach(el => {
+  const scan = () => document.querySelectorAll('[data-testid="stMetricValue"], .mel-fill, .mel-count').forEach(el => {
     if (!seen.has(el)) { seen.add(el); io.observe(el); } });
   let queued = false;
   new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; scan(); }); } })
@@ -212,116 +223,108 @@ COUNT_UP_JS = """
 })();
 """
 
-# ---------------------------------------------------------------- Overview (first half of "Dashboard")
+@st.cache_data(show_spinner="Scoring the answer key and checking every survey in the full dataset…")
+def _evaluate(basis):
+    return evaluate(basis)
+
+
+def _pct(v):
+    return "—" if v is None else f"{v:.1%}"
+
+
+# ---------------------------------------------------------------- Dashboard (app/dashboard.py: mostly charts)
 with tab_over:
     st.html(f"<script>{COUNT_UP_JS}</script>", unsafe_allow_javascript=True)
-    st.header("Overview")
-    n = len(rows)
-    rules = Counter(o["decision"].rule for _, o in rows)
-    surveyed = [o for _, o in rows if o["decision"].survey]
-    limit = Counter(d for d, _ in admits.values())
-    held = len(admits) - limit["sent"]
-    high = sum(o["handoff"]["priority"] == "high" for o in surveyed)
-    c = st.columns(6)
-    c[0].metric("Insights processed", n)
-    c[1].metric("Surveys planned", len(surveyed), f"{len(surveyed) / n:.0%} of insights", delta_color="off", delta_arrow="off")
-    c[2].metric("No survey", n - len(surveyed), f"{(n - len(surveyed)) / n:.0%} of insights", delta_color="off", delta_arrow="off")
-    c[3].metric("Schema-valid files", f"{n_valid / max(n_files, 1):.0%}", f"{n_valid:,} / {n_files:,}", delta_color="off", delta_arrow="off")
-    c[4].metric("High priority", high, "sent first", delta_color="off", delta_arrow="off")
-    c[5].metric("Weekly limit (1 per 7 days)", held, "moved, merged or skipped", delta_color="off", delta_arrow="off")
-
-    left, right = st.columns([1.1, 0.9])
-    with left:
-        top = max(rules.values() or [1])
-        bars = "".join(
-            f'<div class="mel-rule"><span class="mel-id">{r}</span><span>{RULE_LABEL[r]}</span>'
-            f'<div class="mel-track"><div class="mel-fill {RULE_TONE.get(r, "")}" style="width:{rules.get(r, 0) / top * 100:.0f}%"></div></div>'
-            f'<b>{rules.get(r, 0)}</b></div>' for r in RULE_LABEL)
-        html(f'<div class="mel-card"><b>Decisions by rule</b><div class="mel-note">'
-             f'Why an insight was or wasn\'t surveyed</div>{bars}</div>')
-    with right:
-        # Same bars as "Decisions by rule", so they grow in with the dashboard animation (COUNT_UP_JS watches
-        # .mel-fill); st.bar_chart draws a static Vega chart the animation cannot reach.
-        first_counts = Counter(o["handoff"]["channel_order"][0]["channel"] for o in surveyed)
-        top_ch = max(first_counts.values() or [1])
-        ch_bars = "".join(
-            f'<div class="mel-rule" style="grid-template-columns:180px 1fr 44px"><span>{CH_NAME[ch]}</span>'
-            f'<div class="mel-track"><div class="mel-fill green" style="width:{first_counts.get(ch, 0) / top_ch * 100:.0f}%"></div></div>'
-            f'<b>{first_counts.get(ch, 0):,}</b></div>' for ch in CHANNELS)
-        html(f'<div class="mel-card"><b>First channel planned</b><div class="mel-note">'
-             f'Where each survey goes first</div>{ch_bars}</div>')
-
-    # Highlighted farmers: SURGE only (quiet, then a jump or an urgent question). steady_high is deliberately
-    # not highlighted: the representative asked us to attend to positive CHANGE, not to constant high activity.
-    st.subheader("Highlighted farmers")
-    st.caption("Farmers whose activity is rising: quiet, then a jump or a sudden urgent question. The "
-               "beneficiary's representative asked us to focus attention on this positive change, not on "
-               "constantly-busy farmers. Sorted by weight, then most recent.")
-    surges = [(i, o) for i, o in rows
-              if (getattr(o["decision"], "attention", None) or {}).get("tier") == "surge"]
-    if not surges:
-        st.info("No surge farmers in this run.")
-    else:
-        # One row per farmer: keep that farmer's most recent surge insight.
-        latest_by_farmer: dict[str, tuple] = {}
-        for i, o in surges:
-            fid = i.get("farmer_id")
-            prev = latest_by_farmer.get(fid)
-            if prev is None or (i.get("created_at") or "") > (prev[0].get("created_at") or ""):
-                latest_by_farmer[fid] = (i, o)
-        highlighted = sorted(latest_by_farmer.values(),
-                             key=lambda io: (io[1]["decision"].attention["weight"], io[0].get("created_at", "")),
-                             reverse=True)
-        REASON_LABEL = {"quiet_then_high_weight": "Quiet, then urgent", "activity_jump": "Activity jump"}
-        table(pd.DataFrame([{
-            "Farmer": i.get("farmer_id"),
-            "Crop / animal": (i.get("asset") or {}).get("name"),
-            "Why": REASON_LABEL.get(o["decision"].attention["reason"], o["decision"].attention["reason"]),
-            "Weight": o["decision"].attention["weight"],
-            "What we noticed": o["decision"].attention["explanation"],
-            "When": short(i["created_at"]) if i.get("created_at") else "—",
-        } for i, o in highlighted[:50]]), width="stretch", hide_index=True, height=260)
-        st.caption(f"{len(highlighted):,} farmers highlighted (from {len(surges):,} surge insights; "
-                   f"most recent surge per farmer, showing up to 50).")
+    dashboard.render(rows=rows, admits=admits, upcoming=upcoming, n_valid=n_valid, n_files=n_files,
+                     evaluate_fn=_evaluate, rule_label=RULE_LABEL, ch_name=CH_NAME, channels=CHANNELS,
+                     table=table, short=short)
 
 # ---------------------------------------------------------------- Survey demo
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
           f"{'survey' if o['decision'].survey else 'no survey ' + o['decision'].rule}": (i, o) for i, o in rows}
 
 
-def guard_ticks(surveys):
+AGENT_VERBS = [("Schlepping", "Schlepped"), ("Pondering", "Pondered"), ("Mulling", "Mulled"),
+               ("Percolating", "Percolated"), ("Ruminating", "Ruminated"), ("Noodling", "Noodled")]
+
+
+def guard_checks(surveys):
+    """-> (passed, total, failed check names), over both languages."""
     probs = [p for s in surveys.values() for p in check_survey(clean(s))]
     checks = [("Schema valid", "schema"), ("No new advice", "advice"), ("No personal info", "personal"),
               ("Labels ≤ 20 chars", "label")]
-    return "".join(f'<div class="mel-chk {"bad" if any(k in p for p in probs) else ""}">'
-                   f'{"✕" if any(k in p for p in probs) else "✓"} {t}</div>' for t, k in checks)
+    failed = [t for t, k in checks if any(k in p for p in probs)]
+    return len(checks) - len(failed), len(checks), failed
 
 
-def handoff_card(h, send_time):
-    """The scheduler in plain words: when it sends, which channel it tries next if there is no answer, when it
-    stops, and this farmer's next survey. The full hand-off stays in Developer details (JSON)."""
-    decision, reason = admits.get(h["handoff_id"], ("sent", ""))
-    status = {"sent": badge("Ready to send"), "moved": badge("Moved by weekly limit", "amber"),
-              "merged": badge("Merged by weekly limit", "amber"), "skipped": badge("Skipped by weekly limit", "red"),
-              "opted_out": badge("Opted out", "red")}[decision]
-    limit = "" if decision == "sent" else f'<div class="mel-note">{escape(us_text(reason))}</div>'
-    route = "".join(f'<span>{CH_NAME[c["channel"]]}</span>'
-                    + (f'<small>{c["wait_hours"]} h →</small>' if c.get("wait_hours") else "") for c in h["channel_order"])
+def _route(h):
+    return " → ".join(CH_NAME[c["channel"]] + (f' <small>({c["wait_hours"]} h)</small>' if c.get("wait_hours") else "")
+                      for c in h["channel_order"])
+
+
+def _next_survey(h):
+    """This farmer's next survey that gets past the weekly limit, from the batch."""
     me, start = h["survey"]["source_insight_ids"][0], h["send_window"]["not_before"]
-    nxt = next((iid for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
-    if nxt:
-        t = next(t for t, iid in upcoming[h["survey"]["farmer_id"]] if iid == nxt)
-        a = INSIGHT_BY_ID[nxt]
-        nxt_html = (f'<b>{format_date(t)}</b><div class="mel-note">{escape(str((a.get("asset") or {}).get("name") or "").title())}, '
-                    f'{escape(str(a.get("concern") or "").replace("_", " "))}</div>')
+    nxt = next(((t, iid) for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
+    if not nxt:
+        return "None planned"
+    a = INSIGHT_BY_ID.get(nxt[1]) or {}
+    return (f'<b>{format_date(nxt[0])}</b> · {escape(str((a.get("asset") or {}).get("name") or "").title())}, '
+            f'{escape(str(a.get("concern") or "").replace("_", " "))}')
+
+
+def agent_view(ins, out, d, notes, attention):
+    """The agent at work, styled like a Claude Code session (William's ask): one "⏺ Tool(args)" step per stage with
+    an indented "⎿" result on a dark terminal, a spinner status line that ticks seconds and tokens and ends as
+    "✻ <verb> for Ns", then the mascot. CSS-only motion: Streamlit keeps this HTML in place while the farmer taps,
+    so it plays once per case, not on every tap."""
+    a, loc = ins.get("asset") or {}, ins.get("location") or {}
+    sev = ins.get("severity") or "n/a"
+    fid = escape(str(ins.get("farmer_id")))
+    why = us_text(out["surveys"][ins["conversation_language"]]["rationale"].split(" Personalised:")[0] if d.survey
+                  else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
+
+    def kv(pairs):
+        return '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in pairs) + "</dl>"
+
+    steps = [("Read", f'conversation {ins.get("conversation_id") or ""}', kv([
+                 ("Farmer", f'{fid} · {escape(str(loc.get("district") or "—"))}, {escape(str(loc.get("state") or ""))}'
+                            f' · speaks {LANG_NAME.get(ins.get("conversation_language"), "—")}'),
+                 ("Severity", f'<span class="sev {escape(sev)}">{escape(sev.title())}</span>'),
+                 ("Topic", f'{escape(str(a.get("name") or "—").title())} · '
+                           f'{escape(str(ins.get("concern") or "").replace("_", " "))}'),
+                 ("Reported", f'“{escape(ins.get("query_summary") or "—")}”'),
+                 ("Advice", f'“{escape(ins.get("advice_summary") or "—")}”')])),
+             ("Decide", "rules R1–R8", kv([("Decision", f'<b>{d.rule} · {"Survey" if d.survey else "No survey"}</b>'
+                                                        f' · {escape(why)}')]))]
+    recall = [("Remembers", f"<b>{r}</b> · {escape(w)}") for r, w in notes]
+    if d.survey and attention and attention.get("tier") != "neutral":
+        recall.append(("Attention", f'<b>{escape(attention["tier"].replace("_", " "))}</b> · {escape(attention["explanation"])}'))
+    if recall:
+        steps.append(("Recall", f"history of {ins.get('farmer_id')}", kv(recall)))
+    if d.survey:
+        h = out["handoff"]
+        ok, total, failed = guard_checks(out["surveys"])
+        steps.append(("Check", "survey", kv([("Checklist", f'<span class="{"fail" if failed else "pass"}">{ok} / {total} passed</span>'
+                                                           + (f' · ✕ {escape(", ".join(failed))}' if failed else ""))])))
+        decision, reason = admits.get(h["handoff_id"], ("sent", ""))
+        held = "" if decision == "sent" else f' · {escape(decision.replace("_", " "))} by weekly limit: {escape(us_text(reason))}'
+        steps.append(("Schedule", "hand-off", kv([("Sends", f'<b>{long(d.send_time["send_at"])}</b><br>{_route(h)}{held}'),
+                                                  ("Next survey", _next_survey(h))])))
+        say = "Survey ready. Handed to the scheduler."
     else:
-        nxt_html = '<b>None planned</b>'
-    html(f'''<div class="mel-card"><div><b>Scheduler</b> {status}</div>{limit}<br><div class="mel-strip">
-<div><div class="mel-k">Sends</div><b>{long(send_time["send_at"])}</b>
-<div class="mel-note">{escape(us_text(send_time["reason"]))}</div></div>
-<div><div class="mel-k">No answer? Next channel</div><div class="mel-route">{route}</div>
-<div class="mel-note">Stops trying {short(h["send_window"]["not_after"])}</div></div>
-<div><div class="mel-k">Next survey for this farmer</div>{nxt_html}</div></div></div>''')
+        say = "No survey. A person calls this farmer instead." if d.rule == "R2" else f"No survey: {RULE_LABEL[d.rule].lower()}."
+    body = "".join(f'<div class="step" style="--i:{k}"><div class="call"><i>⏺</i><b>{name}</b>(<em>{escape(arg)}</em>)</div>'
+                   f'<div class="res"><span class="elbow">⎿</span>{res}</div></div>' for k, (name, arg, res) in enumerate(steps))
+    t = 0.3 + 0.6 * len(steps)  # when the last step is in: the status turns to "✻ … for Ns", the mascot smiles
+    verb, done = AGENT_VERBS[sum(map(ord, str(ins.get("insight_id")))) % len(AGENT_VERBS)]
+    secs, tokens = max(1, round(t)), len(re.sub(r"<[^>]+>", "", body)) // 3 + 380
+    html(f'<div class="mel-agent" style="--t:{t:.2f}s;--secs:{secs};--toks:{tokens};--spins:{max(1, round(t / .8))};'
+         f'--m:{max(1, round(t))}">{body}'
+         f'<div class="status"><span class="spin"></span><span class="run">{verb}… <em>(<i class="sec"></i>s · ↓ '
+         f'<i class="tok"></i> tokens · thinking some more with max effort)</em></span>'
+         f'<span class="fin">{done} for {secs}s</span></div>'
+         f'<div class="foot">{MASCOT}<div class="bubble">{escape(say)}</div></div></div>')
 
 
 SOURCE_NAME = {"template": "Template", "llm": "Claude"}
@@ -343,11 +346,12 @@ def record_card(rec):
         st.warning(f"Failure: {rec['failure_code']}")
 
 
-# One pick per insight severity (high / medium / low) plus two edge cases; first one is the default.
-# I-001996: F-000208 reported wheat drying in patches on 12/08 (low); four days later it is high (history rule H5).
-DEMO_PICKS = {"I-001253": "High — Goat veterinary follow-up", "I-001645": "Medium — Lentil nutrient care",
-              "I-005625": "Low — Stored mustard monitoring", "I-001996": "Edge case — Low turned high (wheat)",
-              "I-000291": "Edge case — No survey (critical cow)"}
+# The sketch's five demo cases, in its order; the first one is the default.
+# 4 (empty): no survey at all. 5 (abnormal): F-000208 reported wheat drying in patches on 12/08 (low); four days
+# later the same problem is high (history rule H5 asks whether the earlier advice was followed).
+DEMO_PICKS = {"I-001253": "1 · High: goat, vet follow-up", "I-001645": "2 · Medium: lentil nutrient care",
+              "I-005625": "3 · Low: stored mustard", "I-000291": "4 · Edge, empty: no survey (critical cow)",
+              "I-001996": "5 · Edge, abnormal: low turned high (wheat)"}
 BROWSE = "Browse all conversations"
 PRETEND = ["none", "said the input was not available nearby", "said it was too costly", "ignored the last 3 surveys"]
 PRETEND_ATT = {
@@ -525,9 +529,9 @@ with tab_studio:
     draft = _sync_draft()
     sub = st.session_state.get("custom_submission")
     own = st.session_state["studio_source"] == "own"
-    # Toolbar: the source on the left (demo picker, or the own-insight label while own mode is on), the user's
-    # own insight on the right, never inside the dropdown.
-    bar = st.columns([2.4, 1, 1], vertical_alignment="bottom")
+    # Top bar, as in the sketch: the demo case on the left, the channel next to it (filled once the case is known),
+    # then the user's own insight, never inside the dropdown.
+    bar = st.columns([2.2, 1.3, 0.8, 1.2], vertical_alignment="bottom")
     if own:
         pick = None
         a0 = (sub["insight"].get("asset") or {}) if sub else {}
@@ -535,17 +539,17 @@ with tab_studio:
                 if sub else "draft, no report yet")
         bar[0].markdown(f'<div class="mel-source"><div class="mel-k">Source</div><b>Your insight</b>'
                         f'<span>{escape(what)}</span></div>', unsafe_allow_html=True)
-        bar[1].button("Hide editor" if st.session_state["editor_open"] else "Edit insight", key="own_toggle",
+        bar[2].button("Hide editor" if st.session_state["editor_open"] else "Edit insight", key="own_toggle",
                       icon=":material/edit:", on_click=_toggle_editor, width="stretch")
-        bar[2].button("Back to the demos", key="own_back", on_click=_back_to_demos, width="stretch")
+        bar[3].button("Back to the demos", key="own_back", on_click=_back_to_demos, width="stretch")
     else:
         # The picker's widget key is dropped while own mode hides it; last_pick (plain state) brings it back.
         st.session_state.setdefault("studio_pick", st.session_state.get("last_pick", next(iter(picks), BROWSE)))
-        pick = bar[0].selectbox("Demo selection", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
+        pick = bar[0].selectbox("Demo case", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
         st.session_state["last_pick"] = pick
         if sub:
-            bar[1].button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own, width="stretch")
-        bar[2].button("Add your own insight", key="own_add", type="primary", icon=":material/add:", on_click=_open_own,
+            bar[2].button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own, width="stretch")
+        bar[3].button("Add your own insight", key="own_add", icon=":material/add:", on_click=_open_own,
                       width="stretch")
     kicker, title, note = "Selected insight", "", ""
     if own:
@@ -584,28 +588,40 @@ with tab_studio:
         if kicker != "Demo insight":  # a demo pick is already named in the selector; no repeated heading
             report_strip(kicker, title, note)
         d = out["decision"]
-        a = ins.get("asset") or {}
-        mem, pretend, restart = None, "none", False
-        # The attention the batch computed for this insight (the app runs with attention on). The demo picker
-        # below can override it with a made-up tier, because the pack's activity is flat with no designed surges.
+        mem, pretend, restart, notes = None, "none", False, []
+        # The attention the batch computed for this insight (the app runs with attention on). "What if…" can
+        # override it with a made-up tier, because the pack's activity is flat with no designed surges.
         attention, pretend_att = getattr(d, "attention", None), next(iter(PRETEND_ATT))
+        col_a, col_f = st.columns([1.05, 1], gap="large")
+        head = col_a.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
+                               key="agent_head")
+        head.markdown('<div class="mel-sec">Agent\'s view</div>', unsafe_allow_html=True)
+        col_f.markdown('<div class="mel-sec">Farmer\'s view</div>', unsafe_allow_html=True)
         if d.survey:
-            # One settings bar for everything that changes what the farmer sees in the preview. History rules
-            # H1-H4 are always on here (team decision 4 Nov); scoring and the CLI keep them off.
-            bar = st.columns([2.3, 1, 0.9, 2.3], vertical_alignment="bottom")
-            tools = bar[2].container(horizontal=True, wrap=False, vertical_alignment="bottom")  # Restart, then the speaker
+            # One small row for everything that changes what the farmer sees. History rules H1-H5 are always on
+            # here (team decision 4 Nov); scoring and the CLI keep them off.
+            tools = col_a.container(horizontal=True, vertical_alignment="center")
+            # English by default so judges can read along; the switch at the right of the header flips to Hindi.
+            # The phone's key includes the language, so each language keeps its own place in the survey.
+            switch = head.container(horizontal=True, width="content", gap="small", vertical_alignment="center")
+            switch.markdown('<span class="mel-lang">English</span>', unsafe_allow_html=True)
+            hindi = switch.toggle("Hindi", key="lang_hi")
+            langs = list(out["surveys"])
+            lang = "hi-IN" if hindi and "hi-IN" in langs else ("en-IN" if "en-IN" in langs else langs[0])
             # Icon-only: the label is the accessible name, hidden visually by app/theme.py (.st-key-studio_restart).
             restart = tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
-                                    width="content", help="Restart survey")
-            pretend = bar[3].selectbox("Pretend this farmer's survey history (demo)", PRETEND)
-            pretend_att = st.selectbox("Pretend activity pattern (attention demo)", list(PRETEND_ATT),
-                                       help="The pack's activity is flat with no designed surges, so this made-up "
-                                            "pattern shows how a surge or steady-high farmer is treated differently.")
+                                   width="content", help="Restart survey")
+            with tools.popover("What if…", icon=":material/tune:", help="Pretend a different history or activity "
+                                                                         "for this farmer (demo only)"):
+                pretend = st.selectbox("Pretend this farmer's survey history", PRETEND)
+                pretend_att = st.selectbox("Pretend activity pattern", list(PRETEND_ATT),
+                                           help="The pack's activity is flat with no designed surges, so this made-up "
+                                                "pattern shows how a surge or steady-high farmer is treated differently.")
             if PRETEND_ATT[pretend_att] is not None:
                 attention = PRETEND_ATT[pretend_att]
             mem = copy.copy(memory())
             mem.responses = __import__("collections").defaultdict(list)
-            when = lambda days: (datetime.fromisoformat(ins["created_at"]) - __import__("datetime").timedelta(days=days)).isoformat()
+            when = lambda days: (datetime.fromisoformat(ins["created_at"]) - timedelta(days=days)).isoformat()
             fake = lambda status, ans, days=2: {"farmer_id": ins["farmer_id"], "status": status, "answers": ans,
                                                 "recorded_at": when(days), "counts_toward_cap": True}
             if pretend.startswith("said the input"):
@@ -622,74 +638,35 @@ with tab_studio:
                 out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy, attention)}
             h = out["handoff"]
             first_ch = h["channel_order"][0]["channel"]  # P2's recommended send time is for this channel
-            ch = bar[0].segmented_control("Channel", CHANNELS, default=first_ch, required=True, format_func=CH_NAME.get,
-                                          wrap=True)  # wrap instead of a sideways scroll on narrow screens
-            # English by default so judges can read along; Hindi is one tap away. A widget keeps the choice across
-            # the reruns that every tap on the phone causes.
-            langs = list(out["surveys"])
-            lang = bar[1].segmented_control("Language", langs, default="en-IN" if "en-IN" in langs else langs[0],
-                                            required=True, format_func=lambda l: LANG_NAME.get(l, l))
+            ch = bar[1].selectbox("Channel", CHANNELS, index=CHANNELS.index(first_ch), format_func=CH_NAME.get,
+                                  help="Defaults to the first channel the scheduler tries for this farmer.")
             if ch == "voice":
                 sound_button(tools)
-        sev_tone = {"critical": "red", "high": "red", "medium": "amber"}.get(ins.get("severity"), "slate")
-        why = us_text(out["surveys"][ins["conversation_language"]]["rationale"].split(" Personalised:")[0] if d.survey
-                      else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
-        col_i, col_p, col_m = st.columns([1, 1.6, 0.8], gap="medium")
-        col_i.markdown('<div class="mel-sec">Conversation</div>', unsafe_allow_html=True)
-        col_p.markdown('<div class="mel-sec">What the farmer sees</div>', unsafe_allow_html=True)
-        col_m.markdown('<div class="mel-sec">Plan and checks</div>', unsafe_allow_html=True)
-        with col_i:
-            # Context only: what was asked, what was advised, what the survey checks. IDs and fields are in the JSON.
-            html(f'''<div class="mel-insight"><div class="mel-eyebrow">
-    {badge((ins.get("severity") or "n/a").title() + " severity", sev_tone)}</div>
-    <h3>{escape(str(a.get("name") or "—").title())} · {escape(str(ins.get("concern") or "").replace("_", " "))}</h3>
-    <div class="f"><span>Farmer asked</span>“{escape(ins.get("query_summary") or "—")}”</div>
-    <div class="f"><span>Advice given</span>“{escape(ins.get("advice_summary") or "—")}”</div>
-    <div class="mel-why">{"What the survey checks" if d.survey else f"Why no survey ({d.rule})"}<p>{escape(why)}</p></div></div>''')
-            if attention and d.survey:  # P1's activity attention (main, 4 Nov), shown under the redesigned card
-                TIER_TONE = {"surge": "green", "steady_high": "slate", "neutral": "slate"}
-                html(f'<div class="mel-card"><b>Activity attention</b><p>'
-                     f'{badge(attention["tier"].replace("_", " ").title(), TIER_TONE.get(attention["tier"], "slate"))}'
-                     f'{badge(attention["reason"].replace("_", " "), "slate")}</p>'
-                     f'<p>{escape(attention["explanation"])}</p>'
-                     f'<div class="mel-note">Baseline per week {attention["baseline_per_week"]}, '
-                     f'recent {attention["recent_count"]}, weight {attention["weight"]}</div></div>')
-            if mem is not None:
-                notes = [(r, us_text(w)) for r, w in history_notes(ins, mem, attention)]
-                lines = [us_text(x) for x in summary_lines(build_context(ins, mem))]
-                html('<div class="mel-card"><b>What the agent remembers</b><ul>'
-                     + "".join(f"<li>{escape(x)}</li>" for x in lines) + "</ul>"
-                     + ("".join(f'<p>{badge(r, "amber")} {escape(w)}</p>' for r, w in notes)
-                        if notes else '<p class="mel-note">Nothing in the history changes this survey, so the generic '
-                                      'questions are used.</p>') + "</div>")
+            notes = [(r, us_text(w)) for r, w in history_notes(ins, mem, attention)]
+        else:
+            bar[1].selectbox("Channel", ["—"], disabled=True, help="No survey, so there is nothing to preview.")
+        with col_a:
+            agent_view(ins, out, d, notes, attention)
         if not d.survey:
-            with col_p:
-                st.info(f"No survey for this conversation: {d.rule} {RULE_LABEL[d.rule]}. Pick a demo, or browse with "
-                        "Decision set to Survey, to try the channel preview.")
+            with col_f:
+                who = "A person calls this farmer instead." if d.rule == "R2" else "Nothing is sent to this farmer."
+                html(f'<div class="mel-empty"><b>No survey</b>{escape(who)}<br>{d.rule} · {escape(RULE_LABEL[d.rule])}</div>')
                 with st.expander("Developer details: no-survey record (JSON)"):
                     st.json(out["no_survey"])
         else:
             surveys = out["surveys"]
             sv = clean(surveys[lang])
-            with col_p:
+            with col_f:
                 # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
-                # "Start over", so the settings bar's Restart is the only reset control.
+                # "Start over", so the Restart icon above the agent's view is the only reset control.
                 pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"
                 rec = render_channel_preview(sv, ch, key=pkey, send_at=d.send_time["send_at"] if ch == first_ch else None,
                                              restart=restart, show_restart=False)
                 if ch == "voice":
                     voice_readout(sv, pkey, rec)
-            with col_m:
-                handoff_card(h, d.send_time)
-                tags = [badge(SOURCE_NAME.get(x, x), "amber") for x in sorted({s.get("_source") for s in surveys.values()})]
-                if surveys[lang].get("_history"):
-                    tags.append(badge("Personalised by " + ", ".join(r for r, _ in surveys[lang]["_history"])))
-                n_q = len(sv["items"])
-                html(f'<div class="mel-card"><div><b>Survey checks</b> {" ".join(tags)}</div>'
-                     f'<div class="mel-note">{n_q} tap question{"s" if n_q != 1 else ""}, written in Hindi and English</div>'
-                     f'{guard_ticks(surveys)}</div>')
+            with col_a:
                 if rec is None:
-                    st.caption("Your submitted answers appear here when the conversation ends.")
+                    st.caption("The farmer's answers appear here when the conversation ends.")
                 else:
                     record_card(rec)
             if surveys[lang].get("_history"):
@@ -865,290 +842,6 @@ with tab_follow:
             with right:
                 ticket_card(view[picked[0]] if picked and picked[0] < len(view) else view[0])
 
-# ---------------------------------------------------------------- Evaluation (second half of "Dashboard")
-# Digital Green's five dimensions (relevance, timeliness, format, safety, speed) next to our decision and
-# rule accuracy, under either send-time rule, plus the run history that shows each improvement.
-BASIS_LABEL = {"brief": "Brief rules (default)", "answer_key": "Answer-key setting"}
-DIMENSIONS = {"decision_acc": "Decision", "rule_acc": "Rule", "window_acc": "Window match",
-              "timeliness_pass": "Timeliness", "format_pass": "Format", "safety_pass": "Safety",
-              "item_similarity_avg": "Item similarity", "relevance_avg": "Relevance (P4)",
-              "judge_relevance": "Relevance (AI judge)", "s_per_survey": "Seconds per survey"}
-
-
-@st.cache_data(show_spinner="Scoring the answer key and checking every survey in the full dataset…")
-def _evaluate(basis):
-    return evaluate(basis)
-
-
-def _model_name(model_id: str) -> str:
-    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' -> 'Claude Haiku 4.5'."""
-    import re
-    m = re.search(r"claude-([a-z]+)-(\d+)(?:-(\d)(?!\d))?", model_id or "")
-    return f"Claude {m.group(1).title()} {m.group(2)}{'.' + m.group(3) if m.group(3) else ''}" if m else (model_id or "a model")
-
-
-def _pct(v):
-    return "—" if v is None else f"{v:.1%}"
-
-
-with tab_over:
-    st.divider()
-    st.header("Evaluation")
-    basis = st.radio("Send-time rule", list(BASIS_LABEL), format_func=BASIS_LABEL.get, horizontal=True,
-                     help="P2 built both. Brief rules = Digital Green's written brief (7:00 AM India time, after the farmer's "
-                          "action window). Answer-key setting = what the 150-case answer key expects.")
-    res = {b: _evaluate(b) for b in BASIS_LABEL}
-    r = res[basis]
-    src, card = r["full"] or r["mock"], r["card"]
-
-    st.subheader("Answer key")
-    g = st.columns(5)
-    g[0].metric("Decision", _pct(src["decision_acc"]), "survey or not", delta_color="off", delta_arrow="off")
-    g[1].metric("Rule", _pct(src["rule_acc"]), "which of R1–R8", delta_color="off", delta_arrow="off")
-    g[2].metric("First channel", _pct(src["channel_acc"]))
-    g[3].metric("Window match", _pct(src["window_acc"]), "exact, vs answer key", delta_color="off", delta_arrow="off")
-    g[4].metric("Item similarity", f"{src['item_similarity_avg']:.2f}", "keyword overlap", delta_color="off", delta_arrow="off")
-
-    st.subheader("Every survey we write")
-    st.caption(f"Checks on all {card['n_survey_files']:,} survey files (Hindi + English) from "
-               f"{card['n_insights']:,} insights → {card['n_surveyed']:,} surveys. No answer key needed.")
-    q = st.columns(6)
-    q[0].metric("Format", _pct(card["format_pass"]), "schema, 1–3 tap items, language", delta_color="off", delta_arrow="off")
-    q[1].metric("Safety", _pct(card["safety_pass"]), "no new advice or personal info", delta_color="off", delta_arrow="off")
-    q[2].metric("Timeliness", _pct(card["timeliness_pass"]), "after action window, daytime, in season",
-                delta_color="off", delta_arrow="off")
-    from mel.evaluation.judge import load_summary
-    judge = load_summary()   # committed results of the last Bedrock run, so the app never calls Bedrock itself
-    jr = card.get("judge_relevance")
-    if jr is None:
-        jr = (judge.get("run") or {}).get("judge_relevance")
-    q[3].metric("Relevance", f"{card['relevance_avg']:.2f}",
-                "P4 score, 0–1. AI judge: " + ("not run" if jr is None else f"{jr:.2f} / 5"), delta_color="off", delta_arrow="off")
-    q[4].metric("Speed", f"{card['s_per_survey'] * 1000:.1f} ms", f"per survey, {card['batch_seconds']:.0f} s for all",
-                delta_color="off", delta_arrow="off")
-    q[5].metric("Failing but scheduled", card["failed_but_scheduled"], "target 0", delta_color="off", delta_arrow="off")
-    for title, ex_rows in ((f"Surveys that failed format or safety (first {len(card['examples'])})", card["examples"]),
-                        (f"Send windows that failed timeliness (first {len(card['timeliness_examples'])})",
-                         card["timeliness_examples"])):
-        if ex_rows:
-            with st.expander(title):
-                table(pd.DataFrame(ex_rows), width="stretch", hide_index=True)
-
-    cal, jrun = judge.get("calibration"), judge.get("run")
-    from mel.evaluation.judge_models import load as load_models
-    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
-    names = {m.get("call_id"): f"{m['provider']} {m['name']}" for m in sweep.get("models", []) if m.get("call_id")}
-    if cal:
-        st.subheader("Can we trust the AI judge?")
-        pr = [v for v in (cal.get("people_rank_r") or {}).values() if v is not None]
-        st.caption(f"Five of us scored 20 surveys by hand (1–5), each on our own. The AI judge "
-                   f"({names.get(cal['model']) or _model_name(cal['model'])} on Amazon Bedrock, picked below for "
-                   "accuracy and cost) scored the same questions. It agrees with us at least as well as we agree with "
-                   "each other.")
-        j = st.columns(3)
-        j[0].metric("Within 1 point of a person", _pct(cal["within_1"]),
-                    f"people with each other: {_pct(cal['people_vs_people']['within_1'])}", delta_color="off", delta_arrow="off")
-        j[1].metric("Average gap", f"{cal['mean_abs_diff']:.2f} points",
-                    f"people with each other: {cal['people_vs_people']['mean_abs_diff']:.2f}", delta_color="off", delta_arrow="off")
-        if cal.get("rank_r") is not None:
-            j[2].metric("Follows the team's ranking", f"r = {cal['rank_r']:.2f}",
-                        f"each person: {min(pr):.2f}–{max(pr):.2f}" if pr else None, delta_color="off", delta_arrow="off")
-        with st.expander("How to read this, and the limits"):
-            st.markdown(
-                f"- A judge that always says 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, "
-                "because people mostly gave 4s and 5s. So the strongest sign is the ranking: the AI gives its 4s to the "
-                "surveys people rated lower, and follows the team's average more closely than any one of us does.\n"
-                f"- Small sample (20 surveys). The AI used the scores {', '.join(sorted(str(k) for k in cal.get('judge_scores', {})))}.\n"
-                "- People caught a data problem: the cauliflower advice in G-0129 talks about grain. A judge scores the "
-                "survey, not the advice, so data errors still need a person.\n"
-                "- Details: `docs/results/judge_calibration.md`.")
-        if jrun:
-            st.caption(f"On all {jrun['n']} answer-key surveys: average {jrun['judge_relevance']:.2f} / 5 "
-                       f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
-                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost mostly on a generic second question "
-                       "(\"Do you need more help?\", \"How is your goat now?\").")
-
-    if sweep.get("models"):
-        st.subheader("Which model makes the best judge?")
-        ok = [m for m in sweep["models"] if m.get("rank")]
-        pv = sweep.get("people_vs_people") or {}
-        st.caption(f"Every text model on Amazon Bedrock that our account could call ({len(sweep['models'])} listed, "
-                   f"{len(ok)} answered every survey) judged the same {sweep.get('surveys', 20)} hand-scored surveys. "
-                   "Best first: how closely it follows the team's ranking (r), then the smallest gap. People with each "
-                   f"other: within 1 point {_pct(pv.get('within_1'))}, gap {pv.get('mean_abs_diff', '—')}. "
-                   f"Run {sweep.get('date', '')}, {sweep.get('region', '')}.")
-        used = (cal or {}).get("model", "")
-        by_id = {m["model_id"]: m for m in sweep["models"]}
-        pick, top = by_id.get(sweep.get("best_value") or ""), by_id.get(sweep.get("most_accurate") or "")
-        qm = sweep.get("quality_margin") or {}
-
-        def _usd(v):
-            return "price unknown" if v is None else (f"${v:,.2f}" if v >= 0.1 else f"${v:,.4f}")
-
-        if pick or top:
-            shown = pick or top
-            b = st.columns(4)
-            b[0].metric("Best value" if pick else "Most accurate (no prices yet)", shown["name"], shown["provider"],
-                        delta_color="off", delta_arrow="off")
-            b[1].metric("Its ranking match", f"r = {shown['rank_r']:.2f}" if shown.get("rank_r") is not None else "—",
-                        f"within 1 point {_pct(shown['within_1'])}", delta_color="off", delta_arrow="off")
-            b[2].metric("Cost per 1,000 surveys", _usd(shown.get("usd_per_1000_surveys")),
-                        f"whole season ({sweep.get('season_surveys', 2616):,} surveys): {_usd(shown.get('usd_per_season'))}",
-                        delta_color="off", delta_arrow="off")
-            b[3].metric("Speed", f"{shown['seconds_per_call']:.1f} s" if shown.get("seconds_per_call") is not None else "—",
-                        "per survey", delta_color="off", delta_arrow="off")
-            note = (f"Best value = the cheapest model whose quality is close to the most accurate one (ranking match "
-                    f"within {qm.get('rank_r', 0.1)} and gap within {qm.get('mean_abs_diff', 0.15)}), so we don't pay "
-                    "for accuracy we can't measure.")
-            if pick and top and pick is not top:
-                note += (f" The most accurate is {top['provider']} {top['name']} (r = {top.get('rank_r')}, "
-                         f"{_usd(top.get('usd_per_1000_surveys'))} per 1,000 surveys).")
-            if not pick:
-                note += (" No priced model is close enough to the most accurate one: add its price to "
-                         "docs/results/bedrock_prices.json and re-run."
-                         if any(m.get("usd_per_1000_surveys") is not None for m in sweep["models"]) else
-                         " No model has a price yet: run `python -m mel.evaluation.judge_models --prices`.")
-            st.caption(note)
-            ok_c = [m for m in ok if m.get("usd_per_1000_surveys") is not None]
-            if ok_c:
-                chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok_c],
-                                      "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok_c]}).set_index("model")
-                st.markdown("**Ranking match by model** (higher is better; models with a known price)")
-                st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok_c)), sort=False)
-        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Pick": m.get("pick") or "",
-                "Provider": m["provider"], "Model": m["name"] + ("  (judge used above)" if used and m.get("call_id") == used else ""),
-                "Within 1 point": _pct(m.get("within_1")), "Average gap": m.get("mean_abs_diff"),
-                "Ranking match (r)": m.get("rank_r"), "Close to best": "yes" if m.get("close_to_best") else "",
-                "Cost per 1,000 surveys": _usd(m.get("usd_per_1000_surveys")) if m.get("status") == "ok" else "",
-                "Seconds per survey": m.get("seconds_per_call"), "Surveys answered": m.get("surveys_scored"),
-                "Result": {"ok": "ok", "skipped": "not callable on demand", "error": "error"}.get(m["status"], m["status"])}
-               for m in sweep["models"]]
-        with st.expander(f"All {len(tab)} models"):
-            table(pd.DataFrame(tab), width="stretch", hide_index=True)
-            errs = [m for m in sweep["models"] if m.get("error")]
-            if errs:
-                st.caption("Why some models have no score: " + "; ".join(
-                    f"{m['name']}: {m['error'][:90]}" for m in errs[:8]) + (" …" if len(errs) > 8 else ""))
-
-    # Activity attention: the deliberate change, shown with numbers (CLAUDE.md). Reads the report JSON written
-    # by scripts/activity_report.py; the app itself runs with attention on.
-    _att_json = Path(__file__).resolve().parents[1] / "docs" / "results" / "activity_attention.json"
-    if _att_json.exists():
-        am = __import__("json").loads(_att_json.read_text(encoding="utf-8"))
-        st.subheader("Activity attention (deliberate change)")
-        st.caption("Why: " + am["reason"] + ". We attend to rising activity (surge), step constantly-busy "
-                   "farmers down by default (steady_high), and leave everyone else unchanged. Decision, rule and "
-                   "send window are identical with attention off vs on — only priority, question count and the "
-                   "send moment change. Full pack: " + f"{am['n_insights']:,} insights.")
-        tt = am["tier_totals"]
-        ac = st.columns(4)
-        ac[0].metric("Surge", tt.get("surge", 0), "quiet, then a jump / urgent", delta_color="off")
-        ac[1].metric("Steady-high", tt.get("steady_high", 0), "stepped down by default", delta_color="off")
-        ac[2].metric("Neutral", tt.get("neutral", 0), "unchanged", delta_color="off")
-        sc_on = am["scorecard_on"]
-        ac[3].metric("Format / safety / timeliness",
-                     f"{sc_on['format_pass']:.0%} / {sc_on['safety_pass']:.0%} / {sc_on['timeliness_pass']:.0%}",
-                     "held at 100%", delta_color="off")
-        cc1, cc2 = st.columns(2)
-        with cc1:
-            st.markdown("**Priority, off vs on**")
-            st.dataframe(pd.DataFrame([{"Priority": k, "off": am["priority_off"].get(k, 0),
-                                        "on": am["priority_on"].get(k, 0)} for k in ("high", "normal", "low")],
-                                      ), hide_index=True, width="stretch")
-            st.markdown("**Golden set, off vs on**")
-            g_off, g_on = am["golden_off"], am["golden_on"]
-            # Every value in the off/on columns is a string, so item similarity (a 0-1 ratio) renders the same
-            # way as the percentage rows instead of pandas mixing numbers and text in one column.
-            _sim = lambda v: f"{v:.3f}"
-            st.dataframe(pd.DataFrame([
-                {"Metric": "Decision", "off": _pct(g_off["decision_acc"]), "on": _pct(g_on["decision_acc"])},
-                {"Metric": "Rule", "off": _pct(g_off["rule_acc"]), "on": _pct(g_on["rule_acc"])},
-                {"Metric": "Channel", "off": _pct(g_off["channel_acc"]), "on": _pct(g_on["channel_acc"])},
-                {"Metric": "Item similarity", "off": _sim(g_off["item_similarity_avg"]), "on": _sim(g_on["item_similarity_avg"])},
-            ]), hide_index=True, width="stretch")
-        with cc2:
-            st.markdown("**Tier by activity level (on)**")
-            st.dataframe(pd.DataFrame([{"Activity": al, "surge": c.get("surge", 0), "neutral": c.get("neutral", 0),
-                                        "steady_high": c.get("steady_high", 0)}
-                                       for al, c in sorted(am["tier_by_activity"].items())]),
-                         hide_index=True, width="stretch")
-            st.markdown("**Avg questions / survey, off vs on**")
-            st.dataframe(pd.DataFrame([{"Activity": al, "off": am["avg_questions_off"].get(al, "—"),
-                                        "on": am["avg_questions_on"].get(al, "—")}
-                                       for al in sorted(am["avg_questions_on"])]), hide_index=True, width="stretch")
-        st.caption("Surge is concentrated in light and regular farmers (rising change), not in heavy users — a "
-                   "plain 'activity doubled' ratio over-flagged heavy/regular users, so we use a Poisson jump "
-                   "test against each farmer's own baseline instead. Thresholds live in "
-                   "`config/activity_attention.json` (starting values, tuned with this evidence).")
-    else:
-        st.subheader("Activity attention (deliberate change)")
-        st.info("Run `python scripts/activity_report.py` to generate the before/after numbers for this section.")
-
-    st.subheader("Brief rules vs answer-key setting")
-    st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
-               "farmer could have acted on the advice. We keep the brief as the default until Digital Green confirms.")
-    cmp = []
-    for b, rr in res.items():
-        gg, cc = rr["full"] or rr["mock"], rr["card"]
-        cmp.append({"Send-time rule": BASIS_LABEL[b], "Decision": _pct(gg["decision_acc"]),
-                    "Window match": _pct(gg["window_acc"]), "Timeliness": _pct(cc["timeliness_pass"]),
-                    "Surveys": f"{cc['n_surveyed']:,}", "Misses": len(gg["misses"])})
-    table(pd.DataFrame(cmp), width="stretch", hide_index=True)
-
-    st.subheader("Run history")
-    hist = load_history()
-    if not hist:
-        st.info('No recorded runs yet. Run `python scripts/readme_numbers.py --write --record "what changed"`.')
-    else:
-        st.caption("Each recorded eval run: what we changed and what it did to the scores (the hill-climb).")
-        changed = rules_changed(hist)
-        if changed:
-            st.markdown("**Rules we changed**")
-            st.caption("Each run is compared with the last run under the same send-time rule.")
-
-            def _chg(pair, f):
-                a, b = (("—" if v is None else f(v)) for v in pair)
-                return b if a == b else f"{a} → {b}"
-
-            def _n(v):
-                return f"{v:.2f}" if isinstance(v, float) else str(v)
-
-            table(pd.DataFrame([{
-                "Run": f"{c['run']} (vs {c['vs_run']})", "What changed": c["change"],
-                "Send-time rule": BASIS_LABEL.get(c["timing_basis"]),
-                **{lab: _chg(c[k], _pct) for k, lab in (("decision_acc", "Decision"), ("window_acc", "Window match"),
-                                                       ("timeliness_pass", "Timeliness"))},
-                "Item sim": _chg(c["item_similarity_avg"], _n), "Relevance (P4)": _chg(c["relevance_avg"], _n),
-                "Misses": _chg(c["misses"], _n)} for c in changed]),
-                width="stretch", hide_index=True)
-        hd = pd.DataFrame(hist)
-        avail = [k for k in DIMENSIONS if k in hd and hd[k].notna().any()]
-        dims = st.multiselect("Dimensions to chart", avail, default=[k for k in ("decision_acc", "window_acc",
-                              "timeliness_pass") if k in avail], format_func=DIMENSIONS.get)
-        if len(hd) > 1 and dims:
-            st.line_chart(hd.set_index("run")[dims].rename(columns=DIMENSIONS), height=220)
-        with st.expander("All recorded runs"):
-            table(hd, width="stretch", hide_index=True)
-
-    with st.expander("Per-rule confusion matrix"):
-        st.caption("Rows = expected rule, columns = our prediction. Diagonal = correct.")
-        rule_ids = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
-        df = pd.DataFrame(src["confusion"], index=rule_ids)[rule_ids]
-        df.index.name = "expected → predicted"
-        table(df, width="stretch")
-
-    if src["item_similarities"]:
-        with st.expander(f"Item similarity per case (avg {src['item_similarity_avg']:.2f})"):
-            st.caption("Keyword overlap between our questions and the golden set's expected questions")
-            table(pd.DataFrame(src["item_similarities"]), width="stretch", height=150)
-
-    st.subheader("Misses")
-    if src["misses"]:
-        table(pd.DataFrame(src["misses"]), width="stretch", height=200)
-    else:
-        st.success("No misses — every decision and rule matches.")
-
-
 # ---------------------------------------------------------------- Season (P3's shared simulated clock)
 # The contract's "simulated clock moving through the season": one SimClock shared by the scheduler (weekly limit,
 # opt-outs) and the broadcaster (send window, send hours, quality check), with a manual trigger per step.
@@ -1287,3 +980,6 @@ with tab_season:
         first = min((h["send_window"]["not_before"] for h in sched.pending), default=None)
         st.info("Nothing sent yet." + (f" The first send window opens {_india(first)}." if first else "")
                 + " Press +1 day, +1 week, or To end of March.")
+
+# ---------------------------------------------------------------- footer (farmer.chat's forest band)
+html(f'<div class="mel-foot">{LOCKUP}<div>MEL Survey Agent</div></div>')
