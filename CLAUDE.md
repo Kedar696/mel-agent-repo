@@ -154,11 +154,21 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   Gemma 3 12B** (`google.gemma-3-12b-it`, on-demand): r 0.72, within 1 pt 97%, gap 0.54, ~$0.05 per 1,000 surveys;
   now the main judge (judge_summary.json; 94-row relevance 4.48). `ModelClient.converse` accepts `system=None` and
   `temperature=None` (newer models refuse them; P4 to review).
+- **P4 comparison + AI judge (P5, 5 Nov; P4 to review):** `mel.writer.compare.compare(..., judge=)` adds a
+  `judge_relevance` column (1-5, the AI judge, over surveys that passed the guards; warns if a writer is also the
+  judge). `scripts/p4_compare.py`: `MEL_JUDGE=1 MEL_JUDGE_MODEL=...` turns it on; samples 50 from the full pack.
+- **Templates vs Bedrock, run 5 Nov (P5 ran it for P4):** `docs/results/bedrock_writer_comparison.md`. 50 surveys:
+  templates 100% pass / judge 4.50 / 28-char questions / $0; Sonnet 4.6 100% / 4.90 / 114 chars / $6.85 per 1,000;
+  Haiku 4.5 92% / 4.89 / 69 chars / $2.01. Judge may reward long questions that restate the advice; blind sheet
+  `docs/results/hand_scores_bedrock.csv` (15 rows, key in `hand_scores_bedrock_key.json`) is unscored. P4's sample
+  has no wait-and-watch or expert surveys. `llm.prices()` now falls back to `bedrock_prices.json`.
 - **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
   (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
   relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,050 sends / 0 blocked (after P3 #24). README/scorecard
   regenerated: runs 8-9 (P4 relevance 0.69 -> 0.81). Write-up: `docs/results/judge_calibration.md`.
+- **REMINDER for P5 (deferred 5 Nov):** score the blind Bedrock sheet `docs/results/hand_scores_bedrock.csv` before
+  claiming model-written surveys beat templates (judge 4.9 vs 4.5 may just reward longer questions).
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
   `mel/schedule/broadcast.py`, P3 to review): to end of March 10 -> 5 s responsive, 38 -> 8 s never-answers, same
   counts. Judge's `BedrockClient` now wraps P4's `ModelClient` (purpose "judge" in out/bedrock_calls.jsonl);
