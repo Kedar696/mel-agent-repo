@@ -951,7 +951,7 @@ PERSONA_LABEL = {
 }
 STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
                 "declined": "Opted out", "partial": "Partly answered"}
-SEASON_THRESHOLD = 0.5   # provisional relevance bar for P3's quality check; P4 and P5 to agree the final number
+from mel.writer import RELEVANCE_THRESHOLD as SEASON_THRESHOLD   # the agreed send bar (0.3, P4 + P5, 4 Nov)
 
 
 def _india(ts: str) -> str:
@@ -1010,7 +1010,8 @@ with tab_season:
     cfg = st.columns([1.2, 1.6, 0.8], vertical_alignment="bottom")
     threshold = cfg[0].slider("Relevance needed to send", 0.0, 1.0, SEASON_THRESHOLD, 0.05,
                               help="P3's quality check blocks any survey whose relevance score (P4's, 0–1) is below "
-                                   "this. 0.5 is provisional until P4 and P5 agree the number.")
+                                   f"this. The agreed bar is {SEASON_THRESHOLD}: it blocks only surveys that name neither the "
+                                   "crop, the problem nor the advice. Slide it to see the trade-off.")
     persona = cfg[1].selectbox("How farmers respond", list(PERSONA_LABEL), format_func=PERSONA_LABEL.get,
                                help="P3's simulated farmers. Pick one to see fall-back, expiry and opt-out.")
     reset = cfg[2].button("Restart season", width="stretch")

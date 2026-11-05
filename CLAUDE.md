@@ -120,8 +120,15 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   `simulate_handoff`, personas, `late` flag (off until P1 adds it to the response schema). Not started: SimClock,
   `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1; a persona that
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
-- P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
+- P4: (4 Nov) relevance threshold agreed at 0.3 with P5; plan templates changed by P5 on `p5-season-speed` (review).
+  DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
+  (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
+  {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
+  relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,066 sends / 0 blocked. README/scorecard numbers
+  NOT yet regenerated (needs `MEL_JUDGE=1 ... judge --run` then `readme_numbers.py --write --record` on a laptop
+  with Bedrock access). Write-up: `docs/results/judge_calibration.md`.
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
   `mel/schedule/broadcast.py`, P3 to review): to end of March 10 -> 5 s responsive, 38 -> 8 s never-answers, same
   counts. Judge's `BedrockClient` now wraps P4's `ModelClient` (purpose "judge" in out/bedrock_calls.jsonl);

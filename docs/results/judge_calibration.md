@@ -67,6 +67,19 @@ scorer rates surveys higher and lower in the same places as the team's average d
 - The judge's 1 to 5 score sits beside P4's rule-based relevance (0 to 1, 0.69). They aren't on the same scale.
   Keep them side by side rather than turning one into the other.
 
+## Decision: the send bar and plan questions (4 Nov, P4 + P5)
+- **Send bar = 0.3** (`mel.writer.RELEVANCE_THRESHOLD`; P3's quality check enforces it). P4's relevance score
+  agrees only weakly with people (r = 0.29 on 18 hand-scored surveys; the AI judge: 0.58). At 0.5, it blocked 552
+  of 2,616 surveys (21%), including specific ones such as "Did you treat the nursery bed?". At 0.3, it blocks only
+  surveys that name neither the crop, the problem nor the advice.
+- **Plan surveys ask about the plan's first step and name the crop.** For example: "Did you apply zinc?", then
+  "Is the plan working for your mustard so far?". Before, they asked the generic "How much of the plan have you
+  done?", which people scored lowest (3.85). The answer key's wording is kept as the fallback.
+  - On all 6,999 insights: P4's relevance went from 0.72 to 0.82 on average, and surveys below 0.3 went from 80
+    to 0.
+  - Item similarity with the answer key stays 0.99, and the safety checks still have 0 failures.
+  - Season walk: 2,066 sends, 0 blocked (before: 1,711 sends, 355 blocked at 0.5).
+
 ## Next
 - Possible rubric v2: tell the judge to give a 3 to any question that doesn't name the advised action. It is
   a little lenient now.

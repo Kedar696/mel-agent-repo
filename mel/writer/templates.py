@@ -24,6 +24,7 @@ TEMPLATES = {
     'help': ('Do you need more help?', 'क्या आपको और मदद चाहिए?'),
     'plan_progress': ('How much of the plan have you done?', 'आपने योजना का कितना काम किया?'),
     'plan_working': ('Is the plan working so far?', 'क्या योजना अब तक काम कर रही है?'),
+    'plan_working_crop': ('Is the plan working for your {name} so far?', 'क्या {ke} {name_hi} के लिए योजना अब तक काम कर रही है?'),
     # Hindi avoids "मिले/गए" (verb would have to agree with the farmer's gender); "मुलाकात हो पाई" does not
     'expert_met_vet': ('Did you meet the veterinary doctor?', 'क्या पशु डॉक्टर से मुलाकात हो पाई?'),
     'expert_met_agri': ('Did you meet the agriculture expert?', 'क्या कृषि विशेषज्ञ से मुलाकात हो पाई?'),
@@ -256,9 +257,14 @@ def build_items(insight, style='golden'):
         return [_q('survey-single-select', en, hi, opts), _q('survey-confirm', en2, hi2, [opt('yes', 'yes', 'needs_more_help'), opt('no', 'no')])]
     if rt == 'plan_created':
         a, b = T('plan_progress'), T('plan_working')
-        step = first_step_question(i) if style == 'concern' else None
-        if step:   # concern style: ask about the plan's first step, as the brief says
-            return [_q('survey-single-select', step[0], step[1], YNN()), _q('survey-single-select', *b, [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
+        # Both styles ask about the plan's FIRST step, as the brief says, and name the crop or animal in the second
+        # question (decided 4 Nov, P4 + P5): people scored the generic "How much of the plan have you done?" lowest
+        # (3.85/5), and P4's relevance score blocked 80 of those at the 0.3 send bar. The answer key's generic
+        # wording stays as the fallback when the plan text has no recognisable first step.
+        step = first_step_question(i)
+        if step:
+            return [_q('survey-single-select', step[0], step[1], YNN()),
+                    _q('survey-single-select', *T('plan_working_crop'), [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
         return [_q('survey-single-select', *a, [opt('all', 'all_steps'), opt('some', 'some_steps'), opt('none', 'not_started')]),
                 _q('survey-single-select', *b, [opt('yes', 'yes'), opt('too_early', 'too_early'), opt('no', 'no', 'advice_did_not_work')])]
     if rt == 'escalate_to_expert':
