@@ -130,8 +130,11 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Open items (owner)
 - P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
-  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2;
-  `compute_window()` must read P3's simulated clock. Suggestion from P5 (not yet sent): open at 09:00 within the
+  see `mel/timing/README.md`. 5 Nov (`willF-p2-open-items`): `now=` on `send_window()` / `decide()` reads P3's
+  simulated clock (window never opens before it; R6 `window_passed` when < 2 days left; `now=None` = unchanged).
+  Nobody passes `now` yet: P1's `run_insight` / P3's scheduler can pass `sched.clock.now()`. `MEL_CRITICAL_POLICY`
+  = `human_call` (default, answer key, R2) or `survey` (brief). G-0145 (kept R6 under the brief), G-0129/G-0136
+  (no change) and R2 are decided in `mel/timing/README.md` "Open cases, decided". Suggestion from P5 (not yet sent): open at 09:00 within the
   brief rule (+14 exact matches, still 100% timely), or "answer-key window when timely, else brief"
   (window match ~20%, timeliness ~99%).
 - P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`).
@@ -255,9 +258,8 @@ owner's call; P3 has not edited their files. The "P3:" line under Open items abo
 - Unknown whether the questions to Digital Green were sent (`docs/questions_for_digital_green.md`).
 
 **P2 (Decision & Timing)**
-- `mel/timing/` still has no simulated clock. The FINAL contract says `compute_window()` must read P3's clock.
-  P3's `SeasonScheduler.clock` (a `SimClock`, `now()` / `advance(days)`) is ready to pass in as `now`.
-- Still open from above: G-0145 (one-day 31 March window), cauliflower G-0129 (needs Digital Green), confirm R2.
+- Done 5 Nov (`willF-p2-open-items`): `send_window(insight, now=)` / `decide(insight, now=)` read P3's clock;
+  G-0145, G-0129 and R2 decided (see Open items above).
 
 **P4 (Survey Writing & Safety)**
 - **No relevance threshold is published** (nothing in `mel/writer/` or `config/`). P3's gate needs it and must not
@@ -334,8 +336,8 @@ each step below is in the owner's own files. Numbers are from the full pack (6,9
 4. The Season tab's "Blocked by quality check" (`broadcaster.counts()["rejected"]`) now includes
    surveys rejected before they are queued; `counts()` also has a new `opted_out` key.
 
-**P2 (Decision & Timing)**: no new asks from P3. Still open from the 4 Nov list: read P3's clock
-(`SeasonScheduler.clock`) in `compute_window()`, G-0145, G-0129, confirm R2.
+**P2 (Decision & Timing)**: no new asks from P3. The 4 Nov items (P3's clock, G-0145, G-0129, R2) are
+done on `willF-p2-open-items` (5 Nov).
 
 **P3 itself:** commit the 5 Nov work on `Semdon-P3`, merge `origin/main` (24 commits ahead),
 rerun `pytest -q`, `run --simulate --clean`, `validate`, `parity`, then open the PR. P1's

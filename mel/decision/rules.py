@@ -2,16 +2,19 @@
 
 Golden-set rule ids (inferred from data/golden_set.jsonl, rules.json does not list them):
   R1 junk_insight              quality_flag == junk, or fails insight schema
-  R2 critical_needs_human_call severity == critical  (a human should call, not a survey)
+  R2 critical_needs_human_call severity == critical  (a human should call, not a survey);
+                               MEL_CRITICAL_POLICY=survey skips R2 (the brief: critical is only high priority)
   R3 nothing_to_verify         resolution generic_information
   R4 waiting_for_details       resolution needs_more_context
   R5 no_check_needed           verification.needed is false
   R6 window_after_season       no usable window before season end
+     window_passed             (only with `now`) the simulated clock left too little of the window
   R7 crop_already_harvested    standing-crop advice after harvest (not storage advice)
   R8 survey
 """
+import os
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 from mel.config import rules
 from mel.data.validate import is_valid
@@ -22,7 +25,7 @@ SCHEMA_REASON = {
     "junk_insight": "generic_information", "critical_needs_human_call": "needs_more_context",
     "nothing_to_verify": "generic_information", "waiting_for_details": "needs_more_context",
     "no_check_needed": "generic_information", "window_after_season": "generic_information",
-    "crop_already_harvested": "generic_information",
+    "window_passed": "generic_information", "crop_already_harvested": "generic_information",
 }
 REASON_TEXT = {
     "junk_insight": "Broken or empty insight; nothing reliable to ask about.",
@@ -31,6 +34,7 @@ REASON_TEXT = {
     "waiting_for_details": "FarmerChat asked for more details; no advice was given yet.",
     "no_check_needed": "The insight says this advice does not need verification.",
     "window_after_season": "No usable send window remains before the rabi season ends (31 March).",
+    "window_passed": "By the time of this decision, too little of the send window was left to send the survey.",
     "crop_already_harvested": "The crop will already be harvested by the time the survey would go out.",
 }
 
@@ -63,11 +67,24 @@ def _no(rule, code):
     return Decision(False, rule, code)
 
 
-def decide(insight: dict, farmer: dict | None = None, history_hours=(), attention: dict | None = None) -> Decision:
+def _critical_policy() -> str:
+    """MEL_CRITICAL_POLICY: `human_call` (default, the answer key: R2, a person calls) or `survey` (the brief:
+    critical only raises priority). Digital Green has not said which; the contract says default = answer key."""
+    policy = os.environ.get("MEL_CRITICAL_POLICY", "human_call")
+    if policy not in {"human_call", "survey"}:
+        raise ValueError("MEL_CRITICAL_POLICY must be 'human_call' or 'survey'")
+    return policy
+
+
+def decide(insight: dict, farmer: dict | None = None, history_hours=(), attention: dict | None = None,
+           now: datetime | None = None) -> Decision:
     """`farmer`, `history_hours` and `attention` only refine the send time (and ride on the Decision for the
     scheduler/writer to read); none of them ever change survey vs no-survey, the rule, or the send window.
     `attention` is the activity-attention result (mel.data.activity). pick_send_time runs inside decide(), so
-    it must be passed here; a surge sends as soon as the window opens (still inside the window)."""
+    it must be passed here; a surge sends as soon as the window opens (still inside the window).
+    `now` is P3's simulated clock (`SeasonScheduler.clock.now()`, tz-aware): the window never opens before it,
+    and R6 `window_passed` fires when too little is left. None decides as of the insight's own time."""
+    human_call = _critical_policy() == "human_call"
     if insight.get("quality_flag") == "junk" or not is_valid("insight", insight):
         return _no("R1", "junk_insight")
     # The shared schema validator checks patterns but does not enable date-time
@@ -76,16 +93,17 @@ def decide(insight: dict, farmer: dict | None = None, history_hours=(), attentio
         parse_ist(insight["created_at"])
     except (ValueError, OverflowError):
         return _no("R1", "junk_insight")
-    if insight.get("severity") == "critical":
+    if insight.get("severity") == "critical" and human_call:
         return _no("R2", "critical_needs_human_call")
     res = insight.get("resolution_type")
     if res is None or not rules()["survey_by_resolution"].get(res, {}).get("survey"):
         return _no("R4", "waiting_for_details") if res == "needs_more_context" else _no("R3", "nothing_to_verify")
     if not (insight.get("verification") or {}).get("needed"):
         return _no("R5", "no_check_needed")
-    win = send_window(insight)
+    win = send_window(insight, now)
     if win is None:
-        return _no("R6", "window_after_season")
+        passed = now is not None and send_window(insight) is not None
+        return _no("R6", "window_passed" if passed else "window_after_season")
     asset = insight.get("asset") or {}
     post_harvest = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
     if asset.get("category") == "crop" and not post_harvest and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
