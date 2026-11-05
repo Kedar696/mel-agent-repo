@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04 (p5-merge-all: P3/P4/P1 branches + judge in app)_
+_Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -36,9 +36,11 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 ## Status (mock data)
 - On `main` (4 Nov): PRs #1–#2 (P5), #3 (P2), #4 `p5-eval-v2`, #5 `p5-judge`, plus P1 (`lucas-p1`) and P4
   (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Open: P5 `p5-full-data` (pushed, PR to open);
-  P4 `kedar-p4` one-line fix for their hosted demo.
-- 462 tests pass on `main` (~19 s), 463 on `p5-full-data`. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
-  CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`, `validate`, `eval` on every PR.
+  P4 `kedar-p4` one-line fix for their hosted demo; **P1 `lucas-p1`** (5 Nov; merged origin/main in, pushed, PR to
+  open) — weekly cap in `mel.cli run`, REST API + Docker + infra/, Apache-2.0, Py 3.12, CODEOWNERS, DG questions.
+- **801 tests pass on `lucas-p1`** (Py 3.12 VM, ~2.5 min); 462 on `main`. `validate`: 0 invalid files. Mock: 57
+  insights → 16 surveys, 41 no-survey. CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`,
+  `validate`, `eval`, `parity`, and now builds the API image + smoke-tests `/healthz` on every PR.
 - Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
   brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
   answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity **0.99** (P4's templates copy the answer
@@ -94,8 +96,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   shows "What the agent remembers", a "pretend survey history" demo and generic vs
   adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
   channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
-  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H5 now live in
+  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). The app/web
+  sheet has a Skip button (P3's `simulate_sheet` keeps the answers around a skipped step); opt-out is STOP, /stop or 9. History rules H1–H5 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
@@ -109,8 +111,12 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   baseline — not a plain "doubled" ratio). The tier rides on `Decision.attention` (schemas forbid extra fields,
   so it goes on the Decision like `send_time`) and adjusts priority (P3), question count (P4) and send time
   (P2) only — never the survey/no-survey decision, the rule or the window. **Off by default** in scoring and
-  the CLI (`run --attention` turns it on), **on in the app** (matching the H1–H4 decision). With it off, output
-  is byte-for-byte today's (verified against a clean checkout). Full pack with it on: surge 130, steady_high
+  the CLI (`run --attention` turns it on), **on in the app** (matching the H1–H4 decision). Turning attention off
+  adds nothing to a run: at the same revision, `run` with and without `--attention` differ only where attention
+  re-prioritises / re-times (the summary's `by_tier`/`by_reason` appear only when on). Note the CLI output baseline
+  itself changed on `lucas-p1` when `mel.cli run` started applying the weekly cap through `run_batch` (fewer
+  hand-off/survey/response files; see "Weekly limit" below), so "today's output" is the post-cap output, not the
+  pre-cap checkout. Full pack with attention on: surge 130, steady_high
   173, neutral 2313 (502 insufficient_history); golden decision/rule/channel and scorecard
   format/safety/timeliness unchanged (99.3% / 99.3% / 100% and 100/100/100), but golden **item similarity dips
   0.991 → 0.977** with attention on, because steady_high surveys trim to 2 questions so one expected golden item
@@ -130,8 +136,11 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Open items (owner)
 - P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
-  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2;
-  `compute_window()` must read P3's simulated clock. Suggestion from P5 (not yet sent): open at 09:00 within the
+  see `mel/timing/README.md`. 5 Nov (`willF-p2-open-items`): `now=` on `send_window()` / `decide()` reads P3's
+  simulated clock (window never opens before it; R6 `window_passed` when < 2 days left; `now=None` = unchanged).
+  Nobody passes `now` yet: P1's `run_insight` / P3's scheduler can pass `sched.clock.now()`. `MEL_CRITICAL_POLICY`
+  = `human_call` (default, answer key, R2) or `survey` (brief). G-0145 (kept R6 under the brief), G-0129/G-0136
+  (no change) and R2 are decided in `mel/timing/README.md` "Open cases, decided". Suggestion from P5 (not yet sent): open at 09:00 within the
   brief rule (+14 exact matches, still 100% timely), or "answer-key window when timely, else brief"
   (window match ~20%, timeliness ~99%).
 - P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`).
@@ -202,15 +211,24 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
   Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
   not in the response schema, so P3's outcomes would give an empty queue.
-- P1: merged: batch runner, `run_pipeline()`/`PipelineResult`, `--limit`/`--farmer`, junk report, Excel parity,
-  CI. Open: call `mel.evaluation.run_eval()` from `cmd_eval` (history on every eval); REST API + Dockerfile;
-  `infra/` + LICENSE + public repo; Bedrock account access (region/models) for P4 and P5; `boto3` in
-  requirements; `late` in the response schema (P3 request); P3's batch-wiring request (weekly limit and
-  opt-outs are applied in the app but not in `mel.cli run`); real usernames in
-  CODEOWNERS (still `@p1..@p5`).
-- Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
-  MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
-  `docs/questions_for_digital_green.md` drafts only the first 3; whether they were sent is unknown.
+- P1 (5 Nov, `lucas-p1`, pushed; not yet merged to main): **DONE** — P3's batch-wiring request: `mel.cli run`
+  now applies the weekly cap + opt-outs + P4 quality gate via `run_batch` (threshold `mel.writer.RELEVANCE_THRESHOLD`
+  = 0.3), writes `schedule` into `run_summary.json`; full pack 2,616 planned → 2,038 out (1,613 sent, 425 moved,
+  480 merged, 98 skipped, 0 rejected, **0 cap_violations**), R1–R8 / no_survey / eval unchanged; hand-off, survey
+  and response file counts drop (explain in the PR). **REST API** `mel/api` (`POST /surveys`, `GET /surveys/due`,
+  `/healthz`; FastAPI; one in-memory `SeasonScheduler` per process, state lost on restart; `tests/test_api.py`).
+  **Dockerfile** + `.dockerignore` (built, run, three endpoints exercised, HEALTHCHECK healthy). **`infra/`**
+  (CFN: ECR + App Runner + Bedrock-only instance role; k8s Deployment/Service replicas 1; README; definition only,
+  cfn-lint + kubeconform clean). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
+  **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 temp = @WestphalianFresco
+  until Semdon's username). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
+  (`-r requirements-api.txt` + httpx) — post in chat. Still open: call `mel.evaluation.run_eval()` from `cmd_eval`
+  (history on every eval); `late` in the response schema (P3 request, decision pending, see
+  `docs/h4_schema_change_request_late.md`); open the PR to main; create the freeze tag (`docs/release_checklist.md`).
+- Questions owed to Digital Green (P1 sends them): `docs/questions_for_digital_green.md` is **rewritten and ready
+  to send** — the 3 originals refreshed (99.3% at commit 343742f), the 2 missing ones added (MEL rubric; survey
+  JSON vs agent-to-UI format), plus Bedrock models/region, late answers, reachability, licence and an AWS-design
+  section. P1 still has to actually send it; whether an earlier version was sent is unknown.
 - FINAL contract (4 Nov) also adds: REST API + Dockerfile + infra/ + LICENSE + public repo (P1); SimClock +
   broadcaster stub + self_eval gate (P3); Bedrock `ModelClient`, BCP 47 `lang`, self_eval (P4). Its P2 section
   still describes the R7 misses backwards (we said no-survey, key said survey); tell P2.
@@ -228,6 +246,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Environment notes
 - macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. The full pack is committed in the repo (see the pack location above).
+- P1 works on an **Amazon Linux 2023 VM** (Linux, bash, Python 3.12 in `.venv`, Docker available). The project
+  requires Python 3.12 (`pyproject.toml`, CI). On the AL2023 VM, `python3.12 -m venv .venv` creates the venv; the
+  Windows form is `py -3.12 -m venv .venv` (not testable from the VM).
 
 ## Blockers for teammates (from P3, 2026-11-04)
 Checked against `Semdon-P3` and `origin/main` (9239abe) on 4 Nov; none of these is fixed on either. Each is the
@@ -255,9 +276,8 @@ owner's call; P3 has not edited their files. The "P3:" line under Open items abo
 - Unknown whether the questions to Digital Green were sent (`docs/questions_for_digital_green.md`).
 
 **P2 (Decision & Timing)**
-- `mel/timing/` still has no simulated clock. The FINAL contract says `compute_window()` must read P3's clock.
-  P3's `SeasonScheduler.clock` (a `SimClock`, `now()` / `advance(days)`) is ready to pass in as `now`.
-- Still open from above: G-0145 (one-day 31 March window), cauliflower G-0129 (needs Digital Green), confirm R2.
+- Done 5 Nov (`willF-p2-open-items`): `send_window(insight, now=)` / `decide(insight, now=)` read P3's clock;
+  G-0145, G-0129 and R2 decided (see Open items above).
 
 **P4 (Survey Writing & Safety)**
 - **No relevance threshold is published** (nothing in `mel/writer/` or `config/`). P3's gate needs it and must not
@@ -334,8 +354,8 @@ each step below is in the owner's own files. Numbers are from the full pack (6,9
 4. The Season tab's "Blocked by quality check" (`broadcaster.counts()["rejected"]`) now includes
    surveys rejected before they are queued; `counts()` also has a new `opted_out` key.
 
-**P2 (Decision & Timing)**: no new asks from P3. Still open from the 4 Nov list: read P3's clock
-(`SeasonScheduler.clock`) in `compute_window()`, G-0145, G-0129, confirm R2.
+**P2 (Decision & Timing)**: no new asks from P3. The 4 Nov items (P3's clock, G-0145, G-0129, R2) are
+done on `willF-p2-open-items` (5 Nov).
 
 **P3 itself:** commit the 5 Nov work on `Semdon-P3`, merge `origin/main` (24 commits ahead),
 rerun `pytest -q`, `run --simulate --clean`, `validate`, `parity`, then open the PR. P1's

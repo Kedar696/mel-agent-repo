@@ -1,7 +1,7 @@
 # Tech stack and commands
 
 ## Stack
-- Python 3.11+ (CI uses 3.12), virtualenv in `.venv`. `pytest` for tests. Streamlit for the UI.
+- Python 3.12 (CI uses 3.12), virtualenv in `.venv`. `pytest` for tests. Streamlit for the UI.
 - Contracts: JSON Schema 2020-12 in `config/schemas/` via `jsonschema`. Rules as data in `config/rules/`.
 - Decision, timing and schedule are plain deterministic Python. The LLM writer is opt-in and off by default.
 - `openpyxl` is imported only inside the functions that read Excel (`mel/data/excel.py`). Do not import it at module top.

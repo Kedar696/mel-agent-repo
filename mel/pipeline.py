@@ -92,7 +92,10 @@ def _attention_by_insight_id(insights: list[dict]) -> dict[str, dict]:
     """Compute each insight's attention result from the UNFILTERED set, then apply the once-per-7-days
     `activity_jump -> high` promotion budget per farmer. Returns {insight_id: attention_dict}.
 
-    The budget is decided HERE, not in a send/admit loop, because `mel.cli run` never uses CapLedger. We walk
+    The budget is decided HERE, not in a send/admit loop. `mel.cli run` now applies the weekly cap through
+    P3's `run_batch` (which uses CapLedger), but that runs on hand-offs, after priority has been set; the
+    once-per-7-days activity_jump->high promotion budget is a pipeline-level choice that must be stable across
+    --farmer/--limit, so it is computed here from the UNFILTERED insights, independent of the cap. We walk
     every usable insight grouped by farmer in created_at order (insight_id as a stable tiebreak), so the result
     is independent of input order, --farmer and --limit. A promotion to `high` whose cause is `activity_jump`
     and whose brief priority is `normal` is allowed only if no earlier allowed such promotion for that farmer is
