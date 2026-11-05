@@ -9,7 +9,7 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 
@@ -45,6 +45,7 @@ from mel.evaluation import evaluate, load_history, rules_changed
 from mel.pipeline import run_pipeline, run_insight, clean
 from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
+from mel.schedule import SeasonScheduler
 from mel.simulator import simulate
 from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
                         history_notes)
@@ -157,7 +158,7 @@ def memory():
 rows, admits, n_valid, n_files = batch()
 html('<div class="mel-mast"><div class="mel-brand">Fasal Pulse <span>MEL Survey Agent</span></div>'
      '<div class="mel-tag">Follow-up surveys for FarmerChat advice, Digital Green track. Synthetic data; nothing is sent.</div></div>')
-tab_over, tab_studio, tab_follow = st.tabs(["Dashboard", "Survey demo", "Follow-up queue"])
+tab_over, tab_studio, tab_season, tab_follow = st.tabs(["Dashboard", "Survey demo", "Season", "Follow-up queue"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
 # with an ease-out cubic over 1.1 s the first time it scrolls into view and always lands on Streamlit's exact text;
@@ -903,3 +904,140 @@ with tab_over:
         table(pd.DataFrame(src["misses"]), width="stretch", height=200)
     else:
         st.success("No misses — every decision and rule matches.")
+
+
+# ---------------------------------------------------------------- Season (P3's shared simulated clock)
+# The contract's "simulated clock moving through the season": one SimClock shared by the scheduler (weekly limit,
+# opt-outs) and the broadcaster (send window, send hours, quality check), with a manual trigger per step.
+# P3's API: docs/p3_season_screen_api.md. Nothing is sent; every delivery is P3's simulator.
+PERSONA_LABEL = {
+    "default": "Responsive: answers on the first channel",
+    "app_push_dead": "App notifications never arrive: falls back to the next channel",
+    "never_answers": "Never answers: the survey expires",
+    "opts_out_first": "Opts out on the first message",
+    "no_voice": "Cannot take phone calls",
+}
+STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
+                "declined": "Opted out", "partial": "Partly answered"}
+SEASON_THRESHOLD = 0.5   # provisional relevance bar for P3's quality check; P4 and P5 to agree the final number
+
+
+def _india(ts: str) -> str:
+    """India time in the app's US style, e.g. "11/02/2026 7:00 AM IST". The season runs on India time, so this page
+    shows it first (Eastern alongside), or 07:00 on 1 November would read as the evening of 31 October."""
+    d = datetime.fromisoformat(ts)
+    return f"{d:%m/%d/%Y} {d.hour % 12 or 12}:{d.minute:02d} {'AM' if d.hour < 12 else 'PM'} IST"
+
+
+def _new_season(threshold: float, persona: str) -> dict:
+    sched = SeasonScheduler(relevance_threshold=threshold, persona=persona)
+    # Copies: admit() edits the hand-off it merges into, and the other tabs keep showing the originals.
+    admitted = sched.admit_all([copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o])
+    return {"sched": sched, "key": (threshold, persona), "log": [], "days": Counter(),
+            "admits": Counter(a.decision for a in admitted)}
+
+
+def _season_send(state: dict, one: bool = False) -> list:
+    """Fire one due step (the manual trigger) or every step due now, and log what happened."""
+    sched = state["sched"]
+    results = [sched.step()] if one else sched.run_due(max_steps=10000)
+    sent = [r for r in results if r.kind == "sent"]
+    ins_of = {i.get("insight_id"): i for i, _ in rows}
+    for r in sent:
+        rec = r.record
+        ins = ins_of.get((rec.get("source_insight_ids") or [None])[0]) or {}
+        state["log"].append({"when": _india(sched.now_ist()), "survey": rec["survey_id"], "farmer": rec["farmer_id"],
+                             "crop or animal": (ins.get("asset") or {}).get("name", ""),
+                             "channel": CH_NAME.get(r.channel, r.channel),
+                             "result": STATUS_LABEL.get(rec["status"], rec["status"]),
+                             "next": {"none": "done", "give_up": "stop", "fall_back_to_next_channel": "try next channel"}
+                             .get(rec["retry_decision"], rec["retry_decision"]),
+                             "needs a person": "yes" if rec.get("needs_follow_up") else ""})
+        state["days"][sched.now_ist()[:10]] += 1
+    return results
+
+
+def _season_advance(state: dict, days: int, send: bool) -> None:
+    """Move the shared clock a day at a time, sending what falls due each morning when `send` is on."""
+    sched = state["sched"]
+    for _ in range(days):
+        if sched.is_season_over():
+            break
+        if send:
+            _season_send(state)
+        sched.advance(1)
+    if send:
+        _season_send(state)
+
+
+with tab_season:
+    st.subheader("The season, on a simulated clock")
+    st.caption("One shared clock drives the scheduler (weekly limit, opt-outs) and the broadcaster (send window, "
+               "send hours, quality check) from 1 November to 31 March. Move it a day, a week, or to the end of the "
+               "season, or send one step at a time. Delivery and answers are simulated; nothing is sent.")
+    cfg = st.columns([1.2, 1.6, 0.8], vertical_alignment="bottom")
+    threshold = cfg[0].slider("Relevance needed to send", 0.0, 1.0, SEASON_THRESHOLD, 0.05,
+                              help="P3's quality check blocks any survey whose relevance score (P4's, 0–1) is below "
+                                   "this. 0.5 is provisional until P4 and P5 agree the number.")
+    persona = cfg[1].selectbox("How farmers respond", list(PERSONA_LABEL), format_func=PERSONA_LABEL.get,
+                               help="P3's simulated farmers. Pick one to see fall-back, expiry and opt-out.")
+    reset = cfg[2].button("Restart season", width="stretch")
+    if reset or st.session_state.get("season", {}).get("key") != (threshold, persona):
+        st.session_state.season = _new_season(threshold, persona)
+    season = st.session_state.season
+    sched = season["sched"]
+
+    ctl = st.columns(5)
+    auto = st.toggle("Send what falls due while the clock moves", value=True,
+                     help="Off: the clock moves and work piles up; then use the send buttons by hand.")
+    over = sched.is_season_over()
+    if ctl[0].button("Send next step", width="stretch", disabled=over,
+                     help="The manual trigger: one channel attempt for the next due survey."):
+        r = _season_send(season, one=True)[0]
+        if r.kind == "nothing":
+            st.toast("Nothing is due right now. Move the clock forward.")
+    if ctl[1].button("Send all due now", width="stretch", disabled=over):
+        _season_send(season)
+    if ctl[2].button("+1 day", width="stretch", disabled=over):
+        _season_advance(season, 1, auto)
+    if ctl[3].button("+1 week", width="stretch", disabled=over):
+        _season_advance(season, 7, auto)
+    if ctl[4].button("To end of March", width="stretch", disabled=over, type="primary"):
+        _season_advance(season, 400, auto)
+
+    start, end, now = sched.season.start, sched.season.end, sched.now()
+    total = (end - start).total_seconds()
+    done = min(1.0, max(0.0, (now - start).total_seconds() / total)) if total else 1.0
+    st.progress(done, text=f"Simulated time: {_india(sched.now_ist())} ({long(sched.now_ist())}) · day {(now - start).days + 1} of "
+                           f"{(end - start).days + 1}" + (" · season over" if sched.is_season_over() else ""))
+
+    log, adm, drops = season["log"], season["admits"], sched.broadcaster.counts()
+    res_count = Counter(e["result"] for e in log)
+    m = st.columns(6)
+    m[0].metric("Waiting to send", f"{len(sched.pending):,}", "queued, in send-window order", delta_color="off", delta_arrow="off")
+    m[1].metric("Messages sent", f"{len(log):,}", "channel attempts", delta_color="off", delta_arrow="off")
+    m[2].metric("Answered", f"{res_count.get('Answered', 0):,}", delta_color="off", delta_arrow="off")
+    m[3].metric("No answer or not delivered", f"{res_count.get('Expired, no answer', 0) + res_count.get('Not delivered', 0):,}",
+                delta_color="off", delta_arrow="off")
+    m[4].metric("Opted out", f"{res_count.get('Opted out', 0):,}", "never asked again", delta_color="off", delta_arrow="off")
+    m[5].metric("Blocked by quality check", f"{drops['rejected']:,}", f"relevance below {threshold:.2f}",
+                delta_color="off", delta_arrow="off")
+    st.caption(f"Weekly limit at the start of the season: {adm.get('sent', 0):,} on time, {adm.get('moved', 0):,} moved "
+               f"to a later week, {adm.get('merged', 0):,} merged into an earlier survey, {adm.get('skipped', 0):,} "
+               f"skipped. {drops['expired']:,} expired in the queue.")
+
+    if season["days"]:
+        weeks = Counter()
+        for day, n in season["days"].items():
+            d = datetime.fromisoformat(day)
+            weeks[(d - timedelta(days=d.weekday())).date().isoformat()] += n
+        wk = pd.DataFrame({"week of": [format_date(w) for w in sorted(weeks)],
+                           "messages sent": [weeks[w] for w in sorted(weeks)]}).set_index("week of")
+        st.markdown("**Messages sent per week**")
+        st.bar_chart(wk, color=PALETTE["green"], height=220, sort=False)
+        st.markdown(f"**Latest sends** (newest first, {min(len(log), 50)} of {len(log):,})")
+        table(pd.DataFrame(log[-50:][::-1]), width="stretch", hide_index=True)
+    else:
+        first = min((h["send_window"]["not_before"] for h in sched.pending), default=None)
+        st.info("Nothing sent yet." + (f" The first send window opens {_india(first)}." if first else "")
+                + " Press +1 day, +1 week, or To end of March.")

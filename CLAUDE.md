@@ -120,6 +120,10 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
 - P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
+  +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
+  0.5; full data: 2,066 queued, 1,711 sends, 355 blocked by the quality check, whole season ~6 s). Shows India
+  time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
   Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
