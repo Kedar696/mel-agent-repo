@@ -199,9 +199,12 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   output tokens on JSON); Hindi is a **translation of the approved English survey** (`source_items`, used by
   `run_agent` and `write_surveys`); the hard limits are in the system prompt; `max_tokens` 400; the old JSON answers
   still parse (replayed caches, tests). Expected: output tokens per draft about a third, far fewer Hindi rejections.
-  **Not yet measured on Bedrock** (no AWS keys on Will's Mac): run `python -m mel.agent.batch --sample 40 --judge
-  --label "pilot 3: compact lines"` and compare with pilot 2 ($0.0039 per survey), then the full set and
-  `python -m mel.writer.llm export-cache`. **Replay file** `docs/results/bedrock_cache.jsonl` (committed; `ModelClient`
+  **Measured 5 Nov on Bedrock (us-west-2, Will's sandbox account, no guardrail):** pilot 3 (40 surveys) $0.0014
+  per survey vs pilot 2's $0.0039; **full set (ledger run 5): 2,616 surveys, $2.61 (was $11.06), $0.00102 per
+  survey, 14 min, 0 schema-invalid, Bedrock wrote en 2,548/2,616 (97%) and hi 2,522 (96%), 160 template
+  fallbacks (was 442), 906 revisions on 522 surveys (was 1,776), judge 4.93 (was 4.91), questions 54 chars on
+  average (was 62).** `docs/results/full_bedrock_run.json` now holds this run; the replay file
+  `docs/results/bedrock_cache.jsonl` (6,965 answers, 2.8 MB) is committed, so every pack survey replays for $0. **Replay file** `docs/results/bedrock_cache.jsonl` (committed; `ModelClient`
   reads it after the disk cache): the same questions for $0 on any laptop and on the hosted app. **App:** the Survey
   demo phone now carries the Bedrock-written survey (the recorded AgentCore run for the demo picks; a live, cached
   agent run for Browse picks when Bedrock is on; else the template), a caption above the phone says which, and a

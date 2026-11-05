@@ -121,8 +121,11 @@ cut that (P4's file; P4 to review):
   used to be in flight at once and both were paid for. The second now waits for the first and takes its answer
   from the cache.
 
-Not yet measured on Bedrock. To measure: `python -m mel.agent.batch --sample 40 --judge --label "pilot 3: compact
-lines"` and compare with pilot 2 ($0.0039 per survey).
+Measured 5 Nov (us-west-2, no guardrail): the 40-survey pilot cost $0.0014 per survey against pilot 2's $0.0039; the
+full set cost **$2.61** for 2,616 surveys in both languages (the first run: $11.06), $0.00102 per survey, 14 minutes,
+0 schema-invalid files, Bedrock-written English 97% and Hindi 96% (was 95% / 88%), 160 template fallbacks (was 442),
+906 revisions (was 1,776), judge 4.93 (was 4.91), questions 54 characters on average (was 62). Write output tokens:
+294k against 1.42M.
 
 ## Replay file: the same questions for $0
 Every answer is cached on disk (`out/cache/bedrock/`, keyed by the request). `python -m mel.writer.llm export-cache`
