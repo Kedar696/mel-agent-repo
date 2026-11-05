@@ -53,7 +53,12 @@ only with another `Name` (or delete these first).
 **After a merge to main:** `start-build` again, then roll the service to the new SHA:
 `aws ecs update-express-gateway-service --service-arn <arn> --primary-container '{"image":"...:<new sha>","containerPort":8501}'`.
 **Point it at AgentCore:** add `"environment":[{"name":"MEL_AGENTCORE_ARN","value":"<runtime arn>"}]`
-to that primary container (the task role already allows the call).
+to that primary container. Our runtime is `arn:aws:bedrock-agentcore:us-west-2:423685956569:runtime/fasal_pulse-ixRznG8rYr`:
+**us-west-2**, while this UI runs in us-east-1. The app now calls the runtime in the ARN's own region
+(`mel/agent/remote.py`), and `ui-express.yaml` allows both hackathon regions. The live service's task role was
+made with the CLI, so check that its `InvokeAgentRuntime` permission also covers
+`arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/*`; if it only lists us-east-1, the button shows an
+AccessDenied error and the recorded runs are still there.
 
 **Fresh account, from the template:**
 ```bash
