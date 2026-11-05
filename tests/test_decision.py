@@ -1,17 +1,21 @@
 """P2: decision cascade."""
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from mel.config import IST
 from mel.data import load_scenario, list_scenarios, load_golden
 from mel.data.validate import errors
 from mel.decision import decide
+from mel.timing import parse_ist
 
 
 @pytest.fixture(autouse=True)
 def brief_policy(monkeypatch):
     monkeypatch.setenv("MEL_TIMING_BASIS", "brief")
+    monkeypatch.delenv("MEL_CRITICAL_POLICY", raising=False)
 
 
 def insight():
@@ -89,6 +93,37 @@ def test_harvest_blocks_standing_crop_advice():
     i.update(created_at="2027-03-17T09:00:00+05:30",
              asset={"name": "potato", "category": "crop", "growth_stage": "vegetative"})
     assert decide(i).rule == "R7"
+
+
+@pytest.mark.parametrize("stage,rule", [("post_harvest", "R8"), (None, "R7")])
+def test_storage_comes_from_the_structured_field_not_the_words(stage, rule):
+    """G-0129 (key: R8) and G-0136 (key: R7) both say "stored cauliflower"; only G-0129 sets post_harvest."""
+    i = insight()
+    i.update(created_at="2027-03-20T14:15:00+05:30", query_summary="Farmer reports insects in stored cauliflower.",
+             asset={"name": "cauliflower", "category": "crop", "growth_stage": stage})
+    assert decide(i).rule == rule
+
+
+def test_critical_policy_setting(monkeypatch):
+    """No answer from Digital Green yet: the answer key's human call by default, the brief's survey on a setting."""
+    i = insight()
+    i["severity"] = "critical"
+    assert decide(i).rule == "R2"
+    monkeypatch.setenv("MEL_CRITICAL_POLICY", "survey")
+    assert decide(i).rule == "R8"
+    monkeypatch.setenv("MEL_CRITICAL_POLICY", "typo")
+    with pytest.raises(ValueError, match="MEL_CRITICAL_POLICY"):
+        decide(i)
+
+
+def test_simulated_clock_moves_or_closes_the_window():
+    i = insight()  # planned window 2026-12-06 07:00 to 2026-12-09 19:00
+    d = decide(i, now=datetime(2026, 12, 6, 10, 30, tzinfo=IST))
+    assert d.rule == "R8" and d.send_window["not_before"] == "2026-12-06T10:30:00+05:30"
+    assert parse_ist(d.send_time["send_at"]) >= parse_ist(d.send_window["not_before"])
+    d = decide(i, now=datetime(2026, 12, 8, 7, tzinfo=IST))
+    assert (d.survey, d.rule, d.reason_code) == (False, "R6", "window_passed")
+    assert errors("no_survey", d.no_survey_record(i)) == []
 
 
 def test_full_golden_answer_key_policy(monkeypatch):

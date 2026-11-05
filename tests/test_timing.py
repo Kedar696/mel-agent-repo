@@ -43,7 +43,7 @@ def test_timing_offsets(timing, action, expected):
 
 @pytest.mark.parametrize("created,expected", [
     ("2027-03-27T09:00:00+05:30", {"not_before": "2027-03-29T07:00:00+05:30", "not_after": "2027-03-31T19:00:00+05:30"}),
-    ("2027-03-28T09:00:00+05:30", None),
+    ("2027-03-28T09:00:00+05:30", None),  # G-0145's case: the brief needs 2 days, the key keeps a 1-day window
     ("2027-03-31T09:00:00+05:30", None),
 ])
 def test_season_end_retains_minimum_window(created, expected):
@@ -102,3 +102,33 @@ def test_unknown_policy_is_a_configuration_error(monkeypatch):
     monkeypatch.setenv("MEL_TIMING_BASIS", "typo")
     with pytest.raises(ValueError, match="MEL_TIMING_BASIS"):
         send_window(insight())
+
+
+# Scenario 1's planned window: 2026-12-06 07:00 to 2026-12-09 19:00 IST.
+@pytest.mark.parametrize("now,opens", [
+    ("2026-12-02T10:00:00+05:30", "2026-12-06T07:00:00+05:30"),  # clock before the window: unchanged
+    ("2026-12-06T10:30:00+05:30", "2026-12-06T10:30:00+05:30"),  # inside send hours: open now
+    ("2026-12-07T05:00:00+05:30", "2026-12-07T07:00:00+05:30"),  # before 07:00: that morning
+    ("2026-12-06T20:00:00+05:30", "2026-12-07T07:00:00+05:30"),  # after 19:00: next morning
+    ("2026-12-06T05:00:00+00:00", "2026-12-06T10:30:00+05:30"),  # a UTC clock is read in IST
+    ("2026-12-07T20:00:00+05:30", None),                         # under two days left: no window
+])
+def test_window_never_opens_before_the_simulated_clock(now, opens):
+    expected = None if opens is None else {"not_before": opens, "not_after": "2026-12-09T19:00:00+05:30"}
+    assert send_window(insight(), now=datetime.fromisoformat(now)) == expected
+
+
+def test_answer_key_window_also_follows_the_clock(monkeypatch):
+    monkeypatch.setenv("MEL_TIMING_BASIS", "answer_key")
+    i = insight()
+    i.update(created_at="2027-03-28T18:05:00+05:30", action_window_days=10)
+    i["verification"]["timing"] = "three_to_ten_days"
+    noon = datetime(2027, 3, 31, 12, tzinfo=IST)
+    assert send_window(i, now=noon) == {"not_before": "2027-03-31T12:00:00+05:30",
+                                        "not_after": "2027-03-31T19:00:00+05:30"}
+    assert send_window(i, now=noon + timedelta(hours=8)) is None
+
+
+def test_clock_needs_a_timezone():
+    with pytest.raises(ValueError, match="timezone"):
+        send_window(insight(), now=datetime(2026, 12, 7, 8))
