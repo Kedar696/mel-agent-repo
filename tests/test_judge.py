@@ -109,3 +109,25 @@ def test_survey_from_text_round_trips(pairs):
     for _, _, s in pairs:
         t = J.survey_text(s)
         assert J.survey_text(J.survey_from_text(t)) == t
+
+
+def test_bedrock_client_goes_through_p4_model_client(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEL_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MEL_LLM_LOG", str(tmp_path / "calls.jsonl"))
+
+    class FakeRuntime:
+        calls = 0
+
+        def converse(self, **kw):
+            FakeRuntime.calls += 1
+            assert kw["modelId"] == "judge-model" and kw["inferenceConfig"]["temperature"] == 0
+            return {"output": {"message": {"content": [{"text": '{"score": 4, "reason": "ok"}'}]}},
+                    "usage": {"inputTokens": 120, "outputTokens": 15}}
+
+    c = J.BedrockClient("judge-model", runtime=FakeRuntime())
+    assert c.complete("sys", "user") == ('{"score": 4, "reason": "ok"}', {"input_tokens": 120, "output_tokens": 15})
+    assert c.complete("sys", "user")[1] == {"input_tokens": 120, "output_tokens": 15, "cached": True}   # cache hit
+    assert FakeRuntime.calls == 1
+    import json
+    rows = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert rows[0]["purpose"] == "judge" and rows[0]["input_tokens"] == 120

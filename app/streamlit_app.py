@@ -846,12 +846,16 @@ with tab_over:
                 table(pd.DataFrame(ex_rows), width="stretch", hide_index=True)
 
     cal, jrun = judge.get("calibration"), judge.get("run")
+    from mel.evaluation.judge_models import load as load_models
+    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
+    names = {m.get("call_id"): f"{m['provider']} {m['name']}" for m in sweep.get("models", []) if m.get("call_id")}
     if cal:
         st.subheader("Can we trust the AI judge?")
         pr = [v for v in (cal.get("people_rank_r") or {}).values() if v is not None]
         st.caption(f"Five of us scored 20 surveys by hand (1–5), each on our own. The AI judge "
-                   f"({_model_name(cal['model'])} on Amazon Bedrock) scored the same questions. "
-                   "It agrees with us at least as well as we agree with each other.")
+                   f"({names.get(cal['model']) or _model_name(cal['model'])} on Amazon Bedrock, picked below for "
+                   "accuracy and cost) scored the same questions. It agrees with us at least as well as we agree with "
+                   "each other.")
         j = st.columns(3)
         j[0].metric("Within 1 point of a person", _pct(cal["within_1"]),
                     f"people with each other: {_pct(cal['people_vs_people']['within_1'])}", delta_color="off", delta_arrow="off")
@@ -865,13 +869,77 @@ with tab_over:
                 f"- A judge that always says 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, "
                 "because people mostly gave 4s and 5s. So the strongest sign is the ranking: the AI gives its 4s to the "
                 "surveys people rated lower, and follows the team's average more closely than any one of us does.\n"
-                "- Small sample (20 surveys). The AI only used 4 and 5, and is a little lenient.\n"
-                "- People caught a data problem the AI missed: the cauliflower advice in G-0129 talks about grain.\n"
+                f"- Small sample (20 surveys). The AI used the scores {', '.join(sorted(str(k) for k in cal.get('judge_scores', {})))}.\n"
+                "- People caught a data problem: the cauliflower advice in G-0129 talks about grain. A judge scores the "
+                "survey, not the advice, so data errors still need a person.\n"
                 "- Details: `docs/results/judge_calibration.md`.")
         if jrun:
             st.caption(f"On all {jrun['n']} answer-key surveys: average {jrun['judge_relevance']:.2f} / 5 "
                        f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
-                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost almost always on a generic second question.")
+                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost mostly on a generic second question "
+                       "(\"Do you need more help?\", \"How is your goat now?\").")
+
+    if sweep.get("models"):
+        st.subheader("Which model makes the best judge?")
+        ok = [m for m in sweep["models"] if m.get("rank")]
+        pv = sweep.get("people_vs_people") or {}
+        st.caption(f"Every text model on Amazon Bedrock that our account could call ({len(sweep['models'])} listed, "
+                   f"{len(ok)} answered every survey) judged the same {sweep.get('surveys', 20)} hand-scored surveys. "
+                   "Best first: how closely it follows the team's ranking (r), then the smallest gap. People with each "
+                   f"other: within 1 point {_pct(pv.get('within_1'))}, gap {pv.get('mean_abs_diff', '—')}. "
+                   f"Run {sweep.get('date', '')}, {sweep.get('region', '')}.")
+        used = (cal or {}).get("model", "")
+        by_id = {m["model_id"]: m for m in sweep["models"]}
+        pick, top = by_id.get(sweep.get("best_value") or ""), by_id.get(sweep.get("most_accurate") or "")
+        qm = sweep.get("quality_margin") or {}
+
+        def _usd(v):
+            return "price unknown" if v is None else (f"${v:,.2f}" if v >= 0.1 else f"${v:,.4f}")
+
+        if pick or top:
+            shown = pick or top
+            b = st.columns(4)
+            b[0].metric("Best value" if pick else "Most accurate (no prices yet)", shown["name"], shown["provider"],
+                        delta_color="off", delta_arrow="off")
+            b[1].metric("Its ranking match", f"r = {shown['rank_r']:.2f}" if shown.get("rank_r") is not None else "—",
+                        f"within 1 point {_pct(shown['within_1'])}", delta_color="off", delta_arrow="off")
+            b[2].metric("Cost per 1,000 surveys", _usd(shown.get("usd_per_1000_surveys")),
+                        f"whole season ({sweep.get('season_surveys', 2616):,} surveys): {_usd(shown.get('usd_per_season'))}",
+                        delta_color="off", delta_arrow="off")
+            b[3].metric("Speed", f"{shown['seconds_per_call']:.1f} s" if shown.get("seconds_per_call") is not None else "—",
+                        "per survey", delta_color="off", delta_arrow="off")
+            note = (f"Best value = the cheapest model whose quality is close to the most accurate one (ranking match "
+                    f"within {qm.get('rank_r', 0.1)} and gap within {qm.get('mean_abs_diff', 0.15)}), so we don't pay "
+                    "for accuracy we can't measure.")
+            if pick and top and pick is not top:
+                note += (f" The most accurate is {top['provider']} {top['name']} (r = {top.get('rank_r')}, "
+                         f"{_usd(top.get('usd_per_1000_surveys'))} per 1,000 surveys).")
+            if not pick:
+                note += (" No priced model is close enough to the most accurate one: add its price to "
+                         "docs/results/bedrock_prices.json and re-run."
+                         if any(m.get("usd_per_1000_surveys") is not None for m in sweep["models"]) else
+                         " No model has a price yet: run `python -m mel.evaluation.judge_models --prices`.")
+            st.caption(note)
+            ok_c = [m for m in ok if m.get("usd_per_1000_surveys") is not None]
+            if ok_c:
+                chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok_c],
+                                      "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok_c]}).set_index("model")
+                st.markdown("**Ranking match by model** (higher is better; models with a known price)")
+                st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok_c)), sort=False)
+        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Pick": m.get("pick") or "",
+                "Provider": m["provider"], "Model": m["name"] + ("  (judge used above)" if used and m.get("call_id") == used else ""),
+                "Within 1 point": _pct(m.get("within_1")), "Average gap": m.get("mean_abs_diff"),
+                "Ranking match (r)": m.get("rank_r"), "Close to best": "yes" if m.get("close_to_best") else "",
+                "Cost per 1,000 surveys": _usd(m.get("usd_per_1000_surveys")) if m.get("status") == "ok" else "",
+                "Seconds per survey": m.get("seconds_per_call"), "Surveys answered": m.get("surveys_scored"),
+                "Result": {"ok": "ok", "skipped": "not callable on demand", "error": "error"}.get(m["status"], m["status"])}
+               for m in sweep["models"]]
+        with st.expander(f"All {len(tab)} models"):
+            table(pd.DataFrame(tab), width="stretch", hide_index=True)
+            errs = [m for m in sweep["models"] if m.get("error")]
+            if errs:
+                st.caption("Why some models have no score: " + "; ".join(
+                    f"{m['name']}: {m['error'][:90]}" for m in errs[:8]) + (" …" if len(errs) > 8 else ""))
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
@@ -948,10 +1016,11 @@ PERSONA_LABEL = {
     "never_answers": "Never answers: the survey expires",
     "opts_out_first": "Opts out on the first message",
     "no_voice": "Cannot take phone calls",
+    "sometimes_fails": "Sometimes says the advice didn't work (about 1 in 4)",
 }
 STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
                 "declined": "Opted out", "partial": "Partly answered"}
-SEASON_THRESHOLD = 0.5   # provisional relevance bar for P3's quality check; P4 and P5 to agree the final number
+from mel.writer import RELEVANCE_THRESHOLD as SEASON_THRESHOLD   # the agreed send bar (0.3, P4 + P5, 4 Nov)
 
 
 def _india(ts: str) -> str:
@@ -1010,7 +1079,8 @@ with tab_season:
     cfg = st.columns([1.2, 1.6, 0.8], vertical_alignment="bottom")
     threshold = cfg[0].slider("Relevance needed to send", 0.0, 1.0, SEASON_THRESHOLD, 0.05,
                               help="P3's quality check blocks any survey whose relevance score (P4's, 0–1) is below "
-                                   "this. 0.5 is provisional until P4 and P5 agree the number.")
+                                   f"this. The agreed bar is {SEASON_THRESHOLD}: it blocks only surveys that name neither the "
+                                   "crop, the problem nor the advice. Slide it to see the trade-off.")
     persona = cfg[1].selectbox("How farmers respond", list(PERSONA_LABEL), format_func=PERSONA_LABEL.get,
                                help="P3's simulated farmers. Pick one to see fall-back, expiry and opt-out.")
     reset = cfg[2].button("Restart season", width="stretch")
@@ -1056,7 +1126,8 @@ with tab_season:
                 delta_color="off", delta_arrow="off")
     st.caption(f"Weekly limit at the start of the season: {adm.get('sent', 0):,} on time, {adm.get('moved', 0):,} moved "
                f"to a later week, {adm.get('merged', 0):,} merged into an earlier survey, {adm.get('skipped', 0):,} "
-               f"skipped. {drops['expired']:,} expired in the queue.")
+               f"skipped. {drops['expired']:,} expired in the queue. "
+               f"{sum(1 for e in log if e['needs a person']):,} answers need a person to follow up.")
 
     if season["days"]:
         weeks = Counter()

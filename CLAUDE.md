@@ -120,11 +120,31 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   `simulate_handoff`, personas, `late` flag (off until P1 adds it to the response schema). Not started: SimClock,
   `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1; a persona that
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
-- P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
+- P4: (4 Nov) relevance threshold agreed at 0.3 with P5; plan templates changed by P5 on `p5-season-speed` (review).
+  DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- **Judge model sweep (P5, 4 Nov, `p5-season-speed`):** `python -m mel.evaluation.judge_models --list | --run [--only x,y]
+  [--full]` finds every active text model in the region (on-demand id, else a us./global. inference profile), has each
+  judge the 20 hand-scored surveys, ranks by r with the team then gap; writes `docs/results/judge_models.json`
+  (committed) for the Dashboard's "Which model makes the best judge?". **Cost counts:** `--prices` fetches token prices
+  (AWS Price List API, best effort) into `docs/results/bedrock_prices.json` for a person to check; cost per survey =
+  price x tokens the model really used (from the judge's saved answers, so re-runs price the same). Pick = "best value":
+  the cheapest priced model within 0.10 r and 0.15 gap of the most accurate. **Ran 5 Nov: 88 listed, 70 ranked; pick =
+  Gemma 3 12B** (`google.gemma-3-12b-it`, on-demand): r 0.72, within 1 pt 97%, gap 0.54, ~$0.05 per 1,000 surveys;
+  now the main judge (judge_summary.json; 94-row relevance 4.48). `ModelClient.converse` accepts `system=None` and
+  `temperature=None` (newer models refuse them; P4 to review).
+- **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
+  (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
+  {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
+  relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,050 sends / 0 blocked (after P3 #24). README/scorecard
+  regenerated: runs 8-9 (P4 relevance 0.69 -> 0.81). Write-up: `docs/results/judge_calibration.md`.
+- P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
+  `mel/schedule/broadcast.py`, P3 to review): to end of March 10 -> 5 s responsive, 38 -> 8 s never-answers, same
+  counts. Judge's `BedrockClient` now wraps P4's `ModelClient` (purpose "judge" in out/bedrock_calls.jsonl);
+  `ModelClient.last_usage` added (P4 to review).
 - P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
   +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
-  0.5; full data: 2,066 queued, 1,711 sends, 355 blocked by the quality check, whole season ~6 s). Shows India
+  now 0.3; personas incl. P3's `sometimes_fails` (523 answers need a person); full data ~2,050 sends, ~5 s). Shows India
   time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
@@ -132,7 +152,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
   send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
-  backup link; judge calibrated on Bedrock (done 4 Nov); left: switch to P4's `ModelClient`;
+  backup link; judge calibrated on Bedrock (done 4 Nov); judge now uses P4's `ModelClient`;
   window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
   Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
   not in the response schema, so P3's outcomes would give an empty queue.

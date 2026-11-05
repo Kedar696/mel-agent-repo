@@ -519,3 +519,26 @@ def test_comparison_measures_raw_model_output_for_each_model(bedrock):
     big = r['rows'][1]
     assert big['writer'].startswith('bedrock large') and big['guard_pass_rate'] == 1.0 and big['calls'] == len(pairs) and big['input_tokens'] == 10 * len(pairs)
     assert big['cost_usd'] > 0
+
+
+# ---------------------------------------------------------------- plan surveys name the first step and the crop (4 Nov)
+def test_plan_survey_asks_first_step_and_names_the_crop():
+    from mel.writer.templates import build_items
+    ins = {"resolution_type": "plan_created", "concern": "nutrient_deficiency", "severity": "medium",
+           "asset": {"name": "mustard", "category": "crop"},
+           "advice_summary": "Gave a plan in stages: first apply zinc as per soil test advice, then watch for new leaves."}
+    items = build_items(ins)
+    assert items[0][1] == "Did you apply zinc?"
+    assert items[1][1] == "Is the plan working for your mustard so far?" and "सरसों" in items[1][2]
+    ins["advice_summary"] = "Gave a plan in stages."                       # no recognisable first step
+    assert build_items(ins)[0][1] == "How much of the plan have you done?"  # answer-key wording stays as fallback
+
+
+def test_send_bar_is_agreed_and_blocks_no_template_survey():
+    from mel.data import load_insights
+    from mel.pipeline import run_pipeline
+    from mel.writer import RELEVANCE_THRESHOLD
+    assert RELEVANCE_THRESHOLD == 0.3
+    scores = [o["handoff"]["survey"]["self_eval"]["relevance_score"]
+              for o in run_pipeline(load_insights(None)).outputs if "handoff" in o]
+    assert scores and min(scores) >= RELEVANCE_THRESHOLD

@@ -19,14 +19,38 @@ What the checklist asks of it:
     is always passed in explicitly -- there is no shared default invented here, because the
     "right" relevance bar is a P4/P5 decision, not P3's to hard-code.
 """
+import json
 from datetime import datetime, time
 
 from mel.config import rules
+
 from mel.timing import parse_ist, fmt_ist
 
 
 # -------------------------------------------------------------- P4 quality gate
+_QUALITY_CACHE: dict = {}
+_QUALITY_CACHE_MAX = 50_000
+
+
 def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
+    """Cached front for `_quality_failures` (same contract). The broadcaster re-checks every queued survey on every
+    step, and the check (P4's guards plus a JSON Schema validation) is the slow part of a season walk. The result
+    depends only on the survey's content and the threshold, so it is cached on exactly those: a survey that is
+    changed in any way is checked again. Added by P5 for the Season tab's speed; P3 to review."""
+    try:
+        key = (json.dumps(survey, sort_keys=True, ensure_ascii=False, default=str), relevance_threshold)
+    except (TypeError, ValueError):
+        return _quality_failures(survey, relevance_threshold)
+    hit = _QUALITY_CACHE.get(key)
+    if hit is None:
+        hit = tuple(_quality_failures(survey, relevance_threshold))   # raises for a bad threshold, like before
+        if len(_QUALITY_CACHE) >= _QUALITY_CACHE_MAX:
+            _QUALITY_CACHE.clear()
+        _QUALITY_CACHE[key] = hit
+    return list(hit)
+
+
+def _quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
     """Why this survey must not be sent, or [] if it is clear to send.
 
     Reads only the survey's own `self_eval` block (the shape P4 writes, defined in

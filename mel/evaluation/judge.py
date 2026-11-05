@@ -11,10 +11,10 @@ Both write their summary to docs/results/judge_summary.json (committed; the app'
 
 Bedrock settings (credentials come from the AWS account's IAM role, never a key in code):
     MEL_JUDGE_MODEL      Bedrock model id or inference profile, e.g. a small Claude model enabled in our region
-    AWS_REGION           the region event staff enabled the models in
+    AWS_REGION           the region event staff enabled the models in (or MEL_BEDROCK_REGION, as for P4's writer)
     MEL_JUDGE_PRICE_IN / MEL_JUDGE_PRICE_OUT   optional USD per million input / output tokens, for cost logs
 
-When P4's ModelClient lands, pass it as `client` (anything with .complete(system, user) -> (text, usage)).
+BedrockClient goes through P4's ModelClient. Any object with .complete(system, user) -> (text, usage) works as `client`.
 """
 import argparse
 import csv
@@ -95,22 +95,22 @@ def parse_score(text: str) -> tuple[int | None, str]:
 # ---------------------------------------------------------------- model access
 
 class BedrockClient:
-    """Minimal Bedrock Converse adapter. Swap for P4's ModelClient once it exists."""
+    """The judge's model access, through P4's ModelClient (mel/writer/llm.py): one Bedrock path for the whole team,
+    with its retries, backoff, on-disk cache and per-call log (out/bedrock_calls.jsonl). Logged as purpose "judge"."""
 
-    def __init__(self, model_id: str | None = None, region: str | None = None):
+    def __init__(self, model_id: str | None = None, region: str | None = None, runtime=None):
         self.model_id = model_id or os.environ.get("MEL_JUDGE_MODEL")
         if not self.model_id:
             raise RuntimeError("Set MEL_JUDGE_MODEL to a Bedrock model id enabled in our account (ask P1/P4).")
-        import boto3  # only needed when the judge actually runs
-        self._rt = boto3.client("bedrock-runtime", region_name=region or os.environ.get("AWS_REGION"))
+        from mel.writer.llm import ModelClient
+        if runtime is None and region:
+            import boto3  # only needed when the judge actually runs
+            runtime = boto3.client("bedrock-runtime", region_name=region)
+        self._client = ModelClient(runtime=runtime)
 
     def complete(self, system: str, user: str) -> tuple[str, dict]:
-        r = self._rt.converse(modelId=self.model_id, system=[{"text": system}],
-                              messages=[{"role": "user", "content": [{"text": user}]}],
-                              inferenceConfig={"maxTokens": 200, "temperature": 0})
-        text = "".join(c.get("text", "") for c in r["output"]["message"]["content"])
-        u = r.get("usage", {})
-        return text, {"input_tokens": u.get("inputTokens", 0), "output_tokens": u.get("outputTokens", 0)}
+        text = self._client.converse(self.model_id, system, user, purpose="judge", max_tokens=200, temperature=0)
+        return text, dict(self._client.last_usage)
 
 
 def _cost(usage: dict) -> float | None:

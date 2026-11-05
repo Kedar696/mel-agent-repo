@@ -128,9 +128,9 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | Safety (no new advice, no personal info) | 100.0% | 100.0% |
 | Timeliness (after the action window, 07:00–19:00, in season, before harvest) | 100.0% | 26.5% |
 | Failing surveys handed to the scheduler | 0 | 0 |
-| Relevance (P4's score, 0–1) | 0.69 | 0.69 |
-| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | 4.82 | 4.81 |
-| Speed | 3.7 ms per survey · 10 s for all | 3.8 ms per survey · 10 s for all |
+| Relevance (P4's score, 0–1) | 0.81 | 0.81 |
+| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | 4.48 | 4.47 |
+| Speed | 3.1 ms per survey · 8 s for all | 3.1 ms per survey · 8 s for all |
 
 **Rules we changed** (each recorded run vs the last run under the same send-time rule)
 
@@ -142,6 +142,8 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | 5 (vs 3) | P4 templates in answer-key wording (writer_style=golden) + stricter relevance v2 | Answer-key setting | 100.0% | 100.0% | 100.0% | 26.5% | 0.50 → 0.99 | 0.83 → 0.69 | 0 |
 | 6 (vs 4) | History rules H1-H4 on (P4's, moved into the team writer) | Brief rules (default) + history on | 99.3% | 99.3% | 0.0% | 100.0% | 0.99 → 0.93 | 0.69 → 0.73 | 1 |
 | 7 (vs 5) | History rules H1-H4 on (P4's, moved into the team writer) | Answer-key setting + history on | 100.0% | 100.0% | 100.0% | 26.5% | 0.99 → 0.93 | 0.69 → 0.73 | 0 |
+| 8 (vs 4) | Judge: best-value model; plan questions name the first step and crop; send bar 0.3 | Brief rules (default) | 99.3% | 99.3% | 0.0% | 100.0% | 0.99 | 0.69 → 0.81 | 1 |
+| 9 (vs 5) | Judge: best-value model; plan questions name the first step and crop; send bar 0.3 | Answer-key setting | 100.0% | 100.0% | 100.0% | 26.5% | 0.99 | 0.69 → 0.81 | 0 |
 
 Misses under brief rules (default): G-0145 (expected R8, got R6)
 

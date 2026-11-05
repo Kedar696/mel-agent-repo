@@ -181,7 +181,8 @@ EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any con
 - **How fast is it?** Under 4 ms per survey; all 6,999 conversations in about 10 seconds.
 - **Can the season be fast-forwarded?** Yes: the Season tab. One shared simulated clock (P3's
   `SeasonScheduler`) moves a day, a week or to 31 March; "Send next step" is the manual trigger, one channel
-  attempt at a time. The relevance bar there (0.5) is provisional until P4 and P5 agree it.
+  attempt at a time. The relevance bar is 0.3 (agreed by P4 and P5): it blocks only surveys that name
+  neither the crop, the problem nor the advice.
 
 ## If something breaks
 

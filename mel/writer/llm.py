@@ -69,6 +69,7 @@ class ModelClient:
 
     def __init__(self, runtime=None, max_attempts=4, base_delay=1.0, sleep=time.sleep):
         self._runtime, self.max_attempts, self.base_delay, self._sleep = runtime, max_attempts, base_delay, sleep
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}   # tokens of the last converse() (cache hit: as made)
 
     def _rt(self):
         if self._runtime is None:
@@ -88,13 +89,17 @@ class ModelClient:
         return code in RETRYABLE_CODES or type(e).__name__ in RETRYABLE_CLASSES
 
     def converse(self, model_id, system, user, purpose="write", tag="", max_tokens=1200, temperature=0.2) -> str:
-        """Returns the model's text. Raises ModelUnavailable. `purpose` is 'write' or 'check'; `tag` is e.g. the insight id (for the log)."""
+        """Returns the model's text. Raises ModelUnavailable. `purpose` is 'write' or 'check'; `tag` is e.g. the insight id (for the log).
+        `system=None` sends no system prompt and `temperature=None` no temperature (newer models refuse one or the other)."""
         key = hashlib.sha256(json.dumps([model_id, system, user, max_tokens, temperature], ensure_ascii=False).encode()).hexdigest()
         cached = cache_dir() / f"{key}.json"
         if cached.exists():
             try:
                 hit = json.loads(cached.read_text(encoding="utf-8"))
                 self._log(model_id, purpose, tag, 0, 0, 0.0, cached=True, ok=True)
+                # what this answer took when it was made (nothing is spent now): lets callers price an answer
+                self.last_usage = {"input_tokens": int(hit.get("input_tokens", 0)),
+                                   "output_tokens": int(hit.get("output_tokens", 0)), "cached": True}
                 return hit["text"]
             except (ValueError, KeyError, OSError):
                 pass                                     # a broken cache file is just a miss
@@ -102,10 +107,11 @@ class ModelClient:
         for attempt in range(1, self.max_attempts + 1):
             t0 = time.perf_counter()
             try:
+                kw = {"system": [{"text": system}]} if system else {}   # some models take no system prompt: pass None
                 resp = self._rt().converse(
-                    modelId=model_id, system=[{"text": system}],
+                    modelId=model_id, **kw,
                     messages=[{"role": "user", "content": [{"text": user}]}],
-                    inferenceConfig={"maxTokens": max_tokens, "temperature": temperature})
+                    inferenceConfig={"maxTokens": max_tokens, **({} if temperature is None else {"temperature": temperature})})
             except ModelUnavailable:
                 raise
             except Exception as e:
@@ -122,6 +128,7 @@ class ModelClient:
             use = resp.get("usage") or {}
             tin, tout = int(use.get("inputTokens", 0)), int(use.get("outputTokens", 0))
             self._log(model_id, purpose, tag, tin, tout, secs, ok=True)
+            self.last_usage = {"input_tokens": tin, "output_tokens": tout}
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
                 cached.write_text(json.dumps({"text": text, "input_tokens": tin, "output_tokens": tout}, ensure_ascii=False), encoding="utf-8")
