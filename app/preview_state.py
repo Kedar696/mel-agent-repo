@@ -66,7 +66,7 @@ class PreviewState:
     @property
     def started(self) -> bool:
         """Anything to start over from."""
-        return self.done or bool(self.taps) or self.stage != first_stage(self.channel)
+        return self.done or bool(self.taps) or self.step > 0 or self.stage != first_stage(self.channel)
 
     # ---- transitions. Each one ignores a tap that no longer fits the screen (a double click, or a click
     # from before a rerun), so one tap advances exactly one question.
@@ -111,13 +111,23 @@ class PreviewState:
         if self.stage == "picker":
             self._go("question")
 
+    def skip(self):
+        """Skip on the app/web sheet: the question on screen stays unanswered and the next one shows.
+        Skipping the last one ends the sheet: the answers given are sent; with none, nothing is."""
+        if self.channel in SHEET and self.stage == "question":
+            if self.step + 1 < self.n or self.taps:
+                self.step += 1
+                self._end("finished") if self.step >= self.n else self._go("question")
+            else:
+                self._end("dismissed")
+
     def close(self):
         """Close or swipe the sheet down: the answers so far are sent (brief: submit once)."""
         if not self.done:
             self._end("closed" if self.taps else "dismissed")
 
     def opt_out(self):
-        """Do not ask me again, STOP, /stop, key 9: no more surveys for this farmer."""
+        """STOP, /stop, key 9: no more surveys for this farmer."""
         if not self.done:
             self._end("opted_out")
 
@@ -177,19 +187,33 @@ def build_record(survey: dict, channel: str, state: PreviewState, send_at: str |
     # finished record itself, and the source of the answered entries for every partial ending.
     full = simulate(survey, channel, "completed", answers=taps, send_at=at)
     how = state.ending
-    if how == "finished":
+    if how == "finished" and len(taps) == state.n:
         return full
-    if how == "closed":  # P3's submit-once sheet: keeps the given answers, marks the step shown as skipped
-        rec = simulate_sheet(survey, channel, list(taps), closed=True, answers=taps)
+    if how in ("finished", "closed"):  # P3's submit-once sheet keeps the given answers (some steps skipped)
+        closed = how == "closed"
+        rec = simulate_sheet(survey, channel, list(taps), closed=closed, answers=taps)
         rec.update(timestamps=full["timestamps"], recorded_at=full["recorded_at"],
-                   raw_event=f"Close tapped at step {len(taps) + 1} of {state.n}")
-        return rec
+                   raw_event=f"Close tapped at step {state.step + 1} of {state.n}" if closed else None)
+        return _skips(rec, state)
     case = {"dismissed": "sheet_dismissed", "declined": "farmer_declined", "opted_out": "farmer_opted_out",
             "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped", "missed": "voice_no_answer"}[how]
     base = simulate(survey, channel, case, send_at=at)
+    if how == "dismissed" and state.step:  # skipped to here, then closed or skipped again: nothing answered
+        base["raw_event"] = f"sheet closed at step {state.step + 1} of {state.n}, nothing answered"
+        return _skips(base, state)
     if how in ("dismissed", "declined", "missed"):  # nothing was answered: P3's record is already exact
         return base
     return _reseat(base, full, survey, state)
+
+
+def _skips(rec: dict, state: PreviewState) -> dict:
+    """Sheet steps the farmer skipped, and the one on screen when the sheet closed, were shown but not
+    answered: `skipped` (P3's convention). Later steps stay not_reached."""
+    end = state.step + (state.ending in ("closed", "dismissed"))
+    for k, e in enumerate(rec["items"]):
+        if k < end and state.ids[k] not in state.taps:
+            e.update(result="skipped", value=None, raw_input=None, input_kind=None, attempts=1)
+    return rec
 
 
 def _reseat(base: dict, full: dict, survey: dict, state: PreviewState) -> dict:

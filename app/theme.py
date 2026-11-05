@@ -190,10 +190,12 @@ a{color:var(--mel-green)}
 [data-testid="stAppViewContainer"] button:focus-visible,[data-testid="stAppViewContainer"] [role="tab"]:focus-visible,[data-testid="stAppViewContainer"] summary:focus-visible{outline:3px solid var(--mel-bright);outline-offset:2px;box-shadow:none}
 
 /* icon-only Restart in the Survey Studio settings bar: st.button(key="studio_restart", icon=...). The label
-   "Restart survey" stays in the accessibility tree but is clipped off screen; the Material icon is what shows. */
-.st-key-studio_restart button,.st-key-tts_toggle button{width:40px;min-width:40px;min-height:40px;padding:0;justify-content:center;gap:0}
-.st-key-studio_restart button [data-testid="stMarkdownContainer"],.st-key-tts_pill button [data-testid="stMarkdownContainer"]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.st-key-studio_restart button [data-testid="stIconMaterial"],.st-key-studio_restart button span[class*="material-symbols"]{font-size:22px;margin:0}
+   "Restart survey" stays in the accessibility tree but is clipped off screen; the Material icon is what shows.
+   The "What if…" popover (key="studio_whatif") is drawn the same way, its chevron hidden too. */
+.st-key-studio_whatif button div[aria-hidden="true"]{display:none}
+.st-key-studio_restart button,.st-key-studio_whatif button,.st-key-tts_toggle button{width:40px;min-width:40px;min-height:40px;padding:0;justify-content:center;gap:0}
+.st-key-studio_restart button [data-testid="stMarkdownContainer"],.st-key-studio_whatif button [data-testid="stMarkdownContainer"],.st-key-tts_pill button [data-testid="stMarkdownContainer"]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.st-key-studio_restart button [data-testid="stIconMaterial"],.st-key-studio_restart button span[class*="material-symbols"],.st-key-studio_whatif button [data-testid="stIconMaterial"]{font-size:22px;margin:0}
 /* Read-aloud speaker beside Restart (sound_button): speaker tts_toggle + volume chevron tts_pop joined as one pill. */
 .st-key-tts_toggle button{border-top-right-radius:0;border-bottom-right-radius:0}
 .st-key-tts_pop button{min-height:40px;padding:0 8px;gap:0;margin-left:-1px;border-top-left-radius:0;border-bottom-left-radius:0}
@@ -304,7 +306,12 @@ a{color:var(--mel-green)}
 @keyframes mel-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 @keyframes mel-look{0%,100%{transform:none}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 @keyframes mel-blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
-.st-key-agent_head .mel-sec{margin:0}
+.st-key-agent_head .mel-sec,.st-key-farmer_head .mel-sec{margin:0}
+/* both view headers one height, so the agent's panel and the phone start level; the farmer's header spans the
+   phone (378 px, centred like it), so its switch and Restart end at the phone's right edge */
+.st-key-agent_head,.st-key-farmer_head{min-height:44px}
+.st-key-farmer_head{width:100%;max-width:378px;margin-left:auto;margin-right:auto}
+@media (min-width:900px){.mel-agent{min-height:700px;display:flex;flex-direction:column}.mel-agent .foot{margin-top:auto}}
 .mel-lang{font-size:14px;font-weight:600;color:var(--mel-muted)}
 .mel-empty{background:var(--mel-paper);border:1px dashed var(--mel-line-strong);border-radius:var(--mel-r-card);padding:48px 24px;text-align:center;color:var(--mel-muted)}
 .mel-empty b{display:block;color:var(--mel-ink);font-size:18px;margin-bottom:6px}
@@ -355,6 +362,7 @@ a{color:var(--mel-green)}
 .mel-d-tile{padding:16px 18px}
 .mel-d-tile .mel-ico{width:22px;height:22px;color:var(--mel-green)}
 .mel-d-tile .v{font-size:36px;font-weight:700;letter-spacing:-.035em;line-height:1.05;margin-top:8px;color:var(--mel-ink)}
+.mel-d-tile .v.sm{font-size:26px;line-height:1.45}
 .mel-d-tile .l{font-size:15px;font-weight:700;color:var(--mel-ink);margin-top:2px}
 .mel-d-tile .n{font-size:12.5px;color:var(--mel-muted);margin-top:2px;line-height:1.35}
 .mel-d-meter{height:6px;border-radius:6px;background:#D9F5E2;margin-top:10px;overflow:hidden}
@@ -382,7 +390,7 @@ a{color:var(--mel-green)}
 @media (max-width:900px){
   .mel-d-top{grid-template-columns:1fr}.mel-d-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mel-d-flow{grid-template-columns:1fr}.mel-d-arrow{transform:rotate(90deg);justify-self:center;line-height:1}
-  .mel-d-fig{font-size:64px}
+  .mel-d-fig{font-size:64px}.mel-d-tile .v.sm{font-size:20px;line-height:1.9}
 }
 @media (prefers-reduced-motion:reduce){.mel-d-hero,.mel-d-tile,.mel-d-step{animation:none}}
 

@@ -531,7 +531,11 @@ with tab_studio:
     own = st.session_state["studio_source"] == "own"
     # Top bar, as in the sketch: the demo case on the left, the channel next to it (filled once the case is known),
     # then the user's own insight, never inside the dropdown.
-    bar = st.columns([2.2, 1.3, 0.8, 1.2], vertical_alignment="bottom")
+    # One level row: the case and the channel on the left, the insight buttons at the right edge. Everything that
+    # changes the preview itself lives in the two view headers below (What if… left, language + restart right).
+    bar = st.columns([2.2, 1.3, 2.1], vertical_alignment="bottom")
+    acts = bar[2].container(horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small",
+                            key="studio_acts")
     if own:
         pick = None
         a0 = (sub["insight"].get("asset") or {}) if sub else {}
@@ -539,18 +543,17 @@ with tab_studio:
                 if sub else "draft, no report yet")
         bar[0].markdown(f'<div class="mel-source"><div class="mel-k">Source</div><b>Your insight</b>'
                         f'<span>{escape(what)}</span></div>', unsafe_allow_html=True)
-        bar[2].button("Hide editor" if st.session_state["editor_open"] else "Edit insight", key="own_toggle",
-                      icon=":material/edit:", on_click=_toggle_editor, width="stretch")
-        bar[3].button("Back to the demos", key="own_back", on_click=_back_to_demos, width="stretch")
+        acts.button("Hide editor" if st.session_state["editor_open"] else "Edit insight", key="own_toggle",
+                    icon=":material/edit:", on_click=_toggle_editor)
+        acts.button("Back to the demos", key="own_back", on_click=_back_to_demos)
     else:
         # The picker's widget key is dropped while own mode hides it; last_pick (plain state) brings it back.
         st.session_state.setdefault("studio_pick", st.session_state.get("last_pick", next(iter(picks), BROWSE)))
         pick = bar[0].selectbox("Demo case", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
         st.session_state["last_pick"] = pick
         if sub:
-            bar[2].button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own, width="stretch")
-        bar[3].button("Add your own insight", key="own_add", icon=":material/add:", on_click=_open_own,
-                      width="stretch")
+            acts.button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own)
+        acts.button("Add your own insight", key="own_add", icon=":material/add:", on_click=_open_own)
     kicker, title, note = "Selected insight", "", ""
     if own:
         if st.session_state["editor_open"] and own_insight_editor(draft):
@@ -593,26 +596,31 @@ with tab_studio:
         # override it with a made-up tier, because the pack's activity is flat with no designed surges.
         attention, pretend_att = getattr(d, "attention", None), next(iter(PRETEND_ATT))
         col_a, col_f = st.columns([1.05, 1], gap="large")
+        # Two headers of the same height, so the agent's panel and the phone start on the same line.
         head = col_a.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
                                key="agent_head")
         head.markdown('<div class="mel-sec">Agent\'s view</div>', unsafe_allow_html=True)
-        col_f.markdown('<div class="mel-sec">Farmer\'s view</div>', unsafe_allow_html=True)
+        fhead = col_f.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
+                                key="farmer_head")
+        fhead.markdown('<div class="mel-sec">Farmer\'s view</div>', unsafe_allow_html=True)
         if d.survey:
-            # One small row for everything that changes what the farmer sees. History rules H1-H5 are always on
-            # here (team decision 4 Nov); scoring and the CLI keep them off.
-            tools = col_a.container(horizontal=True, vertical_alignment="center")
-            # English by default so judges can read along; the switch at the right of the header flips to Hindi.
-            # The phone's key includes the language, so each language keeps its own place in the survey.
-            switch = head.container(horizontal=True, width="content", gap="small", vertical_alignment="center")
-            switch.markdown('<span class="mel-lang">English</span>', unsafe_allow_html=True)
-            hindi = switch.toggle("Hindi", key="lang_hi")
+            # The farmer's controls sit at the right of the Farmer's view header (William's ask): the English/Hindi
+            # switch, then Restart (and the speaker on voice). History rules H1-H5 are always on here (team
+            # decision 4 Nov); scoring and the CLI keep them off.
+            # English by default so judges can read along. The phone's key includes the language, so each
+            # language keeps its own place in the survey.
+            tools = fhead.container(horizontal=True, width="content", gap="small", vertical_alignment="center",
+                                    key="farmer_ctl")
+            tools.markdown('<span class="mel-lang">English</span>', unsafe_allow_html=True)
+            hindi = tools.toggle("Hindi", key="lang_hi")
             langs = list(out["surveys"])
             lang = "hi-IN" if hindi and "hi-IN" in langs else ("en-IN" if "en-IN" in langs else langs[0])
             # Icon-only: the label is the accessible name, hidden visually by app/theme.py (.st-key-studio_restart).
             restart = tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
                                    width="content", help="Restart survey")
-            with tools.popover("What if…", icon=":material/tune:", help="Pretend a different history or activity "
-                                                                         "for this farmer (demo only)"):
+            # Icon-only like Restart: the label stays as the accessible name, clipped off screen by app/theme.py.
+            with head.popover("What if…", icon=":material/tune:", key="studio_whatif",
+                              help="What if… pretend a different history or activity for this farmer (demo only)"):
                 pretend = st.selectbox("Pretend this farmer's survey history", PRETEND)
                 pretend_att = st.selectbox("Pretend activity pattern", list(PRETEND_ATT),
                                            help="The pack's activity is flat with no designed surges, so this made-up "

@@ -112,19 +112,26 @@ def _pct(v) -> str:
 
 
 # ------------------------------------------------------------------------------------------------ sections
-def _headline(n, surveyed, card, src, adapted):
+def _headline(n, surveyed, card, src, adapted, jrun):
     secs, ms = card["batch_seconds"], card["s_per_survey"] * 1000
     right = round(src["decision_acc"] * src["n"])
+    files = card["n_survey_files"]
+    worst = min(card["format_pass"], card["safety_pass"], card["timeliness_pass"])
+    # The three pass/fail gates as one measured count (all three are exact on this run), next to the two graded
+    # scores that are not pass/fail: the AI judge's 1-5 relevance and P4's 0-1 relevance score.
+    checks = ((f"{files:,} / {files:,}", "pass every check") if worst == 1 else (_pct(worst), "pass the strictest check"))
     tiles = [
         ("target", _pct(src["decision_acc"]), "decisions right", f"{right} of {src['n']} answer-key cases", src["decision_acc"]),
-        ("check", f"{card['format_pass']:.0%}", "well-formed", f"{card['n_survey_files']:,} survey files", card["format_pass"]),
+        ("check", *checks, "format, safety and timing, Hindi and English", worst),
+        ("shield", f"{jrun['judge_relevance']:.2f} / 5", "relevance, AI judge",
+         f"Gemma 3 12B on Amazon Bedrock, {jrun['n']} surveys", jrun["judge_relevance"] / 5) if jrun else
         ("shield", f"{card['safety_pass']:.0%}", "safe", "no new advice, no personal data", card["safety_pass"]),
-        ("clock", f"{card['timeliness_pass']:.0%}", "on time", "after the farmer could act", card["timeliness_pass"]),
+        ("clock", f"{card['relevance_avg']:.2f}", "relevance score", "P4's 0 to 1 check on every survey", card["relevance_avg"]),
         ("users", f"{adapted:,}", "personalized", "by the farmer's own history", adapted / max(len(surveyed), 1)),
         ("award", f"{card['failed_but_scheduled']}", "failing surveys scheduled", "a survey that fails a check is held back", None),
     ]
     tile_html = "".join(
-        f'<div class="mel-d-tile">{icon(ic)}<div class="v"><span class="mel-count">{escape(v)}</span></div>'
+        f'<div class="mel-d-tile">{icon(ic)}<div class="v{" sm" if len(v) > 9 else ""}"><span class="mel-count">{escape(v)}</span></div>'
         f'<div class="l">{escape(label)}</div><div class="n">{escape(note)}</div>'
         + (f'<div class="mel-d-meter"><i style="width:{share * 100:.1f}%"></i></div>' if share is not None else "")
         + "</div>" for ic, v, label, note, share in tiles)
@@ -272,7 +279,7 @@ def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label,
     adapted = sum(any(s.get("_history") for s in o["surveys"].values()) for _, o in surveyed)
 
     # 1. Speed and quality at a glance, then the flow from conversation to farmer
-    _headline(n, surveyed, card, src, adapted)
+    _headline(n, surveyed, card, src, adapted, load_summary().get("run"))
     _flow(n, surveyed, lim)
 
     # 2. What it decided and where the surveys go

@@ -132,6 +132,34 @@ def test_sheet_close_dismiss_and_opt_out():
     assert rec["raw_event"] == "tapped Do not ask me again in the sheet"
 
 
+def test_sheet_skip_keeps_the_answers_around_it():
+    s = survey()
+    a = PreviewState.new(s, "app")
+    a.skip()
+    assert a.current == "q2" and a.started and not a.done
+    a.answer("q2", "no_new")
+    a.answer("q3", a.values["q3"][0])
+    rec = build_record(s, "app", a)
+    valid(rec)
+    assert rec["answers"] == a.taps and not rec["complete"] and rec["sheet_outcome"] == "finished"
+    assert [i["result"] for i in rec["items"]] == ["skipped", "answered", "answered"]
+    c = PreviewState.new(s, "web")
+    c.answer("q1", "yes"), c.skip(), c.close()
+    rec = build_record(s, "web", c)
+    valid(rec)
+    assert rec["raw_event"] == "Close tapped at step 3 of 3" and rec["answers"] == {"q1": "yes"}
+    assert [i["result"] for i in rec["items"]] == ["answered", "skipped", "skipped"]
+    z = PreviewState.new(s, "app")
+    z.skip(), z.skip(), z.skip()  # every step skipped: nothing to send
+    assert z.ending == "dismissed"
+    rec = build_record(s, "app", z)
+    valid(rec)
+    assert rec["answers"] == {} and [i["result"] for i in rec["items"]] == ["skipped"] * 3
+    w = PreviewState.new(s, "whatsapp")
+    w.start(), w.skip()
+    assert w.current == "q1"  # Skip is a sheet button only
+
+
 def test_voice_keys_and_hang_up_times():
     s = survey("1-mustard-aphid-spray", "hi-IN")  # a single-select survey: P3's anchor is q3, not q1
     v = PreviewState.new(s, "voice")

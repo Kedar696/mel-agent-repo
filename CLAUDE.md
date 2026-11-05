@@ -94,8 +94,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   shows "What the agent remembers", a "pretend survey history" demo and generic vs
   adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
   channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
-  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H5 now live in
+  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). The app/web
+  sheet has a Skip button (P3's `simulate_sheet` keeps the answers around a skipped step); opt-out is STOP, /stop or 9. History rules H1–H5 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7

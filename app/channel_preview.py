@@ -33,18 +33,18 @@ from app.preview_state import (PreviewState, SHEET, build_record, chat_log, labe
 CHROME = {
     "hi-IN": dict(message="संदेश", business="बिज़नेस अकाउंट", bot="बॉट", edited="संपादित", call="इनकमिंग कॉल…",
                   answer="उठाएँ", declinecall="काटें", missed="कॉल नहीं उठाई",
-                  key="दबाएँ", listen="सुनते रहें", nomore="और कॉल नहीं", hang="कॉल काटें", noask="दोबारा न पूछें",
+                  key="दबाएँ", listen="सुनते रहें", nomore="और कॉल नहीं", hang="कॉल काटें", skipped="छोड़ दिया",
                   notice="🔒 यह बिज़नेस इस चैट को मैनेज करने के लिए Meta की सुरक्षित सेवा का उपयोग करता है।"),
     "en-IN": dict(message="Message", business="Business account", bot="bot", edited="edited", call="Incoming call…",
                   answer="Answer", declinecall="Decline", missed="No answer",
                   key="Press", listen="Keep listening", nomore="No more calls", hang="End call",
-                  noask="Do not ask me again",
+                  skipped="Skipped",
                   notice="🔒 This business uses a secure service from Meta to manage this chat."),
 }
 FOOT = {  # what the preview says under the phone once the attempt ends (the record itself is the caller's)
     "finished": "Finished: every question answered.",
     "closed": "Sheet closed part-way; the answers given were sent.",
-    "dismissed": "Sheet swiped away before any answer.",
+    "dismissed": "No answers given; nothing was sent.",
     "declined": "The farmer said not now.",
     "opted_out": "Opted out: no more surveys for this farmer.",
     "free_text": "Typed instead of tapping: the question goes out again with its buttons.",
@@ -147,7 +147,7 @@ _CSS = """
 .mel-pv-sheet.app.slide{animation:mel-pv-up .32s ease-out}
 .mel-pv-sheet .mel-pv-title{font-size:13px;color:#55665c;margin-bottom:6px}
 .mel-pv-steps{display:flex;gap:4px;margin:4px 0 10px}.mel-pv-steps i{flex:1;height:4px;border-radius:2px;background:#dfe6e0}.mel-pv-steps i.on{background:var(--mel-green,#266b4a)}
-.mel-pv-done{font-size:13.5px;color:#55665c;padding:3px 0;border-bottom:1px solid #eef1ee}.mel-pv-done b{color:#1a2a20;font-weight:600}
+.mel-pv-done{font-size:13.5px;color:#55665c;padding:3px 0;border-bottom:1px solid #eef1ee}.mel-pv-done b{color:#1a2a20;font-weight:600}.mel-pv-done em{font-style:normal;color:#8a968e}
 .mel-pv-q{font-size:18px;font-weight:700;line-height:1.35;color:#1a2a20;margin:8px 0 10px}
 .mel-pv-thanks{font-size:17px;line-height:1.45;color:#1a2a20;padding:14px 0 18px}
 .mel-pv-web .mel-pv-sb{background:#e9ecef;color:#3a4a40;font-weight:500;padding:8px 12px}
@@ -384,8 +384,9 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
         _html(kind, chat, "mel-pv-body")
         return
     done_rows = "".join(f'<div class="mel-pv-done">{escape(sheet["steps"][k]["step_label"])} &nbsp; '
-                        f'<b>{escape(label_for(items[k], state.taps[items[k]["item_id"]]))}</b></div>'
-                        for k in range(len(state.taps)))
+                        + (f'<b>{escape(label_for(it, state.taps[it["item_id"]]))}</b>' if it["item_id"] in state.taps
+                           else f'<em>{escape(c["skipped"])}</em>') + '</div>'
+                        for k, it in enumerate(items[:state.step]))
     if state.done:  # finished: the thank-you step
         thanks = u["closing_fu"] if rec and rec["needs_follow_up"] else sheet["thank_you"]
         body = f'<div class="mel-pv-thanks">{escape(thanks)}</div>'
@@ -405,10 +406,10 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
     it = items[state.step]
     with st.container(key=f"{slug}-act"):
         _choice_buttons(state, key, it, choices(it))
-        # No Skip: P3's submit-once sheet drops later answers after a skipped step (CLAUDE.md).
+        # Skip leaves this step unanswered; P3's simulate_sheet keeps every answer given around it.
         b1, b2 = st.columns(2)
         b1.button(sheet["close_label"], key=f"{key}|close", on_click=_do, args=(state, "close"), width="stretch")
-        b2.button(c["noask"], key=f"{key}|opt", on_click=_do, args=(state, "opt_out"), width="stretch")
+        b2.button(sheet["skip_label"], key=f"{key}|skip", on_click=_do, args=(state, "skip"), width="stretch")
 
 
 def _voice(survey, channel, state, key, slug, t0, rec, fresh):
@@ -485,7 +486,6 @@ def render_channel_preview(survey: dict, channel: str, *, key: str, send_at: str
     `restart=True` (e.g. the app's own Restart button on this run) puts the phone back to its first
     screen before anything is drawn; `show_restart=False` hides the preview's own Start over button."""
     slug = _slug(key)
-    st.markdown(f"<style>{(_CSS + _WIDGETS[channel]).replace('__S__', slug)}</style>", unsafe_allow_html=True)
     skey = f"mel_preview|{key}"
     state = st.session_state.get(skey)
     ids = tuple(it["item_id"] for it in survey["items"])
@@ -498,11 +498,16 @@ def render_channel_preview(survey: dict, channel: str, *, key: str, send_at: str
     fresh = st.session_state.get(skey + "|seen") != state.rev  # something changed since the last draw
     st.session_state[skey + "|seen"] = state.rev
     with st.container(key=slug):
+        # The phone's styles ride inside the phone, so nothing sits above it: its top lines up with whatever
+        # the caller puts beside it (the Survey demo's agent panel).
+        st.markdown(f"<style>{(_CSS + _WIDGETS[channel]).replace('__S__', slug)}</style>", unsafe_allow_html=True)
         draw = _chat if channel in ("whatsapp", "telegram") else _sheet if channel in SHEET else _voice
         draw(survey, channel, state, key, slug, t0, rec, fresh)
     with st.container(key=f"{slug}-foot"):
         if state.done:
-            st.markdown(f"<p>{escape(FOOT[state.ending])}</p>", unsafe_allow_html=True)
+            skipped = state.n - len(state.taps) if state.ending == "finished" else 0
+            foot = f"Finished: {len(state.taps)} answered, {skipped} skipped." if skipped else FOOT[state.ending]
+            st.markdown(f"<p>{escape(foot)}</p>", unsafe_allow_html=True)
         if state.started and show_restart:
             st.button("Start over", key=f"{key}|reset", on_click=_do, args=(state, "reset"))
     return rec
