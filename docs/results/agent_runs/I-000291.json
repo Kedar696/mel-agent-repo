@@ -1,0 +1,102 @@
+{
+ "insight_id": "I-000291",
+ "recorded": "2026-11-05 01:57",
+ "where": "agentcore",
+ "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "checker": null,
+ "judge": null,
+ "guardrail": "dh15hs1wc6uw",
+ "events": [
+  {
+   "step": "evidence",
+   "status": "ok",
+   "title": "Evidence Extractor",
+   "detail": "cow · livestock health · escalate to expert",
+   "ms": 0.0,
+   "data": {
+    "crop_or_animal": "cow",
+    "growth_stage": null,
+    "concern": "livestock_health",
+    "severity": "critical",
+    "advice_type": "escalate_to_expert",
+    "farmer_asked": "Farmer asks how to handle cold stress in their cow.",
+    "advice_given": "Advised to call the nearest veterinary doctor because cold stress needs a closer look.",
+    "district": null,
+    "preferred_channel": "web",
+    "chat_hours_known": 0,
+    "history_rules": [],
+    "attention": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst decides: no survey",
+   "detail": "[R2 critical_needs_human_call] Critical case: a person should call the farmer instead of an automated survey.",
+   "ms": 2.0,
+   "data": {
+    "decision": {
+     "survey": false,
+     "rule": "R2",
+     "reason_code": "critical_needs_human_call",
+     "send_window": null,
+     "send_time": null,
+     "attention": null,
+     "notes": []
+    }
+   }
+  },
+  {
+   "step": "synthesizer",
+   "status": "ok",
+   "title": "Synthesizer",
+   "detail": "no-survey record",
+   "ms": 0.3,
+   "data": {
+    "no_survey": {
+     "insight_id": "I-000291",
+     "farmer_id": "F-000123",
+     "decision": "no_survey",
+     "reason_code": "needs_more_context",
+     "reason": "[R2 critical_needs_human_call] Critical case: a person should call the farmer instead of an automated survey."
+    },
+    "schema_errors": []
+   }
+  },
+  {
+   "step": "result",
+   "status": "ok",
+   "title": "Result",
+   "insight_id": "I-000291",
+   "decision": {
+    "survey": false,
+    "rule": "R2",
+    "reason_code": "critical_needs_human_call",
+    "send_window": null,
+    "send_time": null,
+    "attention": null,
+    "notes": []
+   },
+   "surveys": null,
+   "handoff": null,
+   "renders": null,
+   "no_survey": {
+    "insight_id": "I-000291",
+    "farmer_id": "F-000123",
+    "decision": "no_survey",
+    "reason_code": "needs_more_context",
+    "reason": "[R2 critical_needs_human_call] Critical case: a person should call the farmer instead of an automated survey."
+   },
+   "metrics": {
+    "calls": 0,
+    "cached": 0,
+    "failed": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0.0,
+    "seconds": 0.003
+   },
+   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-000291/20261105T065757.json"
+  }
+ ]
+}

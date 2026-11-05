@@ -1,0 +1,66 @@
+{
+  "label": "full set: Haiku 4.5, hi+en, guardrail v2, us-west-2",
+  "at": "2026-11-05T12:42:27+05:30",
+  "commit": "d98dc41",
+  "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "judge": "google.gemma-3-12b-it",
+  "seconds": 1783.4,
+  "stopped_at_cap": false,
+  "cost": {
+    "spent_usd": 11.064042,
+    "usd_per_survey": 0.00433,
+    "usd_per_1000_surveys": 4.3301,
+    "projected_full_usd": 11.33,
+    "calls": 11093,
+    "cached_calls": 5252,
+    "failed_calls": 0,
+    "input_tokens": 4321561,
+    "output_tokens": 1732748,
+    "by_purpose": {
+      "check": {
+        "calls": 3677,
+        "input_tokens": 1042575,
+        "output_tokens": 154434,
+        "usd": 1.814745
+      },
+      "judge": {
+        "calls": 3247,
+        "input_tokens": 1273297,
+        "output_tokens": 161901,
+        "usd": 0.161543
+      },
+      "write": {
+        "calls": 4169,
+        "input_tokens": 2005689,
+        "output_tokens": 1416413,
+        "usd": 9.087754
+      }
+    }
+  },
+  "insights": 6999,
+  "processed": 6999,
+  "surveys": 2616,
+  "no_survey": 4383,
+  "files": 7848,
+  "schema_invalid_files": 0,
+  "sources": {
+    "en-IN bedrock": 2498,
+    "en-IN template": 118,
+    "hi-IN bedrock": 2292,
+    "hi-IN template": 324
+  },
+  "fallbacks": {
+    "still failing after 2 revisions": 442
+  },
+  "revisions": 1776,
+  "surveys_revised": 728,
+  "avg_bedrock_question_chars": 62.0,
+  "judge_relevance": 4.91,
+  "judge_by_advice_type": {
+    "direct_action": 4.96,
+    "do_not_act": 4.76,
+    "escalate_to_expert": 5.0,
+    "plan_created": 4.66,
+    "wait_and_monitor": 4.9
+  }
+}

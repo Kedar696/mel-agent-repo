@@ -5,6 +5,12 @@ deployed from this repo, and no AWS command that creates or changes a resource i
 of the build or CI. There are no account IDs, access keys or secrets in any file. Treat this as
 a design you can read and, if you choose, apply by hand later.
 
+## Two templates: one deployed, one a design
+| Template | What it is | Status |
+|---|---|---|
+| `fasal-pulse.yaml` (P5) | Everything around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget. | **Deployed** in the event account (us-west-2, stack `fasal-pulse`, 5 Nov). Steps: `docs/agentcore.md`. |
+| `cloudformation.yaml` (P1) | The **REST API** (`mel/api`) on App Runner, with its ECR repository and role. | Definition only (the rest of this README). |
+
 ## What each file does
 
 | File | Plain words |

@@ -1,0 +1,747 @@
+{
+ "insight_id": "I-001645",
+ "recorded": "2026-11-05 01:57",
+ "where": "agentcore",
+ "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "checker": null,
+ "judge": null,
+ "guardrail": "dh15hs1wc6uw",
+ "events": [
+  {
+   "step": "evidence",
+   "status": "ok",
+   "title": "Evidence Extractor",
+   "detail": "lentil · nutrient deficiency · direct action",
+   "ms": 0.0,
+   "data": {
+    "crop_or_animal": "lentil",
+    "growth_stage": "seedling",
+    "concern": "nutrient_deficiency",
+    "severity": "medium",
+    "advice_type": "direct_action",
+    "farmer_asked": "Farmer asks how to handle zinc shortage in lentil (seedling).",
+    "advice_given": "Advised to apply zinc as per soil test advice and repeat the soil test next season.",
+    "district": null,
+    "preferred_channel": "web",
+    "chat_hours_known": 0,
+    "history_rules": [],
+    "attention": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst decides: survey (rule R8)",
+   "detail": "Direct-action advice. Ask after the action window whether the farmer acted and whether it worked. Window 2026-12-09T07:00:00+05:30 to 2026-12-15T19:00:00+05:30.",
+   "ms": 3.3,
+   "data": {
+    "decision": {
+     "survey": true,
+     "rule": "R8",
+     "reason_code": null,
+     "send_window": {
+      "not_before": "2026-12-09T07:00:00+05:30",
+      "not_after": "2026-12-15T19:00:00+05:30"
+     },
+     "send_time": {
+      "send_at": "2026-12-09T07:00:00+05:30",
+      "slot": null,
+      "rule": "async_channel",
+      "assumption": false,
+      "reason": "The web channel can be read later, so send when the window opens."
+     },
+     "attention": null,
+     "notes": []
+    }
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst drafts [en-IN]",
+   "detail": "3 questions from Bedrock",
+   "ms": 1353.7,
+   "data": {
+    "lang": "en-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "Did you apply zinc to your lentil seedlings as advised?",
+     "After applying zinc, how much did your lentil seedlings improve?",
+     "Did you plan to repeat the soil test next season as advised?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [en-IN]",
+   "detail": "passed every check",
+   "ms": 770.0,
+   "data": {
+    "lang": "en-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 1.0,
+    "judge": 5
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst drafts [hi-IN]",
+   "detail": "3 questions from Bedrock",
+   "ms": 1771.0,
+   "data": {
+    "lang": "hi-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "क्या आपने मसूर की पौध पर जिंक का इस्तेमाल किया?",
+     "जिंक लगाने के बाद मसूर की पौध कैसी दिख रही है?",
+     "क्या आप अगले मौसम में मिट्टी की जाँच दोबारा करवाने की योजना बना रहे हैं?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [hi-IN]",
+   "detail": "passed every check",
+   "ms": 703.5,
+   "data": {
+    "lang": "hi-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 0.5,
+    "judge": 5
+   }
+  },
+  {
+   "step": "synthesizer",
+   "status": "ok",
+   "title": "Synthesizer",
+   "detail": "2 survey files, hand-off (normal priority, first channel web), 3 channel renders; all schema-valid",
+   "ms": 4.8,
+   "data": {
+    "schema_errors": {}
+   }
+  },
+  {
+   "step": "result",
+   "status": "ok",
+   "title": "Result",
+   "insight_id": "I-001645",
+   "decision": {
+    "survey": true,
+    "rule": "R8",
+    "reason_code": null,
+    "send_window": {
+     "not_before": "2026-12-09T07:00:00+05:30",
+     "not_after": "2026-12-15T19:00:00+05:30"
+    },
+    "send_time": {
+     "send_at": "2026-12-09T07:00:00+05:30",
+     "slot": null,
+     "rule": "async_channel",
+     "assumption": false,
+     "reason": "The web channel can be read later, so send when the window opens."
+    },
+    "attention": null,
+    "notes": []
+   },
+   "surveys": {
+    "en-IN": {
+     "survey_id": "S-01645",
+     "farmer_id": "F-000145",
+     "source_insight_ids": [
+      "I-001645"
+     ],
+     "language": "en-IN",
+     "send_window": {
+      "not_before": "2026-12-09T07:00:00+05:30",
+      "not_after": "2026-12-15T19:00:00+05:30"
+     },
+     "rationale": "Direct-action advice. Ask after the action window whether the farmer acted and whether it worked.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "Did you apply zinc to your lentil seedlings as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-scale",
+       "prompt": "After applying zinc, how much did your lentil seedlings improve?",
+       "scale_min": 1,
+       "scale_max": 5,
+       "follow_up_at_or_below": 2,
+       "follow_up_reason": "advice_did_not_work"
+      },
+      {
+       "item_id": "q3",
+       "type": "survey-confirm",
+       "prompt": "Did you plan to repeat the soil test next season as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 1.0
+     },
+     "_source": "bedrock",
+     "_revisions": 0,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 1.0,
+      "judge": 5
+     },
+     "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+     "_history": []
+    },
+    "hi-IN": {
+     "survey_id": "S-01645",
+     "farmer_id": "F-000145",
+     "source_insight_ids": [
+      "I-001645"
+     ],
+     "language": "hi-IN",
+     "send_window": {
+      "not_before": "2026-12-09T07:00:00+05:30",
+      "not_after": "2026-12-15T19:00:00+05:30"
+     },
+     "rationale": "Direct-action advice. Ask after the action window whether the farmer acted and whether it worked.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने मसूर की पौध पर जिंक का इस्तेमाल किया?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-scale",
+       "prompt": "जिंक लगाने के बाद मसूर की पौध कैसी दिख रही है?",
+       "scale_min": 1,
+       "scale_max": 5,
+       "follow_up_at_or_below": 2,
+       "follow_up_reason": "advice_did_not_work"
+      },
+      {
+       "item_id": "q3",
+       "type": "survey-confirm",
+       "prompt": "क्या आप अगले मौसम में मिट्टी की जाँच दोबारा करवाने की योजना बना रहे हैं?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.5
+     },
+     "_source": "bedrock",
+     "_revisions": 0,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 0.5,
+      "judge": 5
+     },
+     "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+     "_history": []
+    }
+   },
+   "handoff": {
+    "handoff_id": "H-01645",
+    "created_at": "2026-12-05T23:00:00+05:30",
+    "survey": {
+     "survey_id": "S-01645",
+     "farmer_id": "F-000145",
+     "source_insight_ids": [
+      "I-001645"
+     ],
+     "language": "en-IN",
+     "send_window": {
+      "not_before": "2026-12-09T07:00:00+05:30",
+      "not_after": "2026-12-15T19:00:00+05:30"
+     },
+     "rationale": "Direct-action advice. Ask after the action window whether the farmer acted and whether it worked.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "Did you apply zinc to your lentil seedlings as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-scale",
+       "prompt": "After applying zinc, how much did your lentil seedlings improve?",
+       "scale_min": 1,
+       "scale_max": 5,
+       "follow_up_at_or_below": 2,
+       "follow_up_reason": "advice_did_not_work"
+      },
+      {
+       "item_id": "q3",
+       "type": "survey-confirm",
+       "prompt": "Did you plan to repeat the soil test next season as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 1.0
+     }
+    },
+    "send_window": {
+     "not_before": "2026-12-09T07:00:00+05:30",
+     "not_after": "2026-12-15T19:00:00+05:30"
+    },
+    "send_hours": {
+     "from": "07:00",
+     "to": "19:00"
+    },
+    "channel_order": [
+     {
+      "channel": "web",
+      "wait_hours": 24
+     },
+     {
+      "channel": "app",
+      "wait_hours": 24
+     },
+     {
+      "channel": "whatsapp",
+      "wait_hours": null
+     }
+    ],
+    "frequency_cap": {
+     "key": "mel:farmer:F-000145",
+     "max_surveys": 1,
+     "window_days": 7,
+     "exempt": false
+    },
+    "priority": "normal",
+    "expires_at": "2026-12-17T19:00:00+05:30",
+    "farmerchat_flow": {
+     "org_id": "org.farmerchat",
+     "flow_key": "mel_s_01645",
+     "version": 1,
+     "campaign_id": "77c323ff-ec89-5c34-8db1-bde86cee258c",
+     "flow_id": "1e2a81cf-b151-5a18-a967-53ff44ab0bb2"
+    }
+   },
+   "renders": {
+    "web": {
+     "channel": "web",
+     "how_it_arrives": "Web chat has no notifications. The sheet opens the next time the farmer visits inside the send window, once the answer on screen has finished arriving.",
+     "presentation": {
+      "type": "bottom_sheet",
+      "opens_when": [
+       "next_web_visit"
+      ],
+      "waits_for": [
+       "answer_finished_streaming",
+       "no_typing_for_5_seconds",
+       "no_call_in_progress"
+      ],
+      "one_question_per_step": true,
+      "steps_total": 3,
+      "can_skip": true,
+      "can_close": true,
+      "swipe_down_closes": true
+     },
+     "sheet": {
+      "title": "A quick question about the advice you got",
+      "skip_label": "Skip",
+      "close_label": "Close",
+      "thank_you": "Thank you. Your answers help us give better advice.",
+      "steps": [
+       {
+        "step": 1,
+        "step_label": "1 of 3",
+        "item_id": "q1",
+        "question_type": "survey-confirm",
+        "question": "Did you apply zinc to your lentil seedlings as advised?",
+        "options": [
+         {
+          "label": "Yes",
+          "answer": "yes"
+         },
+         {
+          "label": "No",
+          "answer": "no"
+         }
+        ]
+       },
+       {
+        "step": 2,
+        "step_label": "2 of 3",
+        "item_id": "q2",
+        "question_type": "survey-scale",
+        "question": "After applying zinc, how much did your lentil seedlings improve?",
+        "options": [
+         {
+          "label": "1",
+          "answer": 1
+         },
+         {
+          "label": "2",
+          "answer": 2
+         },
+         {
+          "label": "3",
+          "answer": 3
+         },
+         {
+          "label": "4",
+          "answer": 4
+         },
+         {
+          "label": "5",
+          "answer": 5
+         }
+        ]
+       },
+       {
+        "step": 3,
+        "step_label": "3 of 3",
+        "item_id": "q3",
+        "question_type": "survey-confirm",
+        "question": "Did you plan to repeat the soil test next season as advised?",
+        "options": [
+         {
+          "label": "Yes",
+          "answer": "yes"
+         },
+         {
+          "label": "No",
+          "answer": "no"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "app": {
+     "channel": "app",
+     "how_it_arrives": "A notification tells the farmer there is a short question. Tapping it opens the app with the sheet. If they open the app another way inside the send window, the sheet opens then. It never covers an answer that is still arriving, a message being typed, or a call.",
+     "presentation": {
+      "type": "bottom_sheet",
+      "opens_when": [
+       "push_tapped",
+       "next_app_open"
+      ],
+      "waits_for": [
+       "answer_finished_streaming",
+       "no_typing_for_5_seconds",
+       "no_call_in_progress"
+      ],
+      "one_question_per_step": true,
+      "steps_total": 3,
+      "can_skip": true,
+      "can_close": true,
+      "swipe_down_closes": true
+     },
+     "sheet": {
+      "title": "A quick question about the advice you got",
+      "skip_label": "Skip",
+      "close_label": "Close",
+      "thank_you": "Thank you. Your answers help us give better advice.",
+      "steps": [
+       {
+        "step": 1,
+        "step_label": "1 of 3",
+        "item_id": "q1",
+        "question_type": "survey-confirm",
+        "question": "Did you apply zinc to your lentil seedlings as advised?",
+        "options": [
+         {
+          "label": "Yes",
+          "answer": "yes"
+         },
+         {
+          "label": "No",
+          "answer": "no"
+         }
+        ]
+       },
+       {
+        "step": 2,
+        "step_label": "2 of 3",
+        "item_id": "q2",
+        "question_type": "survey-scale",
+        "question": "After applying zinc, how much did your lentil seedlings improve?",
+        "options": [
+         {
+          "label": "1",
+          "answer": 1
+         },
+         {
+          "label": "2",
+          "answer": 2
+         },
+         {
+          "label": "3",
+          "answer": 3
+         },
+         {
+          "label": "4",
+          "answer": 4
+         },
+         {
+          "label": "5",
+          "answer": 5
+         }
+        ]
+       },
+       {
+        "step": 3,
+        "step_label": "3 of 3",
+        "item_id": "q3",
+        "question_type": "survey-confirm",
+        "question": "Did you plan to repeat the soil test next season as advised?",
+        "options": [
+         {
+          "label": "Yes",
+          "answer": "yes"
+         },
+         {
+          "label": "No",
+          "answer": "no"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "whatsapp": {
+     "channel": "whatsapp",
+     "how_it_arrives": "Days after the chat, so outside WhatsApp's 24-hour reply window. The first message must be an approved template; the questions follow once the farmer taps Start.",
+     "opening_template": {
+      "messaging_product": "whatsapp",
+      "to": "<farmer WhatsApp number>",
+      "type": "template",
+      "template": {
+       "name": "mel_survey_invite",
+       "language": {
+        "code": "en"
+       },
+       "components": [
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "0",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-01645|start"
+          }
+         ]
+        },
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "1",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-01645|later"
+          }
+         ]
+        }
+       ]
+      }
+     },
+     "template_text_for_approval": {
+      "body": "A short question from FarmerChat about the advice you got. It takes one minute.",
+      "quick_replies": [
+       "Start",
+       "Not now"
+      ]
+     },
+     "messages": [
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "Did you apply zinc to your lentil seedlings as advised?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01645|q1|yes",
+            "title": "Yes"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01645|q1|no",
+            "title": "No"
+           }
+          }
+         ]
+        }
+       }
+      },
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "list",
+        "body": {
+         "text": "After applying zinc, how much did your lentil seedlings improve?"
+        },
+        "action": {
+         "button": "Choose",
+         "sections": [
+          {
+           "title": "Choose one",
+           "rows": [
+            {
+             "id": "S-01645|q2|1",
+             "title": "1"
+            },
+            {
+             "id": "S-01645|q2|2",
+             "title": "2"
+            },
+            {
+             "id": "S-01645|q2|3",
+             "title": "3"
+            },
+            {
+             "id": "S-01645|q2|4",
+             "title": "4"
+            },
+            {
+             "id": "S-01645|q2|5",
+             "title": "5"
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "Did you plan to repeat the soil test next season as advised?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01645|q3|yes",
+            "title": "Yes"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01645|q3|no",
+            "title": "No"
+           }
+          }
+         ]
+        }
+       }
+      }
+     ]
+    }
+   },
+   "no_survey": null,
+   "metrics": {
+    "calls": 4,
+    "cached": 0,
+    "failed": 0,
+    "input_tokens": 1678,
+    "output_tokens": 856,
+    "cost_usd": 0.004776,
+    "seconds": 4.61,
+    "revisions": 0,
+    "sources": {
+     "en-IN": "bedrock",
+     "hi-IN": "bedrock"
+    }
+   },
+   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-001645/20261105T065741.json"
+  }
+ ]
+}
