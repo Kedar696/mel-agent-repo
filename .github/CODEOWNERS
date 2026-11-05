@@ -1,39 +1,50 @@
 # Who must review changes to each part of the repo (5-person team, 3 Nov).
-# Replace @p1..@p5 with real GitHub usernames, e.g. @michvinh-7.
 # P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator
 # P4 Survey Writing & Safety · P5 Evaluation & Demo
 
-/mel/config.py            @p1
-/mel/data/                @p1
-/mel/pipeline.py          @p1
-/mel/cli.py               @p1
-/config/                  @p1
-/data/                    @p1
-/scripts/                 @p1
-/.github/                 @p1
-/requirements.txt         @p1
-/tests/test_data.py       @p1
-/tests/test_activity.py   @p1
+/mel/config.py            @lucasDQB
+/mel/data/                @lucasDQB
+/mel/pipeline.py          @lucasDQB
+/mel/cli.py               @lucasDQB
+/mel/api/                 @lucasDQB
+/config/                  @lucasDQB
+/data/                    @lucasDQB
+/scripts/                 @lucasDQB
+/.github/                 @lucasDQB
+/infra/                   @lucasDQB
+/Dockerfile               @lucasDQB
+/.dockerignore            @lucasDQB
+/requirements.txt         @lucasDQB
+/requirements-api.txt     @lucasDQB
+/LICENSE                  @lucasDQB
+/NOTICE                   @lucasDQB
+/tests/test_data.py       @lucasDQB
+/tests/test_activity.py   @lucasDQB
+/tests/test_cli.py        @lucasDQB
+/tests/test_parity.py     @lucasDQB
+/tests/test_api.py        @lucasDQB
 
-/mel/decision/            @p2
-/mel/timing/              @p2
-/tests/test_decision.py   @p2
-/tests/test_timing.py     @p2
+/mel/decision/            @WestphalianFresco
+/mel/timing/              @WestphalianFresco
+/tests/test_decision.py   @WestphalianFresco
+/tests/test_timing.py     @WestphalianFresco
 
-/mel/schedule/            @p3
-/mel/channels/            @p3
-/mel/simulator/           @p3
-/tests/test_schedule.py   @p3
-/tests/test_simulator.py  @p3
+# P3 (Semdon) has no GitHub username yet, so P3's files are temporarily owned by @WestphalianFresco
+# (Will, P2, listed as P3's backup in docs/TEAM.md). Replace with Semdon's username when it is known.
+/mel/schedule/            @WestphalianFresco
+/mel/channels/            @WestphalianFresco
+/mel/simulator/           @WestphalianFresco
+/tests/test_schedule.py   @WestphalianFresco
+/tests/test_simulator.py  @WestphalianFresco
 
-/mel/writer/              @p4
-/tests/test_writer.py     @p4
+/mel/writer/              @Kedar696
+/tests/test_writer.py     @Kedar696
 
-/mel/evaluation/          @p5
-/app/                     @p5
-/.streamlit/              @p5
-/tests/test_pipeline.py   @p5
+/mel/evaluation/          @michvinh-7
+/app/                     @michvinh-7
+/.streamlit/              @michvinh-7
+/tests/test_pipeline.py   @michvinh-7
 
-/docs/                    @p1 @p5
-/README.md                @p1 @p5
-/CLAUDE.md                @p1 @p5
+/docs/                    @lucasDQB @michvinh-7
+/README.md                @lucasDQB @michvinh-7
+/CLAUDE.md                @lucasDQB @michvinh-7
