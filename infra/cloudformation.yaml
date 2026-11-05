@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Fasal Pulse - MEL Survey Agent REST API. Defines an ECR repository for the API image and an
+  App Runner service that runs it, with an instance role limited to Amazon Bedrock inference.
+  DEFINITION ONLY - never deployed from this repo. No account IDs or credentials are stored here.
+
+Parameters:
+  ServiceName:
+    Type: String
+    Default: mel-survey-agent-api
+    Description: Name for the ECR repository and the App Runner service.
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Tag of the image in ECR that App Runner runs.
+  BedrockRegion:
+    Type: String
+    Default: us-east-1
+    Description: >
+      Region whose Bedrock models the instance role may invoke. The stack's own region is used
+      for ECR and App Runner; this parameter scopes the Bedrock model ARNs in the instance role.
+  ContainerPort:
+    Type: Number
+    Default: 8000
+    Description: Port the API listens on inside the container (matches the Dockerfile EXPOSE).
+
+Resources:
+
+  # ---- The image registry -------------------------------------------------------------------
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ServiceName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: MUTABLE
+      LifecyclePolicy:
+        # Keep only the 10 most recent images so the registry does not grow without bound.
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only the last 10 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  # ---- Role App Runner assumes to PULL the image from ECR -----------------------------------
+  AppRunnerAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ServiceName}-ecr-access"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: build.apprunner.amazonaws.com
+            Action: sts:AssumeRole
+      # AWS-managed policy that grants exactly the ECR pull permissions App Runner needs.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  # ---- INSTANCE role: what the running API may call. Bedrock inference only. ----------------
+  # NOTE ON ACTION NAMES: there is no `bedrock:Converse` IAM action. The Converse and
+  # ConverseStream APIs are authorised by bedrock:InvokeModel and
+  # bedrock:InvokeModelWithResponseStream respectively (AWS docs, "Inference using Converse
+  # API"). So these two actions cover both the Invoke and the Converse style of call.
+  ApiInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ServiceName}-instance"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: tasks.apprunner.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: bedrock-invoke-only
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BedrockInvoke
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                # Scope to foundation models and inference profiles in the chosen Bedrock region
+                # of this account. Not "*": the role cannot touch any other Bedrock resource.
+                Resource:
+                  - !Sub "arn:aws:bedrock:${BedrockRegion}::foundation-model/*"
+                  - !Sub "arn:aws:bedrock:${BedrockRegion}:${AWS::AccountId}:inference-profile/*"
+
+  # ---- The App Runner service that runs the image -------------------------------------------
+  ApiService:
+    Type: AWS::AppRunner::Service
+    Properties:
+      ServiceName: !Ref ServiceName
+      SourceConfiguration:
+        AutoDeploymentsEnabled: false
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AppRunnerAccessRole.Arn
+        ImageRepository:
+          ImageRepositoryType: ECR
+          ImageIdentifier: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ServiceName}:${ImageTag}"
+          ImageConfiguration:
+            Port: !Ref ContainerPort
+            RuntimeEnvironmentVariables:
+              - Name: MEL_OUT_DIR
+                Value: /tmp/mel_out
+              - Name: AWS_DEFAULT_REGION
+                Value: !Ref BedrockRegion
+      InstanceConfiguration:
+        # Smallest App Runner size; the API is in-memory and single-process.
+        Cpu: 0.25 vCPU
+        Memory: 0.5 GB
+        InstanceRoleArn: !GetAtt ApiInstanceRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /healthz
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 3
+
+Outputs:
+  EcrRepositoryUri:
+    Description: Push the API image here (docker tag + docker push to this URI).
+    Value: !GetAtt ApiRepository.RepositoryUri
+  ServiceUrl:
+    Description: Public HTTPS URL of the running API.
+    Value: !Sub "https://${ApiService.ServiceUrl}"
+  InstanceRoleArn:
+    Description: Role the API runs as (Bedrock InvokeModel only).
+    Value: !GetAtt ApiInstanceRole.Arn

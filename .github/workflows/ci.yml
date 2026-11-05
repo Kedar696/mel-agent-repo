@@ -28,3 +28,15 @@ jobs:
         run: python -m mel.cli eval
       - name: Excel and JSON parity
         run: python -m mel.cli parity
+      - name: Build the API image
+        run: docker build -t mel-survey-agent-api:ci .
+      - name: Smoke-test the API image (/healthz)
+        run: |
+          docker run -d --name mel-api-ci -p 8000:8000 mel-survey-agent-api:ci
+          for i in $(seq 1 20); do
+            if curl -fs http://127.0.0.1:8000/healthz; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs mel-api-ci
+          docker rm -f mel-api-ci
+          test "${ok:-0}" = "1"

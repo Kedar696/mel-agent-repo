@@ -1,0 +1,23 @@
+# Keep the API image small and secret-free. Only mel/, config/ and data/mock/ are copied in
+# by the Dockerfile; everything else is excluded here as a second line of defence.
+.git
+.github
+.venv
+venv
+out
+.env
+.env.*
+*.env
+demo
+docs
+tests
+mel-survey-agent-participant-pack
+app
+.streamlit
+v0-sketch
+__pycache__
+*.pyc
+.pytest_cache
+.DS_Store
+*.ipynb
+scripts
