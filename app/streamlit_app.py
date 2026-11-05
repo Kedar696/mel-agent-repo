@@ -581,6 +581,8 @@ def agent_panel(ins, attention, mem):
     c = st.columns([1, 2.4], vertical_alignment="center")
     if c[0].button("Run the agent", key=f"run_{key}", icon=":material/play_arrow:"):
         events = []
+        from mel.evaluation.costs import CostMeter, record_cost, row_from_results
+        meter = CostMeter()
         with st.status("The agent is working…", expanded=True) as box:
             stream = (agentcore_stream(arn, ins) if arn else
                       run_agent(ins, memory=mem, attention=attention, **_agent_inputs(ins)))
@@ -594,6 +596,11 @@ def agent_panel(ins, attention, mem):
             box.update(label=f"Done in {m.get('seconds', 0):.1f} s · {m.get('calls', 0)} model calls · "
                              f"{m.get('revisions', 0)} revisions", state="complete", expanded=False)
         st.session_state[key] = events
+        if not arn and meter.summary()["calls"]:       # a local run that paid for model calls: track its cost
+            record_cost(row_from_results("single", f"app: {ins['insight_id']}", meter,
+                                         [e for e in events if e.get("step") == "result"],
+                                         writer=llm.write_model() if llm.enabled() else None,
+                                         checker=llm.check_model() or None))
     shown = st.session_state.get(key)
     if not shown and rec:
         c[1].caption(f"Showing a run recorded on {rec.get('recorded', '?')} with Bedrock "
@@ -1194,6 +1201,59 @@ with tab_over:
     else:
         st.subheader("Activity attention (deliberate change)")
         st.info("Run `python scripts/activity_report.py` to generate the before/after numbers for this section.")
+
+    from mel.evaluation.costs import load_costs, FULL_SET_SURVEYS
+    ledger = load_costs()     # docs/results/cost_history.jsonl: one row per run that wrote surveys with Bedrock
+    if ledger:
+        st.subheader("What it costs")
+        try:
+            full = json.loads((ROOT_DIR / "docs" / "results" / "full_bedrock_run.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            full = None
+        priced = [r for r in ledger if r.get("usd_per_survey") is not None]
+        latest = next((r for r in reversed(priced) if r.get("kind") in ("batch", "pilot", "partial")),
+                      priced[-1] if priced else None)
+        st.caption("Every run that writes surveys with Bedrock is logged with its real spend (cached answers cost "
+                   "nothing), split into writing, checking and judging. Cost per survey covers both languages, "
+                   f"revisions and checks; the projection is for the full synthetic dataset ({FULL_SET_SURVEYS:,} surveys, "
+                   f"{FULL_SET_SURVEYS * 2:,} files).")
+        k = st.columns(4)
+        if latest:
+            k[0].metric("Cost per survey", f"${latest['usd_per_survey']:.4f}",
+                        f"{latest.get('writer') or 'templates'} · {latest['kind']} run {latest['run']}",
+                        delta_color="off", delta_arrow="off")
+            k[1].metric("Per 1,000 surveys", f"${latest['usd_per_1000_surveys']:.2f}", delta_color="off", delta_arrow="off")
+            k[2].metric("Projected, full dataset", f"${latest['projected_full_usd']:.2f}",
+                        f"{FULL_SET_SURVEYS:,} surveys, Hindi + English", delta_color="off", delta_arrow="off")
+        if full:
+            c = full.get("cost") or {}
+            k[3].metric("Full run, actual", f"${c.get('spent_usd') or 0:.2f}",
+                        f"{full['surveys']:,} surveys in {full['seconds'] / 60:.0f} min"
+                        + (" · stopped at the cap" if full.get("stopped_at_cap") else ""),
+                        delta_color="off", delta_arrow="off")
+        else:
+            k[3].metric("Full run, actual", "not run yet", "python -m mel.agent.batch", delta_color="off", delta_arrow="off")
+        if len(priced) >= 2:
+            st.markdown("**Cost per survey, run by run**")
+            st.line_chart(pd.DataFrame({"run": [f"{r['run']} {r['kind']}" for r in priced],
+                                        "cost per survey (USD)": [r["usd_per_survey"] for r in priced]}).set_index("run"),
+                          color=PALETTE["green"], height=200)
+        if full:
+            st.caption(f"Full run: {full.get('sources')} · revisions {full.get('revisions')} on "
+                       f"{full.get('surveys_revised')} surveys · template fallbacks {sum((full.get('fallbacks') or {}).values())}"
+                       + (f" · AI judge relevance {full['judge_relevance']}" if full.get("judge_relevance") else "")
+                       + f" · {full.get('schema_invalid_files', 0)} schema-invalid files.")
+        with st.expander(f"All {len(ledger)} cost runs"):
+            table(pd.DataFrame([{
+                "Run": r["run"], "When": r["at"], "What": r.get("label"), "Writer": r.get("writer") or "templates",
+                "Surveys": r.get("surveys"), "Model calls": r.get("calls"), "From cache": r.get("cached_calls"),
+                "Spent": f"${r.get('spent_usd') or 0:.4f}",
+                "Write / check / judge": " / ".join(f"${(r.get('by_purpose') or {}).get(p, {}).get('usd', 0):.4f}"
+                                                    for p in ("write", "check", "judge")),
+                "Per survey": f"${r['usd_per_survey']:.5f}" if r.get("usd_per_survey") is not None else "—",
+                "Projected full set": f"${r['projected_full_usd']:.2f}" if r.get("projected_full_usd") is not None else "—",
+                "Revisions": r.get("revisions"), "Fallbacks": sum((r.get("fallbacks") or {}).values())}
+                for r in reversed(ledger)]), width="stretch", hide_index=True)
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
