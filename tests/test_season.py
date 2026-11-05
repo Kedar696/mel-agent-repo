@@ -221,8 +221,12 @@ def test_season_boundary_handoff_near_march_end():
     at_boundary.admit_all([copy.deepcopy(h)])
     assert at_boundary.step().kind == "sent"            # due at the season boundary
 
-    # A few days past expiry (early April), the same hand-off is swept, never sent.
-    past = SeasonScheduler(nb, relevance_threshold=THRESHOLD)
+    # A few days past expiry (early April), the same hand-off is swept, never sent. Use a
+    # season whose end extends into April so the clock can actually reach past the expiry
+    # (the default season clamps at 31 March, which is tested separately).
+    from mel.schedule import Season
+    april = Season(start=nb, end="2027-04-30T19:00:00+05:30")
+    past = SeasonScheduler(nb, relevance_threshold=THRESHOLD, season=april)
     past.admit_all([copy.deepcopy(h)])
     past.advance(5)                                     # 2027-04-05, past the 04-02 expiry
     assert past.step().kind == "nothing"
@@ -285,19 +289,22 @@ def test_full_season_walk_over_real_pipeline_handoffs():
     sched.admit_all(handoffs)
 
     sent = 0
-    for _ in range(12):                         # ~1 year in month jumps -> the season in a dozen steps
+    # Walk the season one day at a time (about 150 steps, no sleeps). Month-sized jumps skip
+    # over most 3-day send windows, and the old version of this test only "sent" by landing
+    # after not_after -- outside the send window, which the scheduler must never do.
+    for _ in range(200):
         for r in sched.run_due():
             if r.kind == "sent":
                 sent += 1
                 rec = r.record
                 assert not errors("response", rec), r.handoff_id
-                # Sent at the shared clock instant, inside the window and before expiry.
+                # Sent at the shared clock instant, inside the send window (not just before expiry).
                 sent_at = parse_ist(rec["timestamps"]["sent"])
                 h = next(x for x in handoffs if x["handoff_id"] == r.handoff_id)
-                assert parse_ist(h["send_window"]["not_before"]) <= sent_at <= parse_ist(h["expires_at"])
-        if not sched.broadcaster:
+                assert parse_ist(h["send_window"]["not_before"]) <= sent_at <= parse_ist(h["send_window"]["not_after"])
+        if not sched.broadcaster or sched.is_season_over():
             break
-        sched.advance(30)
+        sched.advance(1)
 
     assert sent > 0
     assert len(sched.broadcaster) == 0          # the whole queue is resolved by season end
@@ -320,3 +327,140 @@ def test_opt_out_during_a_step_blocks_a_later_handoff_to_same_farmer():
     a = sched.admit(h2)
     assert a.decision == "opted_out"
     assert len(sched.broadcaster) == 0
+
+
+# ====================================================== season range (configurable Nov–Mar)
+from mel.config import rules as _rules
+from mel.schedule import Season
+
+
+def test_default_season_is_rabi_november_to_march():
+    s = Season()
+    assert s.start_ist == "2026-11-01T07:00:00+05:30"           # 1 November, first send hour
+    end_date = _rules()["window_rules"]["season_end"]           # 2027-03-31
+    assert s.end_ist == f"{end_date}T19:00:00+05:30"            # last send hour on season end
+    assert s.contains(parse_ist("2027-01-15T12:00:00+05:30"))   # mid-season
+    assert not s.contains(parse_ist("2027-04-01T07:00:00+05:30"))  # after
+
+
+def test_season_range_is_configurable():
+    s = Season(start="2026-11-15T07:00:00+05:30", end="2027-02-28T19:00:00+05:30")
+    assert s.start_ist == "2026-11-15T07:00:00+05:30"
+    assert s.end_ist == "2027-02-28T19:00:00+05:30"
+    assert not s.contains(parse_ist("2026-11-01T07:00:00+05:30"))  # before the custom start
+    assert s.contains(parse_ist("2027-01-01T09:00:00+05:30"))
+
+
+def test_season_rejects_start_after_end():
+    with pytest.raises(ValueError):
+        Season(start="2027-03-31T07:00:00+05:30", end="2026-11-01T07:00:00+05:30")
+
+
+def test_scheduler_defaults_to_season_start():
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)      # no explicit start
+    assert sched.now_ist() == Season().start_ist
+    assert sched.in_season() and not sched.is_season_over()
+
+
+def test_advance_clamps_at_season_end():
+    """A jump that would overshoot the end lands exactly on the season boundary, and the
+    season is then over -- a fast-forward can't run off past March."""
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)
+    sched.advance(10_000)                                       # way past March
+    assert sched.now_ist() == sched.season.end_ist
+    assert sched.is_season_over()
+    # Advancing again stays pinned at the end (idempotent at the boundary).
+    sched.advance(30)
+    assert sched.now_ist() == sched.season.end_ist
+
+
+def test_advance_to_end_fast_forwards():
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)
+    assert not sched.is_season_over()
+    sched.advance_to_end()
+    assert sched.now_ist() == sched.season.end_ist
+    assert sched.is_season_over()
+
+
+def test_november_boundary_handoff_due_at_season_start():
+    """A hand-off whose window opens on the season's first morning is due at the very start
+    of the walk (the November boundary)."""
+    h = _clear_handoff()
+    season_start = "2026-11-01T07:00:00+05:30"
+    na = "2026-11-10T19:00:00+05:30"
+    h["send_window"] = {"not_before": season_start, "not_after": na}
+    h["survey"]["send_window"] = dict(h["send_window"])
+    from mel.timing import expires_at
+    h["expires_at"] = expires_at(h["send_window"])
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)       # starts at 1 Nov
+    sched.admit_all([h])
+    assert sched.now_ist() == season_start
+    assert sched.step().kind == "sent"                          # due right at the November boundary
+
+
+def test_advancing_clock_through_season_changes_due_set():
+    """Two hand-offs, one opening in November and one in March: each becomes due only when
+    the shared clock reaches its window as the season is walked."""
+    nov = _clear_handoff()
+    nov["handoff_id"] = "H-NOV"
+    nov["send_window"] = {"not_before": "2026-11-05T07:00:00+05:30",
+                          "not_after": "2026-11-15T19:00:00+05:30"}
+    nov["survey"]["send_window"] = dict(nov["send_window"])
+    from mel.timing import expires_at
+    nov["expires_at"] = expires_at(nov["send_window"])
+
+    mar = copy.deepcopy(nov)
+    mar["handoff_id"] = "H-MAR"
+    mar["survey"]["source_insight_ids"] = ["I-800000"]          # avoid cap merge with nov
+    mar["send_window"] = {"not_before": "2027-03-20T07:00:00+05:30",
+                          "not_after": "2027-03-28T19:00:00+05:30"}
+    mar["survey"]["send_window"] = dict(mar["send_window"])
+    mar["expires_at"] = expires_at(mar["send_window"])
+
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)
+    sched.admit_all([nov, mar])
+
+    # At the start, nothing is due.
+    assert sched.broadcaster.due_now() == []
+    # Early November: only the November hand-off is due.
+    while sched.now() < parse_ist(nov["send_window"]["not_before"]):
+        sched.advance(1)
+    due_ids = {x["handoff_id"] for x in sched.broadcaster.due_now()}
+    assert "H-NOV" in due_ids and "H-MAR" not in due_ids
+    sched.run_due()                                             # clear the November work
+
+    # Late March: now the March hand-off is due.
+    while sched.now() < parse_ist(mar["send_window"]["not_before"]):
+        sched.advance(5)
+    assert [x["handoff_id"] for x in sched.broadcaster.due_now()] == ["H-MAR"]
+
+
+# ====================================================== out-of-send-hours (scheduler level)
+def test_step_waits_outside_send_hours_then_sends_in_hours():
+    """A hand-off whose window is open but the clock sits outside send hours is not sent; it
+    stays queued until the clock is inside send hours again."""
+    from datetime import timedelta
+    h = _clear_handoff()
+    nb = parse_ist(h["send_window"]["not_before"])              # 07:00 window open
+    evening = fmt_ist(nb.replace(hour=22))                      # same day, 22:00 (outside 07–19)
+    next_morning = fmt_ist((nb + timedelta(days=1)))            # next day, 07:00 (inside send hours)
+    sched = SeasonScheduler(evening, relevance_threshold=THRESHOLD,
+                            season=Season(start=fmt_ist(nb), end="2027-04-30T19:00:00+05:30"))
+    sched.admit_all([h])
+    # 22:00 is outside send hours -> nothing sent, hand-off held.
+    assert sched.step().kind == "nothing"
+    assert len(sched.broadcaster) == 1
+    # Next morning (07:00) is inside send hours -> it sends.
+    sched.clock.set(next_morning)
+    assert sched.step().kind == "sent"
+
+
+# ====================================================== empty queue
+def test_trigger_on_empty_queue_is_safe():
+    sched = SeasonScheduler(relevance_threshold=THRESHOLD)
+    assert len(sched.broadcaster) == 0
+    assert sched.step().kind == "nothing"                      # no error on an empty queue
+    assert sched.run_due() == []                               # run_due on empty returns nothing
+    # Repeated triggers on an empty queue stay safe.
+    for _ in range(3):
+        assert sched.step().kind == "nothing"

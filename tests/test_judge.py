@@ -79,7 +79,9 @@ def test_calibration_compares_judge_with_people(pairs, tmp_path):
         w.writerows(rows)
     a = J.calibrate(pairs, FakeClient(), path=path, cache_dir=tmp_path / "c")
     expected = J.agreement(list(zip([int(r["score_1_to_5"]) for r in rows], [4] * len(rows))))
-    assert a == expected and a["n"] == len(rows)
+    assert {k: a[k] for k in expected} == expected and a["n"] == len(rows)
+    assert a["always_5"] == J.agreement([(h, 5) for h in (4, 3, 1)][:len(rows)])
+    assert a["people_vs_people"]["n"] == 0 and sum(a["judge_scores"].values()) == len(rows)
     assert J.agreement([(4, 4), (3, 4), (1, 4)]) == {"n": 3, "exact": 1 / 3, "within_1": 2 / 3, "mean_abs_diff": 1.33}
 
 
@@ -87,3 +89,45 @@ def test_bedrock_client_needs_a_model_id(monkeypatch):
     monkeypatch.delenv("MEL_JUDGE_MODEL", raising=False)
     with pytest.raises(RuntimeError, match="MEL_JUDGE_MODEL"):
         J.BedrockClient()
+
+
+def test_summary_file_round_trips_and_ranks(pairs, tmp_path):
+    path = tmp_path / "summary.json"
+    rows = [{"golden_id": g["golden_id"], "score": 5 - (i % 2), "cached": True, "seconds": 0,
+             "input_tokens": 0, "output_tokens": 0, "cost_usd": None} for i, (g, _, _) in enumerate(pairs)]
+    run = J.run_summary({"n": len(rows), "judge_relevance": 4.5, "rows": rows}, pairs, "m")
+    J.write_summary(path, run=run)
+    J.write_summary(path, calibration={"within_1": 0.9})
+    got = J.load_summary(path)
+    assert got["run"]["n"] == len(rows) and "rows" not in got["run"] and got["calibration"]["within_1"] == 0.9
+    assert sum(got["run"]["score_counts"].values()) == len(rows)
+    assert J.load_summary(tmp_path / "missing.json") == {}
+    assert J._corr([1, 2, 3], [2, 4, 6]) == 1.0 and J._corr([5, 5], [1, 2]) is None
+
+
+def test_survey_from_text_round_trips(pairs):
+    for _, _, s in pairs:
+        t = J.survey_text(s)
+        assert J.survey_text(J.survey_from_text(t)) == t
+
+
+def test_bedrock_client_goes_through_p4_model_client(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEL_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MEL_LLM_LOG", str(tmp_path / "calls.jsonl"))
+
+    class FakeRuntime:
+        calls = 0
+
+        def converse(self, **kw):
+            FakeRuntime.calls += 1
+            assert kw["modelId"] == "judge-model" and kw["inferenceConfig"]["temperature"] == 0
+            return {"output": {"message": {"content": [{"text": '{"score": 4, "reason": "ok"}'}]}},
+                    "usage": {"inputTokens": 120, "outputTokens": 15}}
+
+    c = J.BedrockClient("judge-model", runtime=FakeRuntime())
+    assert c.complete("sys", "user") == ('{"score": 4, "reason": "ok"}', {"input_tokens": 120, "output_tokens": 15})
+    assert c.complete("sys", "user")[1] == {"input_tokens": 120, "output_tokens": 15, "cached": True}   # cache hit
+    assert FakeRuntime.calls == 1
+    import json
+    rows = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert rows[0]["purpose"] == "judge" and rows[0]["input_tokens"] == 120

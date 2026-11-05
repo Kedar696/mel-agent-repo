@@ -7,13 +7,14 @@ reads the en-IN survey. Off by default: nothing calls Bedrock unless you ask.
     python -m mel.evaluation.judge --make-sheet     write docs/results/hand_scores.csv (20 surveys to score by hand)
     python -m mel.evaluation.judge --run            judge the answer key's survey rows (needs Bedrock)
     python -m mel.evaluation.judge --calibrate      compare the judge with the team's hand scores (needs Bedrock)
+Both write their summary to docs/results/judge_summary.json (committed; the app's Evaluation tab reads it).
 
 Bedrock settings (credentials come from the AWS account's IAM role, never a key in code):
     MEL_JUDGE_MODEL      Bedrock model id or inference profile, e.g. a small Claude model enabled in our region
-    AWS_REGION           the region event staff enabled the models in
+    AWS_REGION           the region event staff enabled the models in (or MEL_BEDROCK_REGION, as for P4's writer)
     MEL_JUDGE_PRICE_IN / MEL_JUDGE_PRICE_OUT   optional USD per million input / output tokens, for cost logs
 
-When P4's ModelClient lands, pass it as `client` (anything with .complete(system, user) -> (text, usage)).
+BedrockClient goes through P4's ModelClient. Any object with .complete(system, user) -> (text, usage) works as `client`.
 """
 import argparse
 import csv
@@ -48,6 +49,7 @@ SYSTEM = ("You are a monitoring-and-evaluation reviewer for Digital Green's Farm
 SHEET = ROOT / "docs" / "results" / "hand_scores.csv"
 CACHE = OUT / "judge_cache"
 RESULTS = OUT / "judge_results.jsonl"
+SUMMARY = ROOT / "docs" / "results" / "judge_summary.json"   # committed, so the app can show the result without Bedrock
 SHEET_FIELDS = ["sample", "golden_id", "insight_id", "crop_or_animal", "resolution", "farmer_asked",
                 "advice_given", "questions", "score_1_to_5", "scorer", "notes"]
 
@@ -93,22 +95,22 @@ def parse_score(text: str) -> tuple[int | None, str]:
 # ---------------------------------------------------------------- model access
 
 class BedrockClient:
-    """Minimal Bedrock Converse adapter. Swap for P4's ModelClient once it exists."""
+    """The judge's model access, through P4's ModelClient (mel/writer/llm.py): one Bedrock path for the whole team,
+    with its retries, backoff, on-disk cache and per-call log (out/bedrock_calls.jsonl). Logged as purpose "judge"."""
 
-    def __init__(self, model_id: str | None = None, region: str | None = None):
+    def __init__(self, model_id: str | None = None, region: str | None = None, runtime=None):
         self.model_id = model_id or os.environ.get("MEL_JUDGE_MODEL")
         if not self.model_id:
             raise RuntimeError("Set MEL_JUDGE_MODEL to a Bedrock model id enabled in our account (ask P1/P4).")
-        import boto3  # only needed when the judge actually runs
-        self._rt = boto3.client("bedrock-runtime", region_name=region or os.environ.get("AWS_REGION"))
+        from mel.writer.llm import ModelClient
+        if runtime is None and region:
+            import boto3  # only needed when the judge actually runs
+            runtime = boto3.client("bedrock-runtime", region_name=region)
+        self._client = ModelClient(runtime=runtime)
 
     def complete(self, system: str, user: str) -> tuple[str, dict]:
-        r = self._rt.converse(modelId=self.model_id, system=[{"text": system}],
-                              messages=[{"role": "user", "content": [{"text": user}]}],
-                              inferenceConfig={"maxTokens": 200, "temperature": 0})
-        text = "".join(c.get("text", "") for c in r["output"]["message"]["content"])
-        u = r.get("usage", {})
-        return text, {"input_tokens": u.get("inputTokens", 0), "output_tokens": u.get("outputTokens", 0)}
+        text = self._client.converse(self.model_id, system, user, purpose="judge", max_tokens=200, temperature=0)
+        return text, dict(self._client.last_usage)
 
 
 def _cost(usage: dict) -> float | None:
@@ -220,18 +222,110 @@ def agreement(pairs_of_scores: list[tuple[int, int]]) -> dict:
             "mean_abs_diff": round(sum(diffs) / n, 2)}
 
 
+_Q_LINE = re.compile(r"^Q\d+\.\s(.*?)\s{2}\[(.*)\]\s*$")
+
+
+def survey_from_text(text: str) -> dict:
+    """Turn the sheet's "Q1. prompt  [a / b]" lines back into a survey, so the judge reads exactly what people read
+    (the live templates may have changed since the sheet was made). survey_text(survey_from_text(t)) == t."""
+    items = []
+    for line in (text or "").strip().splitlines():
+        m = _Q_LINE.match(line.strip())
+        if not m:
+            continue
+        prompt, opts = m.group(1), m.group(2)
+        sc = re.fullmatch(r"scale (\d+)-(\d+)", opts)
+        if sc:
+            items.append({"type": "survey-scale", "prompt": prompt, "scale_min": int(sc.group(1)), "scale_max": int(sc.group(2))})
+        else:
+            items.append({"type": "survey-select", "prompt": prompt, "options": [{"label": o} for o in opts.split(" / ")]})
+    return {"items": items}
+
+
 def calibrate(pairs, client, path=SHEET, cache_dir=CACHE) -> dict:
+    """Judge vs people on the hand-scored sheet. The judge scores the questions as written on the sheet.
+
+    Returns the judge's agreement (n, exact, within_1, mean_abs_diff) plus the bars to read it against:
+      people_vs_people  every pair of people on the same survey (the fair bar for the judge)
+      always_5          a "judge" that says 5 every time (the judge must beat this to mean anything)
+      judge_scores      how many surveys got each score (all 5s = the judge does not tell surveys apart)
+      rank_r            correlation, over surveys, between the judge's score and the people's average
+      people_rank_r     the same for each person against the other people's average (the fair bar for rank_r)
+    """
     by_gid = {g["golden_id"]: (g, ins, s) for g, ins, s in pairs}
-    both = []
+    both, people, judged, by_scorer = [], defaultdict(list), {}, defaultdict(dict)
     for r in read_sheet(path):
         h = r.get("score_1_to_5", "").strip()
         if not h or r["golden_id"] not in by_gid:
             continue
         g, ins, s = by_gid[r["golden_id"]]
-        j = judge_survey(s, ins, client, cache_dir)["score"]
+        people[r["golden_id"]].append(int(h))
+        by_scorer[r.get("scorer") or "?"][r["golden_id"]] = int(h)
+        if r["golden_id"] not in judged:
+            shown = survey_from_text(r.get("questions", ""))
+            judged[r["golden_id"]] = judge_survey(shown if shown["items"] else s, ins, client, cache_dir)["score"]
+        j = judged[r["golden_id"]]
         if j is not None:
             both.append((int(h), j))
-    return agreement(both)
+    hp = [(a, b) for hs in people.values() for i, a in enumerate(hs) for b in hs[i + 1:]]
+    counts = defaultdict(int)
+    for j in judged.values():
+        counts[j] += 1
+    gids = [g for g in people if judged.get(g) is not None]
+    others = {n: [g for g in gids if g in sc] for n, sc in by_scorer.items()}
+    return {**agreement(both),
+            "people_vs_people": agreement(hp),
+            "always_5": agreement([(h, 5) for h, _ in both]),
+            "judge_scores": dict(sorted(counts.items(), key=lambda kv: str(kv[0]))),
+            "rank_r": _corr([judged[g] for g in gids], [sum(people[g]) / len(people[g]) for g in gids]),
+            "people_rank_r": {n: _corr([by_scorer[n][g] for g in gs],
+                                       [_mean([by_scorer[m][g] for m in by_scorer if m != n and g in by_scorer[m]]) for g in gs])
+                              for n, gs in sorted(others.items())}}
+
+
+def _mean(xs):
+    return sum(xs) / len(xs) if xs else None
+
+
+def _corr(xs, ys):
+    """Pearson correlation, rounded; None when it is undefined (fewer than 2 points, or no spread)."""
+    pts = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
+    if len(pts) < 2:
+        return None
+    import statistics
+    try:
+        return round(statistics.correlation([x for x, _ in pts], [y for _, y in pts]), 2)
+    except statistics.StatisticsError:
+        return None
+
+
+def run_summary(result: dict, pairs, model: str) -> dict:
+    """The committed summary of a --run: averages overall and per advice type, and how many got each score."""
+    res_of = {g["golden_id"]: ins.get("resolution_type") for g, ins, _ in pairs}
+    by_type, counts = defaultdict(list), defaultdict(int)
+    for r in result["rows"]:
+        if r["score"] is not None:
+            by_type[res_of.get(r["golden_id"])].append(r["score"])
+            counts[r["score"]] += 1
+    return {"model": model, "rubric": RUBRIC_VERSION, "date": time.strftime("%Y-%m-%d"),
+            **{k: v for k, v in result.items() if k != "rows"},
+            "score_counts": {str(k): counts[k] for k in sorted(counts)},
+            "by_resolution": {k: round(sum(v) / len(v), 2) for k, v in sorted(by_type.items(), key=lambda kv: str(kv[0]))}}
+
+
+def write_summary(path=SUMMARY, **parts) -> None:
+    """Merge `run=` and/or `calibration=` into the committed summary file."""
+    cur = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    cur.update(parts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cur, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def load_summary(path=SUMMARY) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def main():
@@ -251,8 +345,12 @@ def main():
         RESULTS.parent.mkdir(parents=True, exist_ok=True)
         RESULTS.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in r["rows"]) + "\n", encoding="utf-8")
         print({k: v for k, v in r.items() if k != "rows"}, "->", RESULTS)
+        write_summary(run=run_summary(r, pairs, client.model_id))
     else:
-        print(calibrate(pairs, client))
+        c = calibrate(pairs, client)
+        print(c)
+        write_summary(calibration={"model": client.model_id, "rubric": RUBRIC_VERSION,
+                                   "date": time.strftime("%Y-%m-%d"), **c})
 
 
 if __name__ == "__main__":
