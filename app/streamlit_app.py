@@ -272,15 +272,40 @@ def _route(h):
                       for c in h["channel_order"])
 
 
+def _planned_next(h):
+    """(send start, insight id) of this farmer's next batch survey that gets past the weekly limit, or None."""
+    me, start = h["survey"]["source_insight_ids"][0], h["send_window"]["not_before"]
+    return next(((t, iid) for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
+
+
 def _next_survey(h):
     """This farmer's next survey that gets past the weekly limit, from the batch."""
-    me, start = h["survey"]["source_insight_ids"][0], h["send_window"]["not_before"]
-    nxt = next(((t, iid) for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
+    nxt = _planned_next(h)
     if not nxt:
         return "None planned"
     a = INSIGHT_BY_ID.get(nxt[1]) or {}
     return (f'<b>{format_date(nxt[0])}</b> · {escape(str((a.get("asset") or {}).get("name") or "").title())}, '
             f'{escape(str(a.get("concern") or "").replace("_", " "))}')
+
+
+def next_survey_note(h, rec):
+    """Once the farmer has answered: when this farmer hears from us again, by the scheduler's rules (docs/cap_policy.md).
+    A retry of this survey comes first; then the next survey already in the batch; else the earliest day the weekly
+    limit allows one (7 days after this send; a high-priority survey is exempt and may go sooner)."""
+    if rec["retry_decision"] in ("retry_same_channel", "fall_back_to_next_channel"):
+        wait = rec.get("retry_after_minutes") or 0
+        at = datetime.fromisoformat(rec["recorded_at"]) + timedelta(minutes=wait)
+        how = "same channel" if rec["retry_decision"] == "retry_same_channel" else "next channel in the farmer's order"
+        return f"<b>This survey again, {long(at)}</b> · {how}, {f'{wait} min after this attempt' if wait else 'right away'}"
+    if _planned_next(h):
+        return f"{_next_survey(h)} · already in the batch from a later conversation; it clears the weekly limit (1 survey per farmer per 7 days)"
+    if not rec["counts_toward_cap"]:
+        return "<b>As soon as a new conversation needs one</b> · this attempt does not count toward the weekly limit"
+    me, fid = h["survey"]["source_insight_ids"][0], h["survey"]["farmer_id"]
+    start = next((t for t, iid in upcoming.get(fid, []) if iid == me), h["send_window"]["not_before"])  # moved? its new day
+    gate = datetime.fromisoformat(start) + timedelta(days=7)
+    return (f"<b>Not before {format_date(gate)}</b> · 7 days after this send (weekly limit: 1 survey per farmer per 7 days); "
+            "only a high-priority case (high or critical severity, an emergency, or an expert referral) may go sooner")
 
 
 def agent_view(ins, out, d, notes, attention):
@@ -343,13 +368,14 @@ FU_LABEL = {"advice_did_not_work": "advice didn't work", "crop_or_animal_damaged
 STATUS_TONE = {"completed": "green", "partial": "amber", "negative_outcome": "red"}
 
 
-def record_card(rec):
-    """What the preview's real taps produced (P3's simulator builds the record; no answer is invented).
-    The record is shown, not stored: the Follow-up queue tab is built separately from the batch."""
+def record_card(rec, h):
+    """What the preview's real taps produced (P3's simulator builds the record; no answer is invented), then when
+    this farmer is surveyed next. The record is shown, not stored: the Follow-up queue tab is built separately."""
     html(f'''<div class="mel-card"><div><b>Answer record</b>
 {badge(rec["status"].replace("_", " ").capitalize(), STATUS_TONE.get(rec["status"], "slate"))}</div><br><div class="mel-strip">
 <div><div class="mel-k">Counts toward weekly limit</div><b>{"Yes" if rec["counts_toward_cap"] else "No"}</b></div>
-<div><div class="mel-k">Next step</div><b>{escape(str(rec["retry_decision"]).replace("_", " ").capitalize())}</b></div></div></div>''')
+<div><div class="mel-k">Next step</div><b>{escape(str(rec["retry_decision"]).replace("_", " ").capitalize())}</b></div></div>
+<div style="margin-top:.6rem"><div class="mel-k">Next survey for this farmer</div>{next_survey_note(h, rec)}</div></div>''')
     if rec["needs_follow_up"]:
         st.error("Requires follow-up: " + ", ".join(FU_LABEL.get(r, r) for r in rec["follow_up_reasons"]))
     if rec["failure_code"]:
@@ -885,13 +911,6 @@ with tab_studio:
             surveys = out["surveys"]
             sv = clean(surveys[lang])
             with col_f:
-                if bedrock_note:
-                    st.caption(f"Questions {bedrock_note}")
-                if lang == "hi-IN":  # label Hindi until every line in P4's sheet has a reviewer's Y/N
-                    sheet = pd.read_csv(HINDI_SHEET, dtype=str, keep_default_na=False)
-                    done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
-                    if done < len(sheet):
-                        st.caption(f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker")
                 # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
                 # "Start over", so the Restart icon above the agent's view is the only reset control.
                 pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"
@@ -899,11 +918,19 @@ with tab_studio:
                                              restart=restart, show_restart=False)
                 if ch == "voice":
                     voice_readout(sv, pkey, rec)
+                # Provenance lines go under the phone so its top lines up with the agent's view in the other column.
+                if bedrock_note:
+                    st.caption(f"Questions {bedrock_note}")
+                if lang == "hi-IN":  # label Hindi until every line in P4's sheet has a reviewer's Y/N
+                    sheet = pd.read_csv(HINDI_SHEET, dtype=str, keep_default_na=False)
+                    done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
+                    if done < len(sheet):
+                        st.caption(f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker")
             with col_a:
                 if rec is None:
                     st.caption("The farmer's answers appear here when the conversation ends.")
                 else:
-                    record_card(rec)
+                    record_card(rec, h)
             if surveys[lang].get("_history"):
                 generic = template_items(ins, lang)      # never a model call: the comparison is with the plain template
                 with st.expander(f"Generic vs adapted questions ({LANG_NAME.get(lang, lang)})"):
