@@ -152,3 +152,25 @@ claim that worked-example timing failed.
 | R2 (critical severity) | Answer key by default; `MEL_CRITICAL_POLICY=survey` gives the brief's reading | The key wants no survey and a human call for all 6 critical rows. The brief only lists critical as high priority. The contract says: until Digital Green answers, keep both behind a setting, default = answer key. |
 
 Any of these changes only if Digital Green answers otherwise or ships a new golden set.
+
+## Weather-dependent advice (written down 5 Nov, not modelled)
+
+Some advice depends on the weather. The brief's mustard example says "spray within 2 days if no rain is
+forecast", and the Vision doc asks how the send window should be set then. Today these windows are planned
+like any other, from `action_window_days` and the verification timing. The pack has no weather data (P3 found
+the same, `docs/p3_frequency_scheduling.md`), and no field says that advice depends on the weather. Only the
+free text says it (1,169 of 6,999 full-pack advice summaries mention rain, fog, frost, the forecast or the
+weather), and P2 never reads free text.
+
+How we would handle it, once an insight carries a structured condition (say `weather_condition: "no_rain"`)
+and FarmerChat passes in the district forecast (it already has weather data through AgMCP):
+
+- Only days that meet the condition count toward the action window. If rain is forecast on one of the two
+  days, the farmer has until day 3 to spray, so the window opens a day later. The rest of the brief rule
+  stays: 07:00 to 19:00, at least two days wide, nothing after 31 March, and R6 when no room is left.
+- The shift is capped (for example at 5 days), so a long wet spell can't push the survey past the point where
+  the farmer still remembers the advice.
+- Only the window moves. The survey or no-survey decision (R1–R8) never depends on the weather. Without a
+  forecast, the window stays as it is today. No weather is invented.
+
+This is question 10 in `docs/questions_for_digital_green.md`.

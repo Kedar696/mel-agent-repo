@@ -81,6 +81,7 @@ RULE_LABEL = {"R1": "Junk / unclear", "R2": "Critical → human call", "R3": "No
 RULE_TONE = {"R2": "red", "R4": "amber", "R6": "amber", "R8": "green"}
 CH_NAME = {"app": "App", "web": "Web", "whatsapp": "WhatsApp", "telegram": "Telegram", "voice": "Voice"}
 LANG_NAME = {"hi-IN": "Hindi", "en-IN": "English"}
+HINDI_SHEET = ROOT_DIR / "docs" / "p4" / "hindi_review_sheet.csv"  # P4's native-speaker review, one row per line
 
 
 def html(s: str):
@@ -780,6 +781,11 @@ with tab_studio:
             surveys = out["surveys"]
             sv = clean(surveys[lang])
             with col_f:
+                if lang == "hi-IN":  # label Hindi until every line in P4's sheet has a reviewer's Y/N
+                    sheet = pd.read_csv(HINDI_SHEET, dtype=str, keep_default_na=False)
+                    done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
+                    if done < len(sheet):
+                        st.caption(f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker")
                 # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
                 # "Start over", so the Restart icon above the agent's view is the only reset control.
                 pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"

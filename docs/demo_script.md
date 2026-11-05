@@ -51,7 +51,9 @@ streamlit run app/streamlit_app.py
   on the rabi 2026-27 calendar (send windows before 03/31/2027 India time); the screen shows every time in
   Eastern Time (EST/EDT), MM/DD/YYYY, 12-hour.
 - Have the slides open in another window, and the backup video ready.
-- **Hindi:** if P4's native-speaker review hasn't signed off, say "Hindi pending native review" once in part 1.
+- **Hindi:** until P4's native-speaker review is done, the phone shows "Hindi pending review: N of 441 lines
+  checked by a native speaker" whenever Hindi is on (the count comes from `docs/p4/hindi_review_sheet.csv`).
+  Say "Hindi pending native review" once in part 1.
 
 ---
 
@@ -203,6 +205,11 @@ Amazon Connect are marked **not built**. Don't open any console on stage; use th
   `SeasonScheduler`) moves a day, a week or to 31 March; "Send next step" is the manual trigger, one channel
   attempt at a time. The relevance bar is 0.3 (agreed by P4 and P5): it blocks only surveys that name
   neither the crop, the problem nor the advice.
+- **Has a native speaker checked the Hindi?** Not yet. The phone says "Hindi pending review" with the count from
+  P4's review sheet, and English is the baseline.
+- **Why ElevenLabs for the voice and not AWS?** It only reads the voice call aloud in this demo; the agent never
+  calls it. On AWS the same job is Amazon Polly, AWS's text-to-speech, which has Hindi and Indian-English
+  voices. That keeps every model call on AWS, as Digital Green asked.
 
 ## If something breaks
 

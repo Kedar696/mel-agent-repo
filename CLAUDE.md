@@ -3,7 +3,8 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions)_
+_Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions;
+willF-team-open-items: P2 weather note, Hindi "pending review" label, CODEOWNERS P3 = @Semdon31)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -130,7 +131,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
 P5 Evaluation & Demo. Old 8-person numbers (P6–P8) no longer exist; map old P2+P3→P2, P4+P7→P3, P5+P6→P4, P8→P5.
-Owners/files: `docs/TEAM.md`, `.github/CODEOWNERS` (usernames still `@p1..@p5` placeholders).
+Owners/files: `docs/TEAM.md`, `.github/CODEOWNERS` (P1 @lucasDQB, P2 @WestphalianFresco, P3 @Semdon31, P4 @Kedar696,
+P5 @michvinh-7).
 Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recommendation: keep code names, add
 `run_pipeline`, `CapLedger.admit`, `simulate_handoff`, `item_similarity`).
 
@@ -142,7 +144,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   = `human_call` (default, answer key, R2) or `survey` (brief). G-0145 (kept R6 under the brief), G-0129/G-0136
   (no change) and R2 are decided in `mel/timing/README.md` "Open cases, decided". Suggestion from P5 (not yet sent): open at 09:00 within the
   brief rule (+14 exact matches, still 100% timely), or "answer-key window when timely, else brief"
-  (window match ~20%, timeliness ~99%).
+  (window match ~20%, timeliness ~99%). Weather-dependent advice ("spray if no rain") is written down, not
+  modelled: `mel/timing/README.md` "Weather-dependent advice" + DG question 10 (the pack has no weather data or
+  structured condition; 1,169 of 6,999 advice texts mention the weather).
 - P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`).
   Wired: `run_pipeline(..., farmers=)` passes profile + chat history; CLI and app simulate at `send_at`; app
   hand-off strip shows it. Hand-off JSON unchanged (organisers' schema forbids extra fields; `parity` checks it).
@@ -152,7 +156,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   sometimes reports failure (so the follow-up queue can use real P3 outcomes).
 - P4: (4 Nov) relevance threshold agreed at 0.3 with P5; plan templates changed by P5 on `p5-season-speed` (review).
   DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
-  TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+  TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`, 0 of 441 checked on 5 Nov; until every row has a
+  Y/N the Survey demo shows "Hindi pending review: N of 441 lines checked" when Hindi is on), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
 - **Judge model sweep (P5, 4 Nov, `p5-season-speed`):** `python -m mel.evaluation.judge_models --list | --run [--only x,y]
   [--full]` finds every active text model in the region (on-demand id, else a us./global. inference profile), has each
   judge the 20 hand-scored surveys, ranks by r with the team then gap; writes `docs/results/judge_models.json`
@@ -205,6 +210,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
   Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
+  Branch `p5-auto-reload-fix` (8a63a16, no PR) is superseded: `main` has the same fix plus the `app/` reload.
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
   send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
@@ -221,8 +227,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   **Dockerfile** + `.dockerignore` (built, run, three endpoints exercised, HEALTHCHECK healthy). **`infra/`**
   (CFN: ECR + App Runner + Bedrock-only instance role; k8s Deployment/Service replicas 1; README; definition only,
   cfn-lint + kubeconform clean). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
-  **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 temp = @WestphalianFresco
-  until Semdon's username). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
+  **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 = @Semdon31). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
   (`-r requirements-api.txt` + httpx) — post in chat. Still open: call `mel.evaluation.run_eval()` from `cmd_eval`
   (history on every eval); `late` in the response schema (P3 request, decision pending, see
   `docs/h4_schema_change_request_late.md`); open the PR to main; create the freeze tag (`docs/release_checklist.md`).
