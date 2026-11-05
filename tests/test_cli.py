@@ -158,7 +158,10 @@ def test_run_summary_shape_and_consistency(tmp_path):
     assert sum(s["by_first_channel"].values()) == sum(s["by_priority"].values()) == s["surveys"]
     assert s["input_path"].endswith("insights.jsonl")
     assert all(f"R{n}" in r.stdout for n in range(1, 9))   # the printed summary names the rule ids
-    assert len(list((tmp_path / "handoffs").glob("*.json"))) == s["surveys"]
+    # cmd_run now applies P3's weekly cap + opt-outs + quality gate (run_batch): what goes out is
+    # schedule.sent + schedule.moved, not every planned hand-off. `surveys` stays the planned count.
+    sched = s["schedule"]
+    assert len(list((tmp_path / "handoffs").glob("*.json"))) == sched["sent"] + sched["moved"]
 
 
 def test_run_summary_respects_limit_and_farmer(tmp_path):
@@ -215,3 +218,111 @@ def test_junk_report_categories_on_full_pack(tmp_path):
             assert "schema" not in (r["category"] + r["detail"]).lower()
     s = _summary(tmp_path)
     assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875, "R5": 1312, "R6": 147, "R7": 14, "R8": 2616}
+
+
+# --- weekly limit, opt-outs, quality gate in `run` (P3 batch wiring) ---------------------
+# cmd_run now routes planned hand-offs through mel.schedule.run_batch (docs/cap_policy.md),
+# so the files written are what actually goes out (sent + moved; merged ride their host).
+
+def _handoffs(out: Path) -> list[dict]:
+    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted((out / "handoffs").glob("*.json"))]
+
+
+def test_schedule_block_in_summary(tmp_path):
+    assert mel("run", "--simulate", out=tmp_path).returncode == 0
+    sched = _summary(tmp_path)["schedule"]
+    for k in ("sent", "moved", "merged", "skipped", "opted_out", "rejected",
+              "duplicates", "prevented", "cap_violations"):
+        assert k in sched
+    # Files written equal what goes out, and every response links to a written hand-off.
+    assert len(_handoffs(tmp_path)) == sched["sent"] + sched["moved"]
+    assert len(list((tmp_path / "responses").glob("*.json"))) == sched["sent"] + sched["moved"]
+
+
+def test_cap_violations_is_zero_and_no_non_high_within_seven_days(tmp_path):
+    """No non-high-priority survey goes to a farmer within 7 days of another, on real data."""
+    from datetime import timedelta
+    from mel.schedule.batch import cap_violations
+    from mel.timing import parse_ist
+    assert mel("run", out=tmp_path).returncode == 0
+    hs = _handoffs(tmp_path)
+    # 1) The summary's independent audit is 0.
+    assert _summary(tmp_path)["schedule"]["cap_violations"] == 0
+    # 2) Re-audit the files on disk directly: same answer, 0.
+    assert cap_violations(hs) == []
+    # 3) Spell it out: group by farmer, every non-exempt send is >= 7 days after any earlier send.
+    by_farmer: dict[str, list] = {}
+    for h in hs:
+        by_farmer.setdefault(h["frequency_cap"]["key"], []).append(h)
+    for sends in by_farmer.values():
+        sends.sort(key=lambda h: parse_ist(h["send_window"]["not_before"]))
+        for i, later in enumerate(sends):
+            if later["frequency_cap"]["exempt"]:
+                continue
+            win = timedelta(days=later["frequency_cap"]["window_days"])
+            t = parse_ist(later["send_window"]["not_before"])
+            assert all(t - parse_ist(e["send_window"]["not_before"]) >= win for e in sends[:i])
+
+
+def test_opted_out_farmer_gets_nothing_after_opting_out():
+    """A farmer on the opt-out list before scheduling receives no hand-off, and the output
+    carries no survey or response for them. Tests the gate run_batch applies inside cmd_run."""
+    from mel.schedule import run_batch, OptOutList
+    from mel.schedule.handoff import priority as brief_priority
+    from mel.pipeline import run_pipeline
+    from mel.data import load_farmers
+    from mel.writer import RELEVANCE_THRESHOLD
+    rows = load_insights()
+    res = run_pipeline(rows, farmers=load_farmers())
+    handoffs = [o["handoff"] for o in res.outputs if "handoff" in o]
+    assert handoffs, "need at least one survey to opt a farmer out of"
+    # Opt out the farmer behind the first planned hand-off.
+    victim = handoffs[0]["survey"]["farmer_id"]
+    opt = OptOutList()
+    opt.record({"farmer_id": victim, "failure_code": "farmer_opted_out"})
+    batch = run_batch(handoffs, relevance_threshold=RELEVANCE_THRESHOLD, opt_out=opt)
+    out_ids = {h["survey"]["farmer_id"] for h in batch.handoffs_to_send}
+    assert victim not in out_ids
+    assert batch.counts["opted_out"] >= 1
+    # And a farmer who did NOT opt out is still scheduled (the gate is targeted, not global).
+    others = {h["survey"]["farmer_id"] for h in handoffs} - {victim}
+    if others:
+        assert out_ids & others
+
+
+@pytest.mark.skipif(not has_pack, reason="full participant pack not present")
+def test_weekly_cap_reduces_output_on_full_pack(tmp_path):
+    """On the full pack the cap moves/merges/skips surveys, so fewer hand-offs than planned go
+    out, while the R1-R8 decision counts are untouched and cap_violations stays 0."""
+    assert mel("run", "--simulate", out=tmp_path, data=FULL_DATA).returncode == 0
+    s = _summary(tmp_path)
+    sched = s["schedule"]
+    assert sched["cap_violations"] == 0
+    # Something was actually held back by the weekly rule (moved/merged/skipped), so the files
+    # written are fewer than the planned survey count.
+    assert sched["moved"] + sched["merged"] + sched["skipped"] > 0
+    assert sched["sent"] + sched["moved"] < s["surveys"]
+    assert len(_handoffs(tmp_path)) == sched["sent"] + sched["moved"]
+    # Decision counts are the regression guard: unchanged by the cap.
+    assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875,
+                            "R5": 1312, "R6": 147, "R7": 14, "R8": 2616}
+
+
+# --- --attention still changes output -----------------------------------------------------
+
+@pytest.mark.skipif(not has_pack, reason="full participant pack not present")
+def test_attention_flag_changes_output(tmp_path):
+    """`run --attention` must still alter the run (priority/question count/send time) after the
+    cap wiring. Compare the two summaries and the set of files written."""
+    off, on = tmp_path / "off", tmp_path / "on"
+    assert mel("run", "--simulate", out=off, data=FULL_DATA).returncode == 0
+    assert mel("run", "--simulate", "--attention", out=on, data=FULL_DATA).returncode == 0
+    s_off, s_on = _summary(off), _summary(on)
+    # Attention adds its tier/reason breakdown to the summary only when on.
+    assert "by_tier" in s_on and "by_tier" not in s_off
+    # Decisions never change; attention only re-prioritises / re-times.
+    assert s_on["by_rule"] == s_off["by_rule"]
+    # The actual output differs: either the priority mix or the files written move.
+    off_tree = _tree(off)
+    on_tree = _tree(on)
+    assert off_tree != on_tree

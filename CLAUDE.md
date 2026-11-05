@@ -109,8 +109,12 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   baseline — not a plain "doubled" ratio). The tier rides on `Decision.attention` (schemas forbid extra fields,
   so it goes on the Decision like `send_time`) and adjusts priority (P3), question count (P4) and send time
   (P2) only — never the survey/no-survey decision, the rule or the window. **Off by default** in scoring and
-  the CLI (`run --attention` turns it on), **on in the app** (matching the H1–H4 decision). With it off, output
-  is byte-for-byte today's (verified against a clean checkout). Full pack with it on: surge 130, steady_high
+  the CLI (`run --attention` turns it on), **on in the app** (matching the H1–H4 decision). Turning attention off
+  adds nothing to a run: at the same revision, `run` with and without `--attention` differ only where attention
+  re-prioritises / re-times (the summary's `by_tier`/`by_reason` appear only when on). Note the CLI output baseline
+  itself changed on `lucas-p1` when `mel.cli run` started applying the weekly cap through `run_batch` (fewer
+  hand-off/survey/response files; see "Weekly limit" below), so "today's output" is the post-cap output, not the
+  pre-cap checkout. Full pack with attention on: surge 130, steady_high
   173, neutral 2313 (502 insufficient_history); golden decision/rule/channel and scorecard
   format/safety/timeliness unchanged (99.3% / 99.3% / 100% and 100/100/100), but golden **item similarity dips
   0.991 → 0.977** with attention on, because steady_high surveys trim to 2 questions so one expected golden item

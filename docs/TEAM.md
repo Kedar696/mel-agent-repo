@@ -81,7 +81,8 @@ mel.evaluation.score_golden(golden=None) -> metrics                             
   31 March window); 100% with 100% window match under the answer-key setting (`MEL_TIMING_BASIS=answer_key`).
   R7 now lets stored crops through. Details: `mel/timing/README.md`.
 - **P3:** priority, channel order, expiry and flow ids match the scenarios. Channel messages match the
-  pack's reference files exactly (tested). `OptOutList` and `CapLedger` exist but aren't used in the batch run.
+  pack's reference files exactly (tested). `OptOutList` and `CapLedger` are now applied in the batch run:
+  `mel.cli run` routes planned hand-offs through `mel.schedule.run_batch` (weekly cap, opt-outs, P4 quality gate).
   Not yet: two-in-a-week policy, late answers, app/web sent once, fallback across channels, the 183-record match.
 - **P4:** generic templates in both languages pass the guards; opt-in Claude writer with template fallback;
   basic relevance score on every survey. Not yet: problem-specific templates, Hindi review, stronger guards,
@@ -100,12 +101,26 @@ advice's check method names, if different, 3) WhatsApp, 4) voice, only for high 
 `python -m mel.cli run` writes these into `MEL_OUT_DIR` (default `./out`). Same input, same files, byte for byte.
 - `surveys/`, `handoffs/`, `no_survey/`, `responses/` (with `--simulate`): one JSON per artifact. `--clean` empties
   only these four folders first; anything else in the output folder stays.
+- **Weekly cap applied (5 Nov, `lucas-p1`):** `run` routes planned hand-offs through P3's `mel.schedule.run_batch`
+  (opt-out → P4 quality gate → weekly cap; `docs/cap_policy.md`). Only the hand-offs that actually go out are
+  written: `schedule.sent` + `schedule.moved`. A `merged` survey rides on its host (its `source_insight_ids` are
+  added there); `skipped`, `opted_out` and `rejected` surveys are not written. A moved survey's `surveys/` and
+  `handoffs/` files carry the moved `send_window`. With `--simulate`, each hand-off walks its channel order
+  (fallback, waits, send hours), so there can be **several response files per hand-off**. Decision counts
+  (`by_rule` R1–R8, `no_survey`, `junk`) do **not** change; the number of hand-off, survey and response files
+  drops. Full pack (6,999), threshold 0.3: 2,616 planned → 1,613 sent + 425 moved = **2,038 out**, 480 merged,
+  98 skipped, 0 rejected, 0 opted_out, **0 cap_violations**. Files: handoffs 2,616 → 2,038, responses 2,616 →
+  2,038, surveys 5,232 → 4,076; no_survey 4,383 unchanged. (Mock: all 16 fit the cap, so output is unchanged.)
 - `run_summary.json`: what this run did. Keys:
   - `input_path` (the insights file read), `rows_read`, `rows_processed` (after `--limit` / `--farmer`), `limit`, `farmer`
-  - `surveys` and `no_survey` (they add up to `rows_processed`), `junk_rows`
+  - `surveys` and `no_survey` (they add up to `rows_processed`), `junk_rows`. `surveys` is the hand-offs the
+    **pipeline planned**; `schedule.sent + schedule.moved` is how many actually go out.
   - `by_rule`: `R1` to `R8`, every key always present, counts every processed row (sums to `rows_processed`)
   - `by_language` (`hi-IN`, `en-IN`), `by_first_channel` (app, web, whatsapp, telegram, voice) and `by_priority`
-    (`high`, `normal`, `low`): these describe the hand-offs, so they only count rows that got a survey and each sums to `surveys`
+    (`high`, `normal`, `low`): these describe the planned hand-offs, so they only count rows that got a survey and each sums to `surveys`
+  - `schedule`: the `run_batch` count breakdown — `sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`,
+    `duplicates`, `prevented` (= skipped + opted_out + rejected, the gate working, **not** violations) and
+    `cap_violations` (an independent audit of the output; should be 0). Attention-on adds `by_tier` and `by_reason`.
 - `junk_report.csv`: columns `insight_id`, `category`, `detail`; one row per junk insight processed. Junk is what
   `why_junk` flags: labelled `quality_flag: junk`, or failing the insight schema. `schema_failure` rows list every
   failed field in `detail` (for example `query_summary`, `advice_summary`, `resolution_type`). Schema-valid junk is sorted by

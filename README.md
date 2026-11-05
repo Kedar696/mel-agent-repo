@@ -61,7 +61,22 @@ python -m mel.cli eval
 | `MEL_DATA_DIR` | folder with `insights.jsonl`, `golden_set.jsonl`, `farmers.csv`, `crop_calendar_bihar_rabi.csv` | `data/mock` |
 | `MEL_OUT_DIR` | where `run` writes (and `validate` reads) | `./out` |
 
-`validate` on the full pack checks about 14,650 files (a few seconds to a few minutes, depending on the machine).
+`validate` on the full pack checks about 12,500 files (a few seconds to a few minutes, depending on the machine).
+
+## Weekly limit
+The brief caps how often a farmer is surveyed: at most **one non-urgent survey per farmer per 7 days**, across
+every channel, and an opted-out farmer gets nothing after that. High-priority (urgent) surveys are exempt but
+still count toward the window for later ones.
+
+`python -m mel.cli run` applies this. The pipeline plans a hand-off for each survey; then the weekly cap, the
+opt-out list and the survey quality gate decide what actually goes out. A capped survey is **moved** to the next
+free date inside its window, **merged** into an earlier survey to the same farmer if it cannot move, or **skipped**
+if it can do neither. So on the full pack, `run` writes fewer hand-off, survey and response files than the number
+of surveys the pipeline planned, while the R1–R8 decision counts are unchanged. `run_summary.json` records the
+breakdown under `schedule` (`sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`, and `cap_violations`,
+which should be 0).
+
+The full policy, with the exact move/merge/skip rules, is in [docs/cap_policy.md](docs/cap_policy.md).
 
 ## Command reference
 | Command | What it does |
