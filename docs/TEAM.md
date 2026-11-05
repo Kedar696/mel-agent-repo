@@ -24,7 +24,7 @@ P4's surveys go to P3. Everyone sends final numbers to P5.
 ## Tech stack
 | Layer | Choice | Why |
 |---|---|---|
-| Language | Python 3.11+ (dev machine: 3.14), `.venv` | one language end to end |
+| Language | Python 3.12, `.venv` | one language end to end |
 | Contracts | JSON Schema 2020-12 via `jsonschema` | the pack's schemas are the grading contract |
 | Rules | `config/rules/rules.json`, `outcome_codes.json` | rules stay data, not hard-coded |
 | Decision / timing / schedule | plain Python, deterministic | must reproduce golden set + worked scenarios |

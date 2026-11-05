@@ -5,9 +5,12 @@ builds the scheduler hand-off → simulates farmer answers across app, web, What
 Built for the Digital Green MEL hackathon pack (synthetic data only).
 
 ## Quick start
-Run these from the repo root. Python 3.11 or newer.
+Run these from the repo root. Python 3.12.
 ```bash
-python -m venv .venv
+# Windows
+py -3.12 -m venv .venv
+# macOS / Linux
+python3.12 -m venv .venv
 ```
 Activate the virtual environment (pick your OS):
 ```bash
