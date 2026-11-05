@@ -40,3 +40,15 @@ jobs:
           docker logs mel-api-ci
           docker rm -f mel-api-ci
           test "${ok:-0}" = "1"
+      - name: Build the UI image
+        run: docker build -f ui.Dockerfile -t mel-survey-agent-ui:ci .
+      - name: Smoke-test the UI image (/_stcore/health)
+        run: |
+          docker run -d --name mel-ui-ci -p 8501:8501 mel-survey-agent-ui:ci
+          for i in $(seq 1 40); do
+            if curl -fs http://127.0.0.1:8501/_stcore/health; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs mel-ui-ci
+          docker rm -f mel-ui-ci
+          test "${ok:-0}" = "1"

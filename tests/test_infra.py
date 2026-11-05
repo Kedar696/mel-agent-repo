@@ -10,6 +10,7 @@ from mel.agent.aws import metric_data
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "infra" / "fasal-pulse.yaml"
 TEXT = TEMPLATE.read_text(encoding="utf-8")
+UI_TEXT = TEMPLATE.with_name("ui-express.yaml").read_text(encoding="utf-8")
 
 
 def _dashboard_json() -> dict:
@@ -47,3 +48,14 @@ def test_dashboard_is_valid_json_and_matches_agent_metrics():
 def test_outputs_feed_the_agent_settings():
     for env in ("MEL_S3_INPUT", "MEL_S3_RESULTS", "MEL_GUARDRAIL_ID", "MEL_GUARDRAIL_VERSION", "MEL_METRICS_NAMESPACE"):
         assert f"--env {env}=" in TEXT
+
+
+def test_ui_service_runs_one_task_and_checks_streamlit_health():
+    assert "MinTaskCount: 1" in UI_TEXT and "MaxTaskCount: 1" in UI_TEXT      # Streamlit sessions live in one process
+    assert "HealthCheckPath: /_stcore/health" in UI_TEXT and "ContainerPort: 8501" in UI_TEXT
+
+
+def test_ui_roles_have_no_wildcard_actions_and_task_role_only_invokes_agentcore():
+    assert not re.findall(r"Action:.*\*", UI_TEXT)
+    role = UI_TEXT.split("  TaskRole:", 1)[1].split("\n  # ----", 1)[0]
+    assert re.findall(r"Action:\s*(\S+)", role) == ["sts:AssumeRole", "bedrock-agentcore:InvokeAgentRuntime"]

@@ -114,7 +114,8 @@ about 25 seconds.
 Fill in $X and $Y from `full_bedrock_run.json` after step 3. Never use estimates on stage.
 
 ## 7. Skip for this event
-- App Runner or another hosted copy of the UI on AWS. The laptop demo plus the Streamlit Cloud backup is enough.
+- ~~App Runner or another hosted copy of the UI on AWS.~~ Done on 5 Nov instead: the UI runs on ECS Express Mode at
+  https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ (`infra/README.md`), so the demo has an AWS-hosted link besides the laptop.
 - Amazon Quick, Kiro, and the bigger starter templates (FAST and similar): rebuilding on them now costs more than
   it gains.
 - Bedrock batch inference (half price). At about $5–10 for the full run, the saving isn't worth the extra setup.

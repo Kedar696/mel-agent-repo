@@ -1,15 +1,70 @@
-# Infrastructure (definition only)
+# Infrastructure
 
-These files **describe** how the REST API (`mel/api`) could run on AWS. Nothing here is
-deployed from this repo, and no AWS command that creates or changes a resource is run as part
-of the build or CI. There are no account IDs, access keys or secrets in any file. Treat this as
+These files **describe** how the REST API (`mel/api`) and the Streamlit UI could run on AWS. Nothing
+is deployed by this repo's build or CI, and no AWS command that creates or changes a resource is
+run as part of them. There are no account IDs, access keys or secrets in any file. Treat this as
 a design you can read and, if you choose, apply by hand later.
 
-## Two templates: one deployed, one a design
+## Three templates: two deployed, one a design
 | Template | What it is | Status |
 |---|---|---|
 | `fasal-pulse.yaml` (P5) | Everything around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget. | **Deployed** in the event account (us-west-2, stack `fasal-pulse`, 5 Nov). Steps: `docs/agentcore.md`. |
 | `cloudformation.yaml` (P1) | The **REST API** (`mel/api`) on App Runner, with its ECR repository and role. | Definition only (the rest of this README). |
+| `ui-express.yaml` (P2) | The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service. | **Live** in the event account (us-east-1, 5 Nov) at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the template holds the same settings). |
+
+## The Streamlit UI on ECS Express Mode (live since 5 Nov)
+`ui.Dockerfile` at the repo root packages `app/streamlit_app.py` with the participant pack and the
+recorded agent runs; `ui.Dockerfile.dockerignore` next to it decides what is copied in (Docker uses
+`<Dockerfile>.dockerignore` when it exists; `.dockerignore` belongs to the API image). CI builds the
+image and checks `/_stcore/health`. `ui-express.yaml` is the same setup as infrastructure-as-code.
+
+Why Express Mode: App Runner stopped taking new customers on 30 April 2026, and Express Mode is the
+replacement AWS points to. One container image in; ECS creates the Fargate service, the HTTPS load
+balancer, the logs and the URL. The service runs **one task** (`MinTaskCount` = `MaxTaskCount` = 1)
+because Streamlit keeps each visitor's session inside the process. The task role may only call
+`bedrock-agentcore:InvokeAgentRuntime`, so the app needs no keys: once `MEL_AGENTCORE_ARN` is set,
+"Run the agent" in the Survey demo runs live on AgentCore; until then it shows the recorded runs.
+
+**Event account (us-east-1).** Created by hand on 5 Nov with the AWS CLI and the event's temporary
+credentials; the template creates the same things under the same names, so in this account deploy it
+only with another `Name` (or delete these first).
+1. `aws ecr create-repository --repository-name fasal-pulse-ui`
+2. Roles: `ecsTaskExecutionRole` (trust `ecs-tasks.amazonaws.com`, managed policy
+   `AmazonECSTaskExecutionRolePolicy`), `ecsInfrastructureRoleForExpressServices` (trust
+   `ecs.amazonaws.com`, managed policy `AmazonECSInfrastructureRoleforExpressGatewayServices`),
+   `fasal-pulse-ui-task` and `fasal-pulse-ui-codebuild` (inline policies = `TaskRole` and `BuildRole`
+   in the template).
+3. CodeBuild project `fasal-pulse-ui-build` with the template's buildspec, then
+   `aws codebuild start-build --project-name fasal-pulse-ui-build`: it clones GitHub, builds
+   `ui.Dockerfile` on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
+4. `aws ecs create-cluster --cluster-name default`, then
+   ```bash
+   aws ecs create-express-gateway-service --service-name fasal-pulse-ui \
+     --execution-role-arn <ecsTaskExecutionRole arn> \
+     --infrastructure-role-arn <ecsInfrastructureRoleForExpressServices arn> \
+     --task-role-arn <fasal-pulse-ui-task arn> \
+     --primary-container '{"image":"<account>.dkr.ecr.us-east-1.amazonaws.com/fasal-pulse-ui:<sha>","containerPort":8501}' \
+     --health-check-path /_stcore/health --scaling-target '{"minTaskCount":1,"maxTaskCount":1}'
+   ```
+   The URL is `activeConfigurations[0].ingressPaths[0].endpoint` in
+   `aws ecs describe-express-gateway-service --service-arn <arn>`. The service was ACTIVE after about
+   5 minutes; its DNS name resolved about 10 minutes later.
+
+**After a merge to main:** `start-build` again, then roll the service to the new SHA:
+`aws ecs update-express-gateway-service --service-arn <arn> --primary-container '{"image":"...:<new sha>","containerPort":8501}'`.
+**Point it at AgentCore:** add `"environment":[{"name":"MEL_AGENTCORE_ARN","value":"<runtime arn>"}]`
+to that primary container (the task role already allows the call).
+
+**Fresh account, from the template:**
+```bash
+aws cloudformation deploy --template-file infra/ui-express.yaml --stack-name fasal-pulse-ui --capabilities CAPABILITY_IAM --region us-east-1
+aws codebuild start-build --project-name fasal-pulse-ui-build      # prints "PUSHED ...:<sha>" in its log
+aws cloudformation deploy --template-file infra/ui-express.yaml --stack-name fasal-pulse-ui --capabilities CAPABILITY_IAM --region us-east-1 --parameter-overrides ImageTag=<sha>
+```
+The first deploy makes the registry and the build project; the second, with an image to run, makes
+the service and prints its URL as the `Url` output. To stop paying, delete the stack (empty the
+registry first) or, in the event account, `aws ecs delete-express-gateway-service --service-arn <arn>`.
+Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
 
 ## What each file does
 
