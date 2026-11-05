@@ -4,7 +4,6 @@ late-answer counting with today's schema.
 Covers: failed-advice answer -> follow-up ticket; success -> no ticket; same seed -> same
 answers; explicit scenario; existing personas unchanged; late boundary and counting.
 """
-import copy
 import importlib
 from datetime import timedelta
 

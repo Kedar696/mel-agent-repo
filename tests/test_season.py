@@ -12,11 +12,11 @@ system clock is never consulted; (2) advancing that clock changes which steps ar
 season-boundary, and repeated-trigger.
 """
 import copy
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
-from mel.config import IST, rules
+from mel.config import rules
 from mel.data import load_scenario, errors
 from mel.schedule import SeasonScheduler, StepResult, build_handoff
 from mel.timing import parse_ist, fmt_ist

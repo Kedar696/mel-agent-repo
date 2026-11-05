@@ -232,8 +232,9 @@ def test_schedule_block_in_summary(tmp_path):
     assert mel("run", "--simulate", out=tmp_path).returncode == 0
     sched = _summary(tmp_path)["schedule"]
     for k in ("sent", "moved", "merged", "skipped", "opted_out", "rejected",
-              "duplicates", "prevented", "cap_violations"):
+              "duplicates", "prevented", "cap_violations", "late_answers"):
         assert k in sched
+    assert 0 <= sched["late_answers"] <= sched["sent"] + sched["moved"]
     # Files written equal what goes out, and every response links to a written hand-off.
     assert len(_handoffs(tmp_path)) == sched["sent"] + sched["moved"]
     assert len(list((tmp_path / "responses").glob("*.json"))) == sched["sent"] + sched["moved"]
@@ -268,7 +269,6 @@ def test_opted_out_farmer_gets_nothing_after_opting_out():
     """A farmer on the opt-out list before scheduling receives no hand-off, and the output
     carries no survey or response for them. Tests the gate run_batch applies inside cmd_run."""
     from mel.schedule import run_batch, OptOutList
-    from mel.schedule.handoff import priority as brief_priority
     from mel.pipeline import run_pipeline
     from mel.data import load_farmers
     from mel.writer import RELEVANCE_THRESHOLD

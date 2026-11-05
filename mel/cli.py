@@ -2,7 +2,9 @@
   python -m mel.cli run [--insights PATH] [--simulate] [--limit N] [--farmer ID] [--clean]
                                                         write out/{surveys,handoffs,no_survey,responses}
                                                         plus out/run_summary.json and out/junk_report.csv
-  python -m mel.cli eval [--golden PATH]                golden-set scores
+  python -m mel.cli eval [--golden PATH] [--history]    golden-set scores
+  python -m mel.cli eval --record "what changed"        full report (both timing rules, full pack + mock,
+                                                        scorecard) appended to docs/results run history
   python -m mel.cli validate [--allow-empty]            schema-check everything in out/ (fails if there is nothing)
   python -m mel.cli junk [--insights PATH] [--limit N] [--farmer ID]
                                                         list input rows that get no survey, and why
@@ -33,7 +35,7 @@ def _non_negative(text: str) -> int:
     try:
         n = int(text)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
     if n < 0:
         raise argparse.ArgumentTypeError(f"must be 0 or more, got {n}")
     return n
@@ -76,6 +78,7 @@ def _write_junk_report(path: Path, insights: list[dict]) -> int:
 def cmd_run(a):
     from mel.schedule import run_batch, FrequencyScheduler
     from mel.channels import FarmerReachability
+    from mel.simulator import is_late
     from mel.writer import RELEVANCE_THRESHOLD   # P4's published send bar (0.3)
     path = Path(a.insights) if a.insights else DATA / "insights.jsonl"
     try:
@@ -112,6 +115,10 @@ def cmd_run(a):
         _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
     for r in batch.responses:
         _dump(OUT / "responses" / f"{r['response_key']}.json", r)
+    # Late answers (after the hand-off's expires_at) are counted here, not flagged on the record:
+    # response.schema.json allows no extra field (docs/h4_schema_change_request_late.md, option B).
+    expires = {h["survey"]["survey_id"]: h["expires_at"] for h in batch.handoffs_to_send}
+    late = sum(1 for r in batch.responses if r["survey_id"] in expires and is_late(r, expires[r["survey_id"]]))
 
     junk = _write_junk_report(OUT / "junk_report.csv", result.insights)
     counts = result.counts()
@@ -126,7 +133,7 @@ def cmd_run(a):
         "no_survey": result.rows_processed - surveys,
         "junk_rows": junk,
         **counts,
-        "schedule": batch.counts,   # sent/moved/merged/skipped/opted_out/rejected/duplicates/prevented/cap_violations
+        "schedule": {**batch.counts, "late_answers": late},   # sent/moved/merged/skipped/opted_out/rejected/...
     }
     if attention:   # only when on, so the off path writes a byte-for-byte identical summary
         summary.update(result.attention_counts())
@@ -182,7 +189,15 @@ def cmd_parity(a):
 
 def cmd_eval(a):
     from mel.evaluation import score_golden
-    r = score_golden(load_golden(Path(a.golden)) if a.golden else None)
+    from mel.evaluation.report import farmer_memory, run_eval
+    if a.record:   # the published numbers: both timing rules, full pack + mock, scorecard; one history row each
+        for basis, r in run_eval(record=a.record, history=a.history).items():
+            g = r["full"] or r["mock"]
+            print(f"{basis}: n={g['n']}  decision={g['decision_acc']:.1%}  rule={g['rule_acc']:.1%}  "
+                  f"window={g['window_acc']:.1%}  (recorded: {a.record})")
+        return
+    r = score_golden(load_golden(Path(a.golden)) if a.golden else None,
+                     memory=farmer_memory() if a.history else None)
     print(f"n={r['n']}  decision={r['decision_acc']:.1%}  rule={r['rule_acc']:.1%}  "
           f"channel={r['channel_acc']:.1%}  window={r['window_acc']:.1%}")
     for m in r["misses"][:20]:
@@ -228,7 +243,12 @@ def main():
     r.add_argument("--attention", action="store_true",
                    help="turn on activity attention (off by default; changes priority, question count and send time)")
     r.set_defaults(f=cmd_run)
-    e = sp.add_parser("eval"); e.add_argument("--golden"); e.set_defaults(f=cmd_eval)
+    e = sp.add_parser("eval")
+    e.add_argument("--golden")
+    e.add_argument("--history", action="store_true", help="score with P4's history rules on (off by default)")
+    e.add_argument("--record", metavar="LABEL",
+                   help="run the full evaluation (both timing rules) and append it to the run history under this label")
+    e.set_defaults(f=cmd_eval)
     v = sp.add_parser("validate")
     v.add_argument("--allow-empty", action="store_true", help="exit 0 even when there are no files to check")
     v.set_defaults(f=cmd_validate)

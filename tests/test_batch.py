@@ -8,10 +8,9 @@ duplicates, high-priority exemption that still counts, and P5 counts from actual
 import copy
 from datetime import timedelta
 
-import pytest
 
 from mel.data import load_scenario
-from mel.schedule import run_batch, build_handoff, CapLedger, OptOutList
+from mel.schedule import run_batch, build_handoff, OptOutList
 from mel.timing import parse_ist, fmt_ist
 
 

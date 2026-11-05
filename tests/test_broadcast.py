@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mel.config import IST
 from mel.data import load_scenario, errors
 from mel.schedule import (
     SimClock, Broadcaster, Broadcast,

@@ -42,7 +42,7 @@ def test_relevance_score_in_range():
 # ======================================================================================================
 import itertools
 import pytest
-from mel.writer import write_surveys, check_survey, check_survey_result, relevance, template_items, render_template, templates, i18n, guards
+from mel.writer import check_survey_result, relevance, template_items, render_template, templates, i18n, guards
 
 ACTIONABLE = ['direct_action', 'wait_and_monitor', 'do_not_act', 'plan_created', 'escalate_to_expert']
 
@@ -584,3 +584,78 @@ def test_prices_fall_back_to_the_team_price_file(monkeypatch):
     assert llm.cost_usd(mid, 1000, 1000) == want
     assert llm.cost_usd("us." + mid, 1000, 1000) == want
     assert llm.cost_usd("no-such-model", 1000, 1000) is None
+
+
+# ---------------------------------------------------------------- compact lines, Hindi by translation, reading, replay (5 Nov)
+from mel.data import errors as data_errors
+from mel.writer import compose, llm as _llm
+
+COMPACT = """confirm | Did you spray the insecticide on the mustard? | Yes | No*i
+select | How are the aphids now? | Gone | Fewer | Same*f | Worse*d
+scale | How well did the spray work?"""
+
+
+def _surveyed():
+    return next(i for i in load_insights(None) if decide(i).survey)
+
+
+def test_compact_lines_become_schema_items():
+    items = _llm.parse_lines(COMPACT, 'en-IN')
+    assert [q['item_id'] for q in items] == ['q1', 'q2', 'q3']
+    assert items[0]['type'] == 'survey-confirm'
+    assert items[0]['options'] == [{'value': 'yes', 'label': 'Yes'}, {'value': 'no', 'label': 'No', 'follow_up': 'could_not_get_input'}]
+    assert items[1]['type'] == 'survey-single-select' and [o['value'] for o in items[1]['options']] == ['gone', 'fewer', 'same', 'worse']
+    assert items[1]['options'][2]['follow_up'] == 'advice_did_not_work' and items[1]['options'][3]['follow_up'] == 'crop_or_animal_damaged'
+    assert 'follow_up' not in items[1]['options'][0]
+    assert items[2] == {'item_id': 'q3', 'type': 'survey-scale', 'prompt': 'How well did the spray work?', 'scale_min': 1,
+                        'scale_max': 5, 'follow_up_at_or_below': 2, 'follow_up_reason': 'advice_did_not_work'}
+    i = _surveyed()
+    sv = {**compose._base(i, 'en-IN', decide(i).send_window), 'items': items}
+    assert check_survey(sv) == [] and data_errors('survey', clean(sv)) == []
+    assert _llm.lines_from(items) == COMPACT                                       # the same lines go back for a translation
+    assert _llm.parse_lines('Here you go:\n```\n1. confirm | Did it help? | Yes | No\n```', 'en-IN')[0]['prompt'] == 'Did it help?'
+    assert _llm.parse_lines('confirm | Did it help? | Yes | Not yet | No', 'en-IN')[0]['type'] == 'survey-single-select'
+    assert _llm.parse_lines('no survey here', 'en-IN') is None
+
+
+def test_hindi_translation_keeps_the_english_values(bedrock):
+    en = _llm.parse_lines(COMPACT, 'en-IN')
+    rt = bedrock(["confirm | क्या आपने सरसों पर दवा छिड़की? | हाँ | नहीं*i\nselect | माहू अब कैसे हैं? | खत्म | कम | वैसे ही*f | ज़्यादा*d\n"
+                  "scale | छिड़काव कितना काम आया?"])
+    i = _surveyed()
+    hi = _llm.llm_items(i, 'hi-IN', n_items=3, source_items=en)
+    assert [q['prompt'] for q in hi] == ['क्या आपने सरसों पर दवा छिड़की?', 'माहू अब कैसे हैं?', 'छिड़काव कितना काम आया?']
+    shape = lambda items: [[(o['value'], o.get('follow_up')) for o in q.get('options', [])] for q in items]
+    assert shape(hi) == shape(en) and hi[1]['options'][2]['label'] == 'वैसे ही' and hi[2]['follow_up_at_or_below'] == 2
+    sent = rt.calls[0]
+    assert 'Translate' in sent['system'][0]['text'] and 'Insight' not in sent['messages'][0]['content'][0]['text']
+    assert _llm.lines_from(en) in sent['messages'][0]['content'][0]['text']
+    assert sent['inferenceConfig']['maxTokens'] == _llm.MAX_WRITE_TOKENS
+    bedrock(["confirm | क्या आपने दवा छिड़की? | हाँ | नहीं"])                       # one line for a two-line survey
+    assert _llm.llm_items(i, 'hi-IN', n_items=2, source_items=en[:2]) is None
+
+
+def test_read_conversation_fills_only_allowed_fields(bedrock):
+    rt = bedrock(["asset: Goat\nconcern: livestock_health\nseverity: High\nadvice_type: escalate_to_expert\n"
+                  "act_within_days: 1 day\ncheck_back: next_day\nquestions: 2\ncolour: blue"])
+    got = _llm.read_conversation('My goat is not eating', 'Call the vet today.')
+    assert got == {'asset': 'goat', 'concern': 'livestock_health', 'severity': 'high', 'advice_type': 'escalate_to_expert',
+                   'act_within_days': 1, 'check_back': 'next_day', 'questions': 2}
+    sent = rt.calls[0]
+    assert sent['inferenceConfig']['maxTokens'] == 120 and 'My goat is not eating' in sent['messages'][0]['content'][0]['text']
+    bedrock(["severity: urgent\nquestions: 7\nadvice_type: do_not_act"])
+    assert _llm.read_conversation('x', 'y') == {'advice_type': 'do_not_act'}        # unknown values are dropped
+
+
+def test_committed_replay_file_answers_without_bedrock(bedrock, tmp_path, monkeypatch):
+    monkeypatch.setattr(_llm, '_replay', None)
+    bedrock([COMPACT])
+    i = _surveyed()
+    first = _llm.llm_items(i, 'en-IN', n_items=3)
+    replay = tmp_path / 'replay.jsonl'
+    assert first is not None and _llm.export_cache(replay) == 1 and _llm.export_cache(replay) == 1   # idempotent
+    monkeypatch.setattr(_llm, 'REPLAY', replay)
+    monkeypatch.setenv('MEL_CACHE_DIR', str(tmp_path / 'empty'))                  # a laptop with no cache of its own
+    boom = bedrock([], errors=[RuntimeError('no AWS here')])
+    assert _llm.llm_items(i, 'en-IN', n_items=3) == first and boom.calls == []     # answered from the committed file
+    assert _llm.client().last_usage['cached'] is True

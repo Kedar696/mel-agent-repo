@@ -101,3 +101,21 @@ def test_every_asset_problem_and_advice_type_runs_cleanly(resolution):
             if out["decision"].survey:
                 for s in out["surveys"].values():
                     assert errors("survey", clean(s)) == [], (asset, concern, resolution)
+
+
+def test_model_reading_fills_the_details_and_the_timing():
+    read = {"asset": "goat", "concern": "livestock_health", "severity": "high", "advice_type": "escalate_to_expert",
+            "act_within_days": 1, "check_back": "next_day", "questions": 2, "nonsense": "x"}
+    f = cc.apply_reading(BASE, read)
+    assert (f["asset"], f["concern"], f["severity"], f["resolution"], f["days"], f["timing"], f["questions"]) == \
+        ("goat", "livestock_health", "high", "escalate_to_expert", 1, "next_day", 2)
+    ins = cc.build_insight(f, cc.new_ids(2), "2026-11-05T09:00:00+05:30")
+    assert errors("insight", ins) == [] and ins["verification"]["timing"] == "next_day"
+    out = run_insight(ins)
+    assert out["decision"].survey and out["decision"].send_window["not_before"] == "2026-11-06T07:00:00+05:30"
+    assert cc.submission(f, 2)["questions"] == 2 and cc.submission(BASE, 3)["questions"] is None
+    assert cc.apply_reading(BASE, {"asset": "dragonfruit", "questions": 9})["asset"] == "mustard"   # unknown: as typed
+    assert cc.apply_reading(BASE, {"advice_type": "generic_information"})["check"] == "no"
+    note = cc.reading_note(f)
+    assert note.startswith("Bedrock read the conversation as: Goat") and "2 questions" in note and "the next day" in note
+    assert build()["verification"]["timing"] == "none"                                   # the form's default

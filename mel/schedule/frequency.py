@@ -356,8 +356,6 @@ class FrequencyScheduler:
         return ranked
 
     def _score_one(self, handoff: dict, now_dt) -> RankedHandoff:
-        survey = handoff["survey"]
-        farmer_id = survey["farmer_id"]
         rk = self.cfg["ranking"]
 
         # 1) existing priority (unchanged, just read)

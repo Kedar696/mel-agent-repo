@@ -4,7 +4,6 @@ Covers: preferred channel always reachable, other channels reachable by default 
 carries no signal to exclude them), explicit override, unknown-farmer fallback, and that
 channel_order is preserved for reachable channels while unreachable ones are skipped.
 """
-import pytest
 
 from mel.config import CHANNELS
 from mel.data import load_farmers, load_scenario

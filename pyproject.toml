@@ -5,3 +5,13 @@ requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# `ruff check` (pip install ruff). CI runs it. Rules: pyflakes (unused imports and variables, undefined
+# names, redefinitions) and bugbear's likely-bug checks. No style rules: one-line `if x: return` stays.
+extend-exclude = ["demo", "mel-survey-agent-participant-pack", "v0-sketch", "out"]
+
+[tool.ruff.lint]
+select = ["F", "B"]
+ignore = ["B905"]                        # zip(strict=) is a style choice, not a bug
+per-file-ignores = { "__init__.py" = ["F401"] }   # packages re-export their public names

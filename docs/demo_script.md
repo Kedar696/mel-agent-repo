@@ -105,8 +105,8 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > each other only **83%** of the time. **[Which model makes the best judge?]** We tried every model on Amazon
 > Bedrock, 70 of them, and picked the cheapest one that's as accurate as the best: about **5 cents per 1,000
 > surveys**. **[What it costs]** Every run is costed. We had Bedrock write every survey in the dataset, 2,616 of
-> them in Hindi and English: **$11 in total, under half a cent per survey** (about $4 per 1,000). Bedrock wrote
-> **92%** of the questions itself (English 95%, Hindi 88%); the rest failed a check twice and safely got the
+> them in Hindi and English: **$2.61 in total, a tenth of a cent per survey** (about $1 per 1,000; the first run cost $11 before the
+> compact writer). Bedrock wrote **97%** of the questions itself (English 97%, Hindi 96%); the rest failed a check twice and safely got the
 > template. 0 broken files, and the AI judge gives them **4.9 out of 5**.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
@@ -174,12 +174,14 @@ Amazon Connect are marked **not built**. Don't open any console on stage; use th
 ## Likely questions (short answers)
 
 - **Is this real farmer data?** No. It's synthetic data from Digital Green's pack. Nothing is actually sent.
-- **Does it use AI to write the questions?** Yes, on Amazon Bedrock: Claude Haiku 4.5 wrote 92% of the
-  2,616 surveys in both languages for $11. Every draft goes through the same safety checks as the templates, a
+- **Does it use AI to write the questions?** Yes, on Amazon Bedrock: Claude Haiku 4.5 wrote 97% of the
+  2,616 surveys in both languages for $2.61. Every draft goes through the same safety checks as the templates, a
   rejected draft is sent back with the reasons (up to twice), and if it still fails the farmer gets the
-  checked template. Without Bedrock it runs on templates alone: safe, free and repeatable.
-- **Why are more Hindi surveys on the template?** Hindi drafts fail a check more often (88% model-written vs
-  95% English); the template is the safe fallback. A native-speaker review of the Hindi is still pending (P4).
+  checked template. Without Bedrock it runs on templates alone: safe, free and repeatable. The phone shows the questions Bedrock wrote (recorded from AgentCore for the demo
+  picks); with AWS keys on the laptop, any browsed conversation and your own insight are written live, and
+  "Template vs Bedrock questions" shows the two side by side.
+- **Why are more Hindi surveys on the template?** Hindi drafts fail a check a little more often (96% model-written vs
+  97% English); the template is the safe fallback. A native-speaker review of the Hindi is still pending (P4).
 - **Is it really running on AWS?** Yes: the same agent runs on Bedrock AgentCore in the event account (one
   survey in both languages: about 4 seconds, $0.004). The app shows recorded AgentCore runs, so the demo
   does not depend on the network.

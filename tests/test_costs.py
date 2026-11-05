@@ -12,6 +12,15 @@ from mel.writer import llm
 from mel.writer.templates import template_items
 
 
+def _lines(insight):
+    """The English template as the compact lines a translation request carries ("" when there is no template)."""
+    from mel.writer.llm import lines_from
+    try:
+        return lines_from(template_items(insight, "en-IN"))
+    except ValueError:              # no survey template for this resolution type
+        return ""
+
+
 class Runtime:
     """bedrock-runtime stand-in: answers every writing request with that insight's template items."""
     def __init__(self, insights):
@@ -21,8 +30,12 @@ class Runtime:
     def converse(self, **kw):
         self.calls += 1
         text = kw["messages"][0]["content"][0]["text"]
-        lang = "hi-IN" if "Language: hi-IN" in text else "en-IN"
-        ins = next(i for a, i in self.by_advice.items() if a and a in text)
+        if "Translate" in (kw.get("system") or [{}])[0].get("text", ""):   # Hindi = a translation of the English lines
+            lang = "hi-IN"
+            ins = next(i for i in self.by_advice.values() if _lines(i) == text)
+        else:
+            lang = "hi-IN" if "Language: hi-IN" in text else "en-IN"
+            ins = next(i for a, i in self.by_advice.items() if a and a in text)
         return {"output": {"message": {"content": [{"text": json.dumps({"items": template_items(ins, lang)}, ensure_ascii=False)}]}},
                 "usage": {"inputTokens": 1000, "outputTokens": 100}}
 
@@ -85,9 +98,12 @@ def test_batch_writes_every_survey_and_prices_them(bedrock, mock):
     assert len(surveyed) == sum(1 for o in ref.values() if "handoff" in o)
     assert all(s["_source"] == "bedrock" for r in surveyed for s in r["surveys"].values())
     row = C.row_from_results("batch", "test", meter, results)
-    # 2 languages x 1 call each, 1,000 tokens in at $0.001/1K + 100 out at $0.005/1K = $0.0015 per call
-    assert row["calls"] == 2 * len(surveyed) and row["spent_usd"] == pytest.approx(0.003 * len(surveyed))
-    assert row["usd_per_survey"] == pytest.approx(0.003) and row["projected_full_usd"] == pytest.approx(0.003 * 2616, abs=0.01)
+    # 1 English draft + 1 Hindi translation per survey, minus requests already answered for an earlier survey with
+    # the same advice (the cache). 1,000 tokens in at $0.001/1K + 100 out at $0.005/1K = $0.0015 per call
+    fresh = bedrock.calls
+    assert len(surveyed) < fresh <= 2 * len(surveyed) and row["calls"] == fresh
+    assert row["spent_usd"] == pytest.approx(0.0015 * fresh) and row["usd_per_survey"] == pytest.approx(0.0015 * fresh / len(surveyed), abs=1e-6)
+    assert row["projected_full_usd"] == pytest.approx(row["usd_per_survey"] * 2616, abs=0.01)
     assert row["sources"]["en-IN:bedrock"] == len(surveyed)
     sm = summarise(results, mock)
     assert sm["schema_invalid_files"] == 0 and sm["surveys"] == len(surveyed) and sm["no_survey"] == len(mock) - len(surveyed)
@@ -102,7 +118,7 @@ def test_resume_is_free(bedrock, mock):
     row = C.row_from_results("batch", "again", meter, results)
     assert row["spent_usd"] == 0 and row["calls"] == 0
     # cached answers are priced as when they were made, so a re-run projects the same as the fresh run
-    assert row["full_price_usd"] == pytest.approx(0.003 * row["surveys"]) and row["usd_per_survey"] == pytest.approx(0.003)
+    assert row["full_price_usd"] == pytest.approx(0.0015 * calls) and row["usd_per_survey"] == pytest.approx(0.0015 * calls / row["surveys"], abs=1e-6)
 
 
 def test_budget_cap_stops_new_work(bedrock, mock):
