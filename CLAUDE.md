@@ -123,6 +123,11 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P4: (4 Nov) relevance threshold agreed at 0.3 with P5; plan templates changed by P5 on `p5-season-speed` (review).
   DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
   TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
+- **Judge model sweep (P5, 4 Nov, `p5-season-speed`):** `python -m mel.evaluation.judge_models --list | --run [--only x,y]
+  [--full]` finds every active text model in the region (on-demand id, else a us./global. inference profile), has each
+  judge the 20 hand-scored surveys, ranks by r with the team then gap; writes `docs/results/judge_models.json`
+  (committed) for the Dashboard's "Which model makes the best judge?". Not yet run on Bedrock. `ModelClient.converse`
+  now accepts `system=None` (for models without system prompts; P4 to review).
 - **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
   (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4

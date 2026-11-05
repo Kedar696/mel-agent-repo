@@ -104,8 +104,9 @@ class ModelClient:
         for attempt in range(1, self.max_attempts + 1):
             t0 = time.perf_counter()
             try:
+                kw = {"system": [{"text": system}]} if system else {}   # some models take no system prompt: pass None
                 resp = self._rt().converse(
-                    modelId=model_id, system=[{"text": system}],
+                    modelId=model_id, **kw,
                     messages=[{"role": "user", "content": [{"text": user}]}],
                     inferenceConfig={"maxTokens": max_tokens, "temperature": temperature})
             except ModelUnavailable:

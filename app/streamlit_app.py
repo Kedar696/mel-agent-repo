@@ -873,6 +873,43 @@ with tab_over:
                        f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
                        f"{jrun['seconds']:.0f} s on Bedrock. Points were lost almost always on a generic second question.")
 
+    from mel.evaluation.judge_models import load as load_models
+    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
+    if sweep.get("models"):
+        st.subheader("Which model makes the best judge?")
+        ok = [m for m in sweep["models"] if m.get("rank")]
+        pv = sweep.get("people_vs_people") or {}
+        st.caption(f"Every text model on Amazon Bedrock that our account could call ({len(sweep['models'])} listed, "
+                   f"{len(ok)} answered every survey) judged the same {sweep.get('surveys', 20)} hand-scored surveys. "
+                   "Best first: how closely it follows the team's ranking (r), then the smallest gap. People with each "
+                   f"other: within 1 point {_pct(pv.get('within_1'))}, gap {pv.get('mean_abs_diff', '—')}. "
+                   f"Run {sweep.get('date', '')}, {sweep.get('region', '')}.")
+        used = (cal or {}).get("model", "")
+        if ok:
+            best = ok[0]
+            b = st.columns(3)
+            b[0].metric("Best judge", best["name"], best["provider"], delta_color="off", delta_arrow="off")
+            b[1].metric("Its ranking match", f"r = {best['rank_r']:.2f}" if best.get("rank_r") is not None else "—",
+                        f"within 1 point {_pct(best['within_1'])}", delta_color="off", delta_arrow="off")
+            b[2].metric("Its speed", f"{best['seconds_per_call']:.1f} s" if best.get("seconds_per_call") is not None else "—",
+                        "per survey", delta_color="off", delta_arrow="off")
+            chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok],
+                                  "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok]}).set_index("model")
+            st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok)), sort=False)
+        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Provider": m["provider"], "Model": m["name"]
+                + ("  (used above)" if used and m.get("call_id") == used else ""),
+                "Within 1 point": _pct(m.get("within_1")), "Average gap": m.get("mean_abs_diff"),
+                "Ranking match (r)": m.get("rank_r"), "Average score given": m.get("avg_score"),
+                "Surveys answered": m.get("surveys_scored"), "Seconds per survey": m.get("seconds_per_call"),
+                "Result": {"ok": "ok", "skipped": "not callable on demand", "error": "error"}.get(m["status"], m["status"])}
+               for m in sweep["models"]]
+        with st.expander(f"All {len(tab)} models"):
+            table(pd.DataFrame(tab), width="stretch", hide_index=True)
+            errs = [m for m in sweep["models"] if m.get("error")]
+            if errs:
+                st.caption("Why some models have no score: " + "; ".join(
+                    f"{m['name']}: {m['error'][:90]}" for m in errs[:8]) + (" …" if len(errs) > 8 else ""))
+
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
                "farmer could have acted on the advice. We keep the brief as the default until Digital Green confirms.")
