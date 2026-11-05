@@ -36,9 +36,9 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | Use only `us-east-1` or `us-west-2` | ✅ everything runs in `us-east-1`. The console opens in us-west-2 by default, so switch it to N. Virginia. |
 | Keep total spend under $500 | ✅ the full run is capped at $40 (expected about $5–10; the pilot gives the real figure). The AI judge costs about $0.05 per 1,000 surveys. AgentCore is billed by use. |
 | No public S3 buckets, no weakened security | ✅ the bucket is private and encrypted. No AWS keys in git (`.env` and `out/` are git-ignored). The event's temporary keys are pasted only into the terminal. |
-| IaC when applicable | ⬜ `infra/fasal-pulse.yaml` (above) |
+| IaC when applicable | 🟡 `infra/fasal-pulse.yaml` written, lint-clean (cfn-lint), tested (`tests/test_infra.py`); not deployed yet |
 | Public GitHub repo, open-source sample | 🟡 public ✅, licence ⬜, README already lets a stranger run everything |
-| Least-privilege IAM, encryption at rest | ⬜ comes with the template |
+| Least-privilege IAM, encryption at rest | 🟡 in the template (no wildcard actions; bucket SSE + HTTPS only); live once deployed |
 | Serverless, managed, on-demand | ✅ AgentCore Runtime, Bedrock, S3, CloudWatch; no servers we manage |
 | Account wiped after the event | ✅ once committed: recorded agent runs (`docs/results/agent_runs/`), the cost ledger, the full-run summary, eval history. The demo runs with no AWS at all. |
 
@@ -55,7 +55,7 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | Agent hosting | **Amazon Bedrock AgentCore Runtime**, entry point `agentcore_app.py` | Built by CodeBuild, image in ECR |
 | Storage | **Amazon S3** (input `insights.jsonl`, per-survey results) | |
 | Monitoring | **Amazon CloudWatch** metrics, namespace `FasalPulse/Agent` | Plus the cost ledger in git |
-| IaC | **AWS CloudFormation** (`infra/fasal-pulse.yaml`) | To build |
+| IaC | **AWS CloudFormation** (`infra/fasal-pulse.yaml`) | Deploy steps in `docs/agentcore.md` |
 | UI | **Streamlit** (`app/streamlit_app.py`): Dashboard, Survey demo, Season, Follow-up queue | Runs locally. Backup link on Streamlit Community Cloud. |
 | Tests / CI | pytest (794 tests), GitHub Actions (`.github/workflows/ci.yml`) | |
 | Data | Organisers' synthetic pack: 6,999 insights → 2,616 surveys, 150-row golden set | Synthetic only |
@@ -87,7 +87,7 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | 2 | Paste fresh Workshop Studio keys; run the pilot; read the three numbers above | P5 | 15 min |
 | 3 | Full run (background) **and**, in parallel, `agentcore configure` / `launch` / `invoke` | P5 (+P1 to watch the account) | 25 min |
 | 4 | Record the five demo picks **from AgentCore**: `python -m mel.agent --record --remote <ARN>`; commit them | P5 | 5 min |
-| 5 | Write `infra/fasal-pulse.yaml` + `LICENSE`; deploy the template once to prove it works; update `docs/agentcore.md` | Claude + P1 | 30 min |
+| 5 | ✅ `infra/fasal-pulse.yaml` written. Deploy the stack **before** step 3's `agentcore configure` (its role, bucket and guardrail feed it). `LICENSE`: team picks MIT-0 or Apache-2.0 | P5 + P1 | 10 min |
 | 6 | Commit results: `cost_history.jsonl`, `full_bedrock_run.json`, `agent_runs/`; regenerate README numbers (`python scripts/readme_numbers.py --write`) | P5 | 10 min |
 | 7 | Score the blind Bedrock sheet (15 rows) | any 2 people | 10 min |
 | 8 | Slides: add **Architecture** (diagram with real service names) and **Cost** (cost per survey, full run actual, projection per 1,000 farmers); update demo numbers | P5 | 30 min |

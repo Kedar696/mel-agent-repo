@@ -181,6 +181,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,
   free resume via cache, files to `out/agent_batch/`, summary `docs/results/full_bedrock_run.json`. Dashboard "What it
   costs". Decided: Haiku 4.5, hi+en, history off, cap $40. **Pilot and full run not yet run** (need AWS keys).
+- **IaC + demo-day plan (P5, 5 Nov, `p5-agent-orchestrator`):** `infra/fasal-pulse.yaml` (CloudFormation; rules restrict to us-east-1/us-west-2): private SSE S3 bucket (HTTPS only, results expire 30 d), least-privilege AgentCore execution role, Bedrock Guardrail + version (deny new agronomic advice / personal-info requests, PII + content filters, no violence filter), CloudWatch dashboard (SEARCH over `FasalPulse/Agent`), optional budget. Outputs incl. ready `--env` flags for `agentcore launch`. cfn-lint clean; `tests/test_infra.py`. **Not deployed yet**; steps in `docs/agentcore.md`. Hackathon rules check, stack and order of work: `docs/demo_day_plan.md`. Repo is public but has **no LICENSE** (team to pick MIT-0 or Apache-2.0). No AWS CLI on Michael's laptop: deploy via console upload or CloudShell.
 - **REMINDER for P5 (deferred 5 Nov):** score the blind Bedrock sheet `docs/results/hand_scores_bedrock.csv` before
   claiming model-written surveys beat templates (judge 4.9 vs 4.5 may just reward longer questions).
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in

@@ -28,33 +28,59 @@ Local Streamlit UI --questions-->  AgentCore Runtime                            
 3. **On AgentCore:** `agentcore_app.py` wraps the same orchestrator. It streams the step events, writes the result
    to S3 and sends metrics to CloudWatch. The app calls it when `MEL_AGENTCORE_ARN` is set.
 
-## Deploy to AgentCore (from a laptop with the event's AWS keys, about 15 minutes)
-These are the AgentCore starter toolkit's commands. If a flag differs in your version, check `agentcore --help`.
+## Deploy (from a laptop with the event's AWS keys, about 20 minutes)
+Two parts: **(1)** a CloudFormation stack (infrastructure-as-code) creates everything around the agent, then
+**(2)** the AgentCore toolkit builds and runs the agent itself, using the stack's outputs.
 
+### 1. The stack: `infra/fasal-pulse.yaml`
+It creates, in us-east-1 or us-west-2 only (the template refuses other regions):
+- a **private, encrypted S3 bucket** for input and results (public access blocked, HTTPS only, results kept 30 days);
+- the **AgentCore execution role** with only what the agent needs: the Claude, Gemma and Nova models, this
+  guardrail, this bucket, metrics in `FasalPulse/Agent`, its own logs and container image;
+- the **Bedrock Guardrail** for survey questions: no new farming advice, no requests for personal information, PII
+  and harmful-content filters;
+- a **CloudWatch dashboard** `fasal-pulse-agent` (runs, spend, seconds, revisions, fallbacks, tokens);
+- an optional **budget alert** (only if you give `BudgetEmail`).
+
+Nothing in it runs or costs money when idle. Deploy it either way:
+- **Console:** CloudFormation → Create stack → Upload `infra/fasal-pulse.yaml` → stack name `fasal-pulse` → tick
+  "I acknowledge that AWS CloudFormation might create IAM resources with custom names" → Submit. The **Outputs** tab
+  has everything for step 2.
+- **CloudShell** (the `>_` icon in the console top bar; it has the AWS CLI):
+  ```
+  git clone https://github.com/michvinh-7/mel-agent-repo.git && cd mel-agent-repo
+  aws cloudformation deploy --template-file infra/fasal-pulse.yaml --stack-name fasal-pulse --capabilities CAPABILITY_NAMED_IAM --region us-east-1
+  aws cloudformation describe-stacks --stack-name fasal-pulse --region us-east-1 --query "Stacks[0].Outputs" --output table
+  ```
+
+Optional: copy the insights to the bucket (the agent's image already carries the pack, so this only matters if you
+want S3 as the input). From the laptop, with `<bucket>` from the outputs:
+```
+python -c "import boto3; boto3.client('s3').upload_file('mel-survey-agent-participant-pack/participant-pack/data/insights.jsonl', '<bucket>', 'input/insights.jsonl')"
+```
+
+To remove everything: empty the bucket, then delete the `fasal-pulse` stack.
+
+Check the template before changing it: `pip install cfn-lint`, then
+`cfn-lint --regions us-east-1 us-west-2 -- infra/fasal-pulse.yaml`. `tests/test_infra.py` checks the security settings.
+
+### 2. The agent: AgentCore starter toolkit
+If a flag differs in your version, check `agentcore configure --help`.
 ```
 source .venv/bin/activate
 pip install bedrock-agentcore bedrock-agentcore-starter-toolkit
-agentcore configure --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-east-1
-agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-east-1 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it
+agentcore configure --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-east-1 --execution-role <ExecutionRoleArn>
+agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-east-1 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it <AgentcoreLaunchEnv>
 agentcore invoke '{"insight_id": "I-001253"}'
 ```
-
-- **`configure`** asks for an execution role and an ECR repository. Accept the auto-created ones if the account
-  allows it.
-  - The role needs Bedrock (`bedrock:InvokeModel`, `bedrock:ApplyGuardrail`), CloudWatch (`cloudwatch:PutMetricData`),
-    and S3 access to the buckets below.
-- **`launch`** builds the container in the cloud and prints the runtime's ARN.
-- **`invoke`** should stream the steps and end with the result.
-
-### Optional: S3 and Guardrails
-- **Input and results buckets:**
-  - `aws s3 mb s3://fasal-pulse-<team>` (in CloudShell or with the AWS CLI)
-  - Copy the pack's `insights.jsonl` there.
-  - Add `--env MEL_S3_INPUT=s3://fasal-pulse-<team>/input/insights.jsonl --env MEL_S3_RESULTS=s3://fasal-pulse-<team>/results`.
-- **Guardrails:** create a guardrail in the Bedrock console. Add denied topics such as "giving agronomic advice" and
-  "asking for personal information", and personal-information filters. Then add `--env MEL_GUARDRAIL_ID=<id>`.
-- **Metrics** go to CloudWatch, namespace `FasalPulse/Agent`: runs, seconds, model calls, tokens, cost, revisions,
-  template fallbacks. Set `MEL_METRICS=0` to turn them off.
+- `<ExecutionRoleArn>` and `<AgentcoreLaunchEnv>` come from the stack's Outputs. `AgentcoreLaunchEnv` is a ready-made
+  set of `--env` flags (bucket, guardrail id and version, metrics namespace).
+- **`configure`** asks for an ECR repository (AWS's container registry). Accept the auto-created one.
+- **`launch`** builds the container in the cloud (CodeBuild) and prints the runtime's ARN.
+- **`invoke`** should stream the steps and end with the result. Its metrics show on the dashboard within a few minutes.
+- **The guardrail is new:** run the 40-survey pilot with `MEL_GUARDRAIL_ID` / `MEL_GUARDRAIL_VERSION` set once. If it
+  blocks fair questions (they show as template fallbacks with a guardrail reason), loosen the topic wording in the
+  template and redeploy the stack.
 
 ### Point the app at it
 ```
