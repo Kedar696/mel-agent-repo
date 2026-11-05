@@ -40,10 +40,24 @@ def log_path() -> Path: return Path(os.environ.get("MEL_LLM_LOG") or OUT / "bedr
 
 
 def prices() -> dict:
+    """USD per 1,000 tokens per model id. MEL_BEDROCK_PRICES wins; else the team's checked price file
+    docs/results/bedrock_prices.json (USD per 1M tokens, from the AWS Price List API; P5), converted."""
     try:
-        return json.loads(os.environ.get("MEL_BEDROCK_PRICES") or "{}")
+        env = json.loads(os.environ.get("MEL_BEDROCK_PRICES") or "{}")
     except ValueError:
+        env = {}
+    if env:
+        return env
+    from mel.config import ROOT
+    try:
+        raw = json.loads((ROOT / "docs" / "results" / "bedrock_prices.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return {}
+    return {k: {"in": v["in"] / 1000, "out": v["out"] / 1000} for k, v in raw.items()
+            if isinstance(v, dict) and v.get("in") is not None and v.get("out") is not None}
+
+
+_PROFILE_PREFIXES = ("us.", "eu.", "apac.", "global.")
 
 
 def enabled() -> bool:
@@ -53,7 +67,10 @@ def enabled() -> bool:
 
 def cost_usd(model_id: str, tokens_in: int, tokens_out: int):
     """None when the price of this model was not given (we never guess a price)."""
-    p = prices().get(model_id)
+    pr = prices()
+    p = pr.get(model_id)
+    if not p and model_id and model_id.startswith(_PROFILE_PREFIXES):   # a profile id costs what its model costs
+        p = pr.get(model_id.split(".", 1)[1])
     if not p:
         return None
     return round(tokens_in / 1000 * p.get("in", 0) + tokens_out / 1000 * p.get("out", 0), 6)
