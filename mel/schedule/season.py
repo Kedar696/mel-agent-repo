@@ -106,6 +106,13 @@ class SeasonScheduler:
         self.reachability = reachability
         self._admit_log: list = []
         self._sent_steps: dict[str, set[str]] = {}      # handoff_id -> channels already stepped
+        # Attempt timing. A hand-off is not stepped again until the clock reaches _next_at
+        # (the previous attempt's wait interval, moved into send hours). _attempts counts tries
+        # per (handoff_id, channel) so retries get distinct records; _retry_channel holds the
+        # channel a retry_same_channel outcome must try again.
+        self._next_at: dict[str, object] = {}
+        self._attempts: dict[tuple[str, str], int] = {}
+        self._retry_channel: dict[str, str] = {}
         # P5 metrics: tallies of admission decisions and per-step outcomes.
         self.admit_counts: Counter = Counter()
         self.step_counts: Counter = Counter()
@@ -172,65 +179,108 @@ class SeasonScheduler:
         """Run exactly ONE due scheduled step at the clock's current instant, by hand.
 
         Picks the single next hand-off the broadcaster would send now (earliest window
-        first, due, quality-clear, inside send hours), simulates its next not-yet-tried
-        channel as one step, records any opt-out so later steps are blocked, and removes the
-        hand-off from the queue once all its channels have been stepped or it stops. Returns
-        a StepResult. If nothing is due to send now, returns StepResult("nothing").
+        first, due, quality-clear, inside send hours and the send window) whose previous
+        attempt's wait interval has passed, simulates one channel attempt, records any opt-out
+        so later steps are blocked, and schedules or ends the hand-off:
+          * retry_same_channel -> the same channel again after retry_after_minutes (at most two
+            tries on one channel), as a distinct record (delivery_attempt and response_key).
+          * delivery failure (fall_back_to_next_channel) -> the next channel after
+            retry_after_minutes.
+          * no answer (window_expired / push_not_opened) on a channel that is not the last ->
+            the next channel after that channel's wait_hours.
+          * answered, declined, opted out, or no channel left -> done, removed from the queue.
+        The next attempt time is moved into send hours; if it falls after the send window
+        closes, the hand-off ends there (no send outside the window). If nothing is due, returns
+        StepResult("nothing").
         """
-        from mel.simulator import simulate, case_for_channel, STOP_DECISIONS
+        from mel.simulator import simulate, case_for_channel, next_step, earliest_send
 
-        # Keep the queue honest: drop anything now expired or quality-rejected (no send).
-        self.broadcaster.drop_expired_and_rejected(relevance_threshold=self.relevance_threshold)
+        # Keep the queue honest: drop anything now expired, past its send window, or
+        # quality-rejected (no send).
+        for b in self.broadcaster.drop_expired_and_rejected(relevance_threshold=self.relevance_threshold):
+            self._forget(b.handoff_id)
 
-        b = self.broadcaster.next_due(relevance_threshold=self.relevance_threshold)
+        now = self.clock.now()
+        b = self.broadcaster.next_due(
+            relevance_threshold=self.relevance_threshold,
+            ready=lambda h: now >= self._next_at.get(h["handoff_id"], now))
         if b is None:
             self.step_counts["nothing"] += 1
             return StepResult("nothing", reason="no step due at " + self.clock.now_ist())
 
         h = b.handoff
         hid = h["handoff_id"]
+        farmer_id = h["survey"]["farmer_id"]
         done = self._sent_steps.setdefault(hid, set())
 
-        # The next channel step for this hand-off the farmer can actually be reached on and
-        # that has not been tried yet. A channel is skipped when the persona cannot reach it
-        # (case None) OR, when reachability data is supplied, the farmer record marks it
-        # unreachable. channel_order is preserved for the reachable channels.
-        farmer_id = h["survey"]["farmer_id"]
-        channel = case = None
-        for stepdef in h["channel_order"]:
-            ch = stepdef["channel"]
-            if ch in done:
-                continue
-            done.add(ch)                       # mark tried (skipped or stepped) so we advance
-            if self.reachability is not None and not self.reachability.reachable(farmer_id, ch):
-                continue                       # farmer not reachable here per the data
-            c = case_for_channel(self.persona, ch)
-            if c is None:
-                continue                       # persona cannot be reached here
-            channel, case = ch, c
-            break
+        # A pending retry uses the same channel again; otherwise the next channel in
+        # channel_order the farmer can be reached on and that has not been tried yet. A channel
+        # is skipped when the persona cannot reach it or, when reachability data is supplied,
+        # the farmer record marks it unreachable. channel_order is preserved.
+        channel = self._retry_channel.pop(hid, None)
+        if channel is None:
+            for stepdef in h["channel_order"]:
+                ch = stepdef["channel"]
+                if ch in done:
+                    continue
+                done.add(ch)                   # mark tried (skipped or stepped) so we advance
+                if self._reachable(farmer_id, ch):
+                    channel = ch
+                    break
 
         if channel is None:
             # No remaining reachable channel: the hand-off is finished, drop it.
-            self.broadcaster.remove(hid)
+            self._finish(hid)
             self.step_counts["no_reachable_channel"] += 1
             return StepResult("nothing", handoff_id=hid, reason="no reachable channel left")
 
-        # Simulate this one channel attempt, sending at the clock's current instant. The case
-        # comes from the persona so opt-out / expiry / fall-back behaviour is preserved.
-        rec = simulate(h["survey"], channel, case,
-                       seed=self.seed, persona=self.persona, send_at=self.clock.now_ist())
-        self.opt_out.record(rec)  # feed opt-outs back so later steps to this farmer are blocked
+        attempt = self._attempts.get((hid, channel), 0) + 1
+        self._attempts[(hid, channel)] = attempt
+        case = case_for_channel(self.persona, channel)
 
-        # Stop the whole hand-off on an opt-out or any terminal (none/give_up) outcome, or
-        # when every channel has been tried. A fall_back_to_next_channel outcome leaves the
-        # hand-off queued so the next step() tries the next channel.
-        opted_out = rec["failure_code"] == "farmer_opted_out"
-        terminal = rec["retry_decision"] in STOP_DECISIONS
-        if opted_out or terminal or len(done) >= len(h["channel_order"]):
-            self.broadcaster.remove(hid)
+        # Simulate this one attempt, sent at the clock's current instant. The case comes from
+        # the persona, so opt-out / no-answer / fall-back behaviour follows outcome_codes.json.
+        rec = simulate(h["survey"], channel, case, seed=self.seed, persona=self.persona,
+                       attempt=attempt, send_at=self.clock.now_ist())
+        self.opt_out.record(rec)  # feed opt-outs back so later steps to this farmer are blocked
         self.step_counts["sent"] += 1
+
+        action, delay = next_step(h, channel, attempt, rec)
+        left = [s["channel"] for s in h["channel_order"]
+                if s["channel"] not in done and self._reachable(farmer_id, s["channel"])]
+        if action == "stop" or (action == "fallback" and not left):
+            self._finish(hid)
+        else:
+            nxt = earliest_send(h, now + delay)
+            if nxt is None:
+                # The next attempt would fall after the send window closes: nothing more can go out.
+                self._finish(hid)
+                self.step_counts["window_closed_before_next_attempt"] += 1
+            else:
+                self._next_at[hid] = nxt
+                if action == "retry":
+                    self._retry_channel[hid] = channel
         return StepResult("sent", handoff_id=hid, channel=channel, record=rec)
+
+    # -- step helpers --------------------------------------------------------
+    def _reachable(self, farmer_id: str, channel: str) -> bool:
+        """Reachable per the farmer data (if supplied) and the persona."""
+        from mel.simulator import case_for_channel
+        if self.reachability is not None and not self.reachability.reachable(farmer_id, channel):
+            return False
+        return case_for_channel(self.persona, channel) is not None
+
+    def next_attempt_at(self, handoff_id: str):
+        """When this hand-off's next attempt may run (None if no wait is pending)."""
+        return self._next_at.get(handoff_id)
+
+    def _forget(self, handoff_id: str) -> None:
+        self._next_at.pop(handoff_id, None)
+        self._retry_channel.pop(handoff_id, None)
+
+    def _finish(self, handoff_id: str) -> None:
+        self.broadcaster.remove(handoff_id)
+        self._forget(handoff_id)
 
     def run_due(self, max_steps: int = 1000) -> list[StepResult]:
         """Trigger every step due at the clock's current instant, one `step()` at a time.
