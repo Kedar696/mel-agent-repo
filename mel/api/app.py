@@ -59,21 +59,6 @@ def _decision_dict(d) -> dict:
     }
 
 
-def _due_payload(handoff: dict) -> dict:
-    """What GET /surveys/due returns per hand-off: the ids, the send window and the first
-    channel. The full survey rides in `survey` (already schema-valid as stored)."""
-    return {
-        "handoff_id": handoff.get("handoff_id"),
-        "survey_id": handoff["survey"]["survey_id"],
-        "farmer_id": handoff["survey"]["farmer_id"],
-        "send_window": handoff["send_window"],
-        "send_hours": handoff.get("send_hours"),
-        "priority": handoff.get("priority"),
-        "channel_order": handoff.get("channel_order"),
-        "survey": handoff["survey"],
-    }
-
-
 def create_app(farmers: dict | None = None) -> FastAPI:
     """Build a fresh app with its own scheduler. `farmers` defaults to `load_farmers()`; pass
     an explicit dict (even `{}`) in tests to avoid touching the data folder."""
@@ -175,8 +160,9 @@ def create_app(farmers: dict | None = None) -> FastAPI:
             due.append(h)
         if limit is not None:
             due = due[:limit]
-        return {"as_of": fmt_ist(now), "count": len(due),
-                "handoffs": [_due_payload(h) for h in due]}
+        # Return each stored hand-off unchanged, so every entry in `handoffs` is a full,
+        # schema-valid schedule_handoff (same object the scheduler holds and would send).
+        return {"as_of": fmt_ist(now), "count": len(due), "handoffs": due}
 
     return app
 

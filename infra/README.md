@@ -80,10 +80,9 @@ here:
 - **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
 
 ## What we could and could not validate here
-- `cloudformation.yaml`: validated with **cfn-lint** — no errors. One warning (W3697) notes that
-  App Runner is in maintenance mode / no longer open to new customers; it is kept because the
-  team contract names App Runner as the optional demo link. For a brand-new account, use the EKS
-  path instead.
+- `cloudformation.yaml`: validated with **cfn-lint** — no errors (one informational warning,
+  W3697, about the App Runner resource type). App Runner is kept because the team contract names
+  it as the optional demo link; the EKS path in `k8s/` is the alternative.
 - `k8s/*.yaml`: validated offline with **kubeconform** against the Kubernetes schemas — both
   valid.
 - No AWS account call was made. Nothing here has been deployed.

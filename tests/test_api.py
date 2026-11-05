@@ -11,7 +11,7 @@ from datetime import timedelta
 
 import pytest
 
-from mel.data import is_valid, load_insights
+from mel.data import errors, is_valid, load_insights
 from mel.pipeline import run_insight
 from mel.schedule.broadcast import Broadcaster
 from mel.schedule.clock import SimClock
@@ -174,6 +174,23 @@ def test_due_lists_the_survey_inside_its_window_and_send_hours():
     assert r.status_code == 200 and body["count"] >= 1
     assert h["handoff_id"] in [d["handoff_id"] for d in body["handoffs"]]
     assert body["as_of"] == fmt_ist(at)
+
+
+def test_due_returns_full_schema_valid_handoffs():
+    # Each entry in `handoffs` is a stored hand-off returned unchanged, so it passes the
+    # schedule_handoff schema (same object the scheduler holds and would send).
+    insight, result = _first_survey_insight(
+        lambda i, r: r["handoff"]["priority"] != "high")
+    c = client()
+    h = _post_and_window(c, insight)
+    at = parse_ist(h["send_window"]["not_before"]).replace(hour=9, minute=0, second=0)
+    body = c.get("/surveys/due", params={"at": fmt_ist(at)}).json()
+    assert body["count"] >= 1
+    for entry in body["handoffs"]:
+        assert is_valid("schedule_handoff", entry), errors("schedule_handoff", entry)
+    # The returned object is the stored hand-off itself, unchanged.
+    returned = next(e for e in body["handoffs"] if e["handoff_id"] == h["handoff_id"])
+    assert returned == h
 
 
 def test_due_excludes_outside_send_hours():

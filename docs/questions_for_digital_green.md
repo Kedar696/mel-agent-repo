@@ -150,8 +150,7 @@ confirm the deployment shape before building anything live.
   and `GET /surveys/due` (what is due to send at a given time); state is in memory, one replica. ⚙
 - In production, would you run **EventBridge** (scheduling/retries), **RDS** (the weekly limit and opt-outs) and
   **Amazon Connect** (voice) as our design assumes? (These are slide-only for the hackathon.)
-- Is **App Runner** acceptable for the demo link, or should the demo run only on EKS? (Note: AWS has put App
-  Runner into maintenance mode for new accounts, so EKS may be the safer target.) ⚙
+- Is **App Runner** acceptable for the demo link, or should the demo run only on EKS? ⚙
 
 ---
 

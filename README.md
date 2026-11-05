@@ -99,7 +99,7 @@ replica (see `infra/`).
 |---|---|
 | `GET /healthz` | liveness check for the container |
 | `POST /surveys` | run one insight. A survey returns `201` and is admitted to the scheduler (cap + opt-outs + quality gate); no survey returns `200`; junk input returns the R1 no-survey result (not an error); a body that is not a JSON object returns `422`. |
-| `GET /surveys/due` | read-only list of the hand-offs the scheduler would send at an instant. Optional `at` (ISO 8601 with a timezone offset; default: the scheduler's simulated clock) and `limit`. It never sends, dequeues or advances anything. |
+| `GET /surveys/due` | read-only list of the hand-offs the scheduler would send at an instant, each returned in full as a schema-valid `schedule_handoff`. Optional `at` (ISO 8601 with a timezone offset; default: the scheduler's simulated clock) and `limit`. It never sends, dequeues or advances anything. |
 
 > **Windows PowerShell users:** `curl` is an alias for `Invoke-WebRequest` there, which takes
 > different arguments. Type `curl.exe` instead to use the real curl shown below.
