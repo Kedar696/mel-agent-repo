@@ -1,39 +1,33 @@
 {
-  "label": "full set: Haiku 4.5, hi+en, guardrail v2, us-west-2",
-  "at": "2026-11-05T12:42:27+05:30",
-  "commit": "d98dc41",
+  "label": "full set: compact lines + Hindi by translation, Haiku 4.5, us-west-2 (no guardrail)",
+  "at": "2026-11-05T14:48:16+05:30",
+  "commit": "05d3fe6",
   "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   "judge": "google.gemma-3-12b-it",
-  "seconds": 1783.4,
+  "seconds": 847.9,
   "stopped_at_cap": false,
   "cost": {
-    "spent_usd": 11.064042,
-    "usd_per_survey": 0.00433,
-    "usd_per_1000_surveys": 4.3301,
-    "projected_full_usd": 11.33,
-    "calls": 11093,
-    "cached_calls": 5252,
+    "spent_usd": 2.610762,
+    "usd_per_survey": 0.001018,
+    "usd_per_1000_surveys": 1.018,
+    "projected_full_usd": 2.66,
+    "calls": 6804,
+    "cached_calls": 2474,
     "failed_calls": 0,
-    "input_tokens": 4321561,
-    "output_tokens": 1732748,
+    "input_tokens": 2246818,
+    "output_tokens": 456529,
     "by_purpose": {
-      "check": {
-        "calls": 3677,
-        "input_tokens": 1042575,
-        "output_tokens": 154434,
-        "usd": 1.814745
-      },
       "judge": {
-        "calls": 3247,
-        "input_tokens": 1273297,
-        "output_tokens": 161901,
-        "usd": 0.161543
+        "calls": 3274,
+        "input_tokens": 1267110,
+        "output_tokens": 162552,
+        "usd": 0.161169
       },
       "write": {
-        "calls": 4169,
-        "input_tokens": 2005689,
-        "output_tokens": 1416413,
-        "usd": 9.087754
+        "calls": 3530,
+        "input_tokens": 979708,
+        "output_tokens": 293977,
+        "usd": 2.449593
       }
     }
   },
@@ -44,23 +38,24 @@
   "files": 7848,
   "schema_invalid_files": 0,
   "sources": {
-    "en-IN bedrock": 2498,
-    "en-IN template": 118,
-    "hi-IN bedrock": 2292,
-    "hi-IN template": 324
+    "en-IN bedrock": 2548,
+    "en-IN template": 68,
+    "hi-IN bedrock": 2522,
+    "hi-IN template": 94
   },
   "fallbacks": {
-    "still failing after 2 revisions": 442
+    "still failing after 2 revisions": 160,
+    "Bedrock gave no usable draft": 2
   },
-  "revisions": 1776,
-  "surveys_revised": 728,
-  "avg_bedrock_question_chars": 62.0,
-  "judge_relevance": 4.91,
+  "revisions": 906,
+  "surveys_revised": 522,
+  "avg_bedrock_question_chars": 54.0,
+  "judge_relevance": 4.93,
   "judge_by_advice_type": {
-    "direct_action": 4.96,
-    "do_not_act": 4.76,
-    "escalate_to_expert": 5.0,
-    "plan_created": 4.66,
-    "wait_and_monitor": 4.9
+    "direct_action": 4.98,
+    "do_not_act": 4.82,
+    "escalate_to_expert": 4.97,
+    "plan_created": 4.77,
+    "wait_and_monitor": 4.73
   }
 }
