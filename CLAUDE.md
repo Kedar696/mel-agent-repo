@@ -126,7 +126,10 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - **Judge model sweep (P5, 4 Nov, `p5-season-speed`):** `python -m mel.evaluation.judge_models --list | --run [--only x,y]
   [--full]` finds every active text model in the region (on-demand id, else a us./global. inference profile), has each
   judge the 20 hand-scored surveys, ranks by r with the team then gap; writes `docs/results/judge_models.json`
-  (committed) for the Dashboard's "Which model makes the best judge?". Not yet run on Bedrock. `ModelClient.converse`
+  (committed) for the Dashboard's "Which model makes the best judge?". **Cost counts:** `--prices` fetches token prices
+  (AWS Price List API, best effort) into `docs/results/bedrock_prices.json` for a person to check; cost per survey =
+  price x tokens the model really used (from the judge's saved answers, so re-runs price the same). Pick = "best value":
+  the cheapest priced model within 0.10 r and 0.15 gap of the most accurate. Not yet run on Bedrock. `ModelClient.converse`
   now accepts `system=None` (for models without system prompts; P4 to review).
 - **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
   (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your

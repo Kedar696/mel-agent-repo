@@ -126,7 +126,7 @@ def test_bedrock_client_goes_through_p4_model_client(monkeypatch, tmp_path):
 
     c = J.BedrockClient("judge-model", runtime=FakeRuntime())
     assert c.complete("sys", "user") == ('{"score": 4, "reason": "ok"}', {"input_tokens": 120, "output_tokens": 15})
-    assert c.complete("sys", "user")[1] == {"input_tokens": 0, "output_tokens": 0}     # ModelClient cache hit
+    assert c.complete("sys", "user")[1] == {"input_tokens": 120, "output_tokens": 15, "cached": True}   # cache hit
     assert FakeRuntime.calls == 1
     import json
     rows = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]

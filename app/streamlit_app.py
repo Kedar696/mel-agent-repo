@@ -885,22 +885,49 @@ with tab_over:
                    f"other: within 1 point {_pct(pv.get('within_1'))}, gap {pv.get('mean_abs_diff', '—')}. "
                    f"Run {sweep.get('date', '')}, {sweep.get('region', '')}.")
         used = (cal or {}).get("model", "")
-        if ok:
-            best = ok[0]
-            b = st.columns(3)
-            b[0].metric("Best judge", best["name"], best["provider"], delta_color="off", delta_arrow="off")
-            b[1].metric("Its ranking match", f"r = {best['rank_r']:.2f}" if best.get("rank_r") is not None else "—",
-                        f"within 1 point {_pct(best['within_1'])}", delta_color="off", delta_arrow="off")
-            b[2].metric("Its speed", f"{best['seconds_per_call']:.1f} s" if best.get("seconds_per_call") is not None else "—",
+        by_id = {m["model_id"]: m for m in sweep["models"]}
+        pick, top = by_id.get(sweep.get("best_value") or ""), by_id.get(sweep.get("most_accurate") or "")
+        qm = sweep.get("quality_margin") or {}
+
+        def _usd(v):
+            return "price unknown" if v is None else (f"${v:,.2f}" if v >= 0.1 else f"${v:,.4f}")
+
+        if pick or top:
+            shown = pick or top
+            b = st.columns(4)
+            b[0].metric("Best value" if pick else "Most accurate (no prices yet)", shown["name"], shown["provider"],
+                        delta_color="off", delta_arrow="off")
+            b[1].metric("Its ranking match", f"r = {shown['rank_r']:.2f}" if shown.get("rank_r") is not None else "—",
+                        f"within 1 point {_pct(shown['within_1'])}", delta_color="off", delta_arrow="off")
+            b[2].metric("Cost per 1,000 surveys", _usd(shown.get("usd_per_1000_surveys")),
+                        f"whole season ({sweep.get('season_surveys', 2616):,} surveys): {_usd(shown.get('usd_per_season'))}",
+                        delta_color="off", delta_arrow="off")
+            b[3].metric("Speed", f"{shown['seconds_per_call']:.1f} s" if shown.get("seconds_per_call") is not None else "—",
                         "per survey", delta_color="off", delta_arrow="off")
-            chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok],
-                                  "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok]}).set_index("model")
-            st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok)), sort=False)
-        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Provider": m["provider"], "Model": m["name"]
-                + ("  (used above)" if used and m.get("call_id") == used else ""),
+            note = (f"Best value = the cheapest model whose quality is close to the most accurate one (ranking match "
+                    f"within {qm.get('rank_r', 0.1)} and gap within {qm.get('mean_abs_diff', 0.15)}), so we don't pay "
+                    "for accuracy we can't measure.")
+            if pick and top and pick is not top:
+                note += (f" The most accurate is {top['provider']} {top['name']} (r = {top.get('rank_r')}, "
+                         f"{_usd(top.get('usd_per_1000_surveys'))} per 1,000 surveys).")
+            if not pick:
+                note += (" No priced model is close enough to the most accurate one: add its price to "
+                         "docs/results/bedrock_prices.json and re-run."
+                         if any(m.get("usd_per_1000_surveys") is not None for m in sweep["models"]) else
+                         " No model has a price yet: run `python -m mel.evaluation.judge_models --prices`.")
+            st.caption(note)
+            ok_c = [m for m in ok if m.get("usd_per_1000_surveys") is not None]
+            if ok_c:
+                chart = pd.DataFrame({"model": [f"{m['provider']} {m['name']}" for m in ok_c],
+                                      "follows the team's ranking (r)": [m.get("rank_r") or 0 for m in ok_c]}).set_index("model")
+                st.markdown("**Ranking match by model** (higher is better; models with a known price)")
+                st.bar_chart(chart, horizontal=True, color=PALETTE["green"], height=max(160, 26 * len(ok_c)), sort=False)
+        tab = [{"Rank": str(m["rank"]) if m.get("rank") else "—", "Pick": m.get("pick") or "",
+                "Provider": m["provider"], "Model": m["name"] + ("  (judge used above)" if used and m.get("call_id") == used else ""),
                 "Within 1 point": _pct(m.get("within_1")), "Average gap": m.get("mean_abs_diff"),
-                "Ranking match (r)": m.get("rank_r"), "Average score given": m.get("avg_score"),
-                "Surveys answered": m.get("surveys_scored"), "Seconds per survey": m.get("seconds_per_call"),
+                "Ranking match (r)": m.get("rank_r"), "Close to best": "yes" if m.get("close_to_best") else "",
+                "Cost per 1,000 surveys": _usd(m.get("usd_per_1000_surveys")) if m.get("status") == "ok" else "",
+                "Seconds per survey": m.get("seconds_per_call"), "Surveys answered": m.get("surveys_scored"),
                 "Result": {"ok": "ok", "skipped": "not callable on demand", "error": "error"}.get(m["status"], m["status"])}
                for m in sweep["models"]]
         with st.expander(f"All {len(tab)} models"):
