@@ -78,6 +78,12 @@ def verify(survey: dict, insight: dict, n_items: int, *, template: dict | None =
     if long_:
         problems.append(f"questions {', '.join(long_)} are longer than {MAX_PROMPT_CHARS} characters: one short "
                         "question each, and do not repeat the advice back")
+    # Say the limit plainly: P4's guard only names the label, and on 5 Nov Haiku kept "Did not add chemicals" (21)
+    # through both revisions.
+    long_labels = [o.get("label") for q in items for o in q.get("options", []) if len(o.get("label") or "") > 20]
+    if long_labels:
+        problems.append(f"answer labels {', '.join(repr(x) for x in long_labels)} are longer than 20 characters: "
+                        "use 1 to 3 short words, e.g. 'Yes', 'Not yet', 'Still a problem'")
     if not problems and llm.check_model():
         opinion = llm.model_check(survey, insight)
         for k, v in (opinion or {}).items():
