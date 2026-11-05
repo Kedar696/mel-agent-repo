@@ -84,6 +84,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   The Simulate answers tab, the static all-questions panel and the data caption are gone. Theme: `app/theme.py`
   + `.streamlit/config.toml` (Mukta, ivory/green/marigold, see `docs/uiux-design.md`). Dates and times on screen are
   Eastern Time, MM/DD/YYYY, 12-hour via `app/display_time.py`; stored timestamps and JSON stay ISO/IST.
+  Voice channel: "Read the call aloud" plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
+  in `.env`; see `.env.example`); off and silent without a key.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
   (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey demo

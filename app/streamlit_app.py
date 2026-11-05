@@ -53,6 +53,7 @@ from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context
 sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
 from app import custom_context as cc
+from app import tts
 from app.display_time import ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text
 from app.channel_preview import render_channel_preview
 from app.theme import PALETTE, apply_theme
@@ -412,6 +413,39 @@ def own_insight_editor(draft: dict) -> bool:
     return True
 
 
+@st.cache_data(show_spinner=False)
+def _tts(text: str) -> bytes | None:
+    """One ElevenLabs call per distinct line; reruns and repeated taps replay the cached audio."""
+    return tts.speak(text)
+
+
+def voice_readout(sv: dict, preview_key: str, rec):
+    """Read aloud what the farmer hears on the call: the greeting, then each question as it comes up, then the
+    closing line. ElevenLabs text to speech, multilingual; nothing is sent to a farmer."""
+    if not st.toggle("Read the call aloud", key="tts_on", help="ElevenLabs text to speech (Hindi and English). "
+                                                                 "Needs ELEVENLABS_API_KEY; see .env.example."):
+        return
+    if not tts.api_key():
+        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) and rerun to hear the call.")
+        return
+    state, vo = st.session_state.get(f"mel_preview|{preview_key}"), render(sv, "voice")
+    if state is None or state.stage == "invite":
+        line = vo["opening"]
+    elif state.done:
+        line = (vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"]) if state.ending == "finished" else ""
+    else:
+        line = vo["items"][state.step]["say"]
+    if not line:
+        return  # the farmer ended the call; nothing more is spoken
+    try:
+        audio = _tts(line)
+    except tts.TTSError as e:
+        st.caption(f"ElevenLabs did not answer: {e}")
+        return
+    if audio:
+        st.audio(audio, format="audio/mpeg", autoplay=True)
+
+
 def report_strip(kicker: str, title: str, note: str = ""):
     """The report's title line: what this insight is, plus the submission time for an own insight."""
     html(f'<div class="mel-report"><div><div class="mel-kicker{" own" if kicker == "Your insight" else ""}">{escape(kicker)}'
@@ -556,9 +590,11 @@ with tab_studio:
             with col_p:
                 # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
                 # "Start over", so the settings bar's Restart is the only reset control.
-                rec = render_channel_preview(sv, ch, key=f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{mem is not None}",
-                                             send_at=d.send_time["send_at"] if ch == first_ch else None,
+                pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{mem is not None}"
+                rec = render_channel_preview(sv, ch, key=pkey, send_at=d.send_time["send_at"] if ch == first_ch else None,
                                              restart=restart, show_restart=False)
+                if ch == "voice":
+                    voice_readout(sv, pkey, rec)
             with col_m:
                 handoff_card(h, d.send_time)
                 tags = [badge(SOURCE_NAME.get(x, x), "amber") for x in sorted({s.get("_source") for s in surveys.values()})]

@@ -78,6 +78,14 @@ The WhatsApp and Telegram colours were not measured: they follow the products.
   same size as English (Devanagari x-height is smaller, so 15px Hindi reads like 14px Latin).
 - Language controls are labelled Hindi / English for the user; `hi-IN` / `en-IN` stay in the data.
 
+## Read the call aloud (ElevenLabs)
+
+On the Voice channel a "Read the call aloud" toggle under the phone plays what the farmer would hear: the
+greeting, then each question as it comes up, then the closing line, through ElevenLabs text to speech
+(`app/tts.py`, multilingual model, standard library HTTP, one call per distinct line cached by Streamlit).
+It needs `ELEVENLABS_API_KEY` in the environment or the repo's `.env` (a key with Text to Speech access is
+enough; see `.env.example`); without it the toggle shows how to enable it. Nothing is sent to a farmer.
+
 ## Dates and times
 
 Every human-facing date or time in the app goes through `app/display_time.py` (B's helper): Eastern Time
