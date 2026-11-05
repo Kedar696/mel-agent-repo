@@ -1,0 +1,13 @@
+.venv/
+.git/
+out/
+v0-sketch/
+.env
+**/__pycache__/
+.pytest_cache/
+app/
+tests/
+demo/
+mel-survey-agent-participant-pack/participant-pack/json/
+mel-survey-agent-participant-pack/participant-pack/excel/
+mel-survey-agent-participant-pack/participant-pack/*.html

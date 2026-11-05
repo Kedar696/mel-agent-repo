@@ -167,6 +167,15 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
   relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,050 sends / 0 blocked (after P3 #24). README/scorecard
   regenerated: runs 8-9 (P4 relevance 0.69 -> 0.81). Write-up: `docs/results/judge_calibration.md`.
+- **Agent on AgentCore (P5, 5 Nov, `p5-agent-orchestrator`), the AWS associate's design:** `mel/agent/` = Evidence
+  Extractor -> Analyst -> Verifier -> Synthesizer with bounded revision (max 2, then template), streaming JSON events.
+  Verifier: P4 guards, relevance >= 0.3, prompts <= 120 chars, P4 small-model check, Bedrock Guardrails
+  (`MEL_GUARDRAIL_ID`), judge score. `llm_items(feedback=, previous=)` added (P4 to review). AgentCore wrapper
+  `agentcore_app.py` (+ `mel/agent/aws.py` S3 results / CloudWatch metrics, `mel/agent/remote.py` invoke stream),
+  `requirements-agentcore.txt`, `.dockerignore`; deploy steps `docs/agentcore.md` (not yet deployed). App: Survey demo
+  expander "How the agent wrote this survey" (recorded run from `docs/results/agent_runs/` or live; AgentCore when
+  `MEL_AGENTCORE_ARN`). CLI `python -m mel.agent [--record] [--remote ARN] ids`. Without Bedrock it matches the
+  pipeline exactly (test).
 - **REMINDER for P5 (deferred 5 Nov):** score the blind Bedrock sheet `docs/results/hand_scores_bedrock.csv` before
   claiming model-written surveys beat templates (judge 4.9 vs 4.5 may just reward longer questions).
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
