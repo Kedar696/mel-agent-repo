@@ -57,8 +57,7 @@ from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
 from mel.schedule import SeasonScheduler
 from mel.simulator import simulate
-from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
-                        history_notes)
+from mel.writer import (check_survey, write_surveys, FarmerMemory, history_notes)
 
 sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 

@@ -6,7 +6,7 @@ import pytest
 
 from mel.agent import run_agent_to_end, MAX_REVISIONS
 from mel.data import load_insights
-from mel.pipeline import run_insight, clean
+from mel.pipeline import run_insight
 from mel.writer import llm
 from mel.writer.templates import template_items, question_count
 

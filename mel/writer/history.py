@@ -73,7 +73,7 @@ def build_context(i, mem):
                    'last_severity': same[-1].get('severity')} if same else None,
         'escalated': bool(same) and same[-1].get('severity') == 'low' and i.get('severity') in ('high', 'critical'),
         'barrier': barrier,
-        'non_responses_in_last3': sum(r['status'] in NON_RESPONSE for r in last3) if len(last3) == 3 else sum(r['status'] in NON_RESPONSE for r in last3),
+        'non_responses_in_last3': sum(r['status'] in NON_RESPONSE for r in last3),
         'last_surveys_seen': len(last3),
         'activity_level': prof.get('activity_level'),
         'crops': (prof.get('crops') or '').split('|') if prof.get('crops') else [],
@@ -84,7 +84,7 @@ def build_context(i, mem):
 def summary_lines(ctx):
     L = [f"Earlier insights for this farmer: {ctx['prior_insight_count']}"]
     if ctx['repeat']: L.append(f"Same crop and problem raised {ctx['repeat']['count']}x before (last {ctx['repeat']['last_date']}, advice was {ctx['repeat']['last_resolution']})")
-    if ctx['escalated']: L.append(f"Last time this problem was low severity; now it is high")
+    if ctx['escalated']: L.append("Last time this problem was low severity; now it is high")
     if ctx['barrier']: L.append(f"An earlier survey answer said: {ctx['barrier']}")
     if ctx['last_surveys_seen']: L.append(f"Last {ctx['last_surveys_seen']} surveys: {ctx['non_responses_in_last3']} not answered")
     if ctx['activity_level']: L.append(f"Activity level: {ctx['activity_level']}")

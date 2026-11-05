@@ -6,13 +6,10 @@ scheduler's no-crop fallback to a farmer's strongest topic, and the cap merge-ho
 """
 import copy
 
-import pytest
 
 from mel.data import load_scenario
 from mel.schedule import (
-    build_handoff, CapLedger, OptOutList,
-    FrequencyMonitor, FrequencyPeak, FrequencyScheduler, ClimateContext,
-    frequency_config, topic_of,
+    build_handoff, CapLedger, FrequencyMonitor, FrequencyScheduler, frequency_config, topic_of,
 )
 
 

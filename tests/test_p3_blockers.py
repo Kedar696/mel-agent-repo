@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from mel.config import IST, outcome_codes
+from mel.config import outcome_codes
 from mel.data import load_scenario, errors
 from mel.schedule import (
     SeasonScheduler, Broadcaster, SimClock, FrequencyMonitor, FrequencyScheduler,

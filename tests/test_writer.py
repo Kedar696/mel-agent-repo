@@ -42,7 +42,7 @@ def test_relevance_score_in_range():
 # ======================================================================================================
 import itertools
 import pytest
-from mel.writer import write_surveys, check_survey, check_survey_result, relevance, template_items, render_template, templates, i18n, guards
+from mel.writer import check_survey_result, relevance, template_items, render_template, templates, i18n, guards
 
 ACTIONABLE = ['direct_action', 'wait_and_monitor', 'do_not_act', 'plan_created', 'escalate_to_expert']
 

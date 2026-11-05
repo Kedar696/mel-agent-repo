@@ -366,7 +366,7 @@ def _chat(survey, channel, state, key, slug, t0, rec, fresh):
 
 
 def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
-    lang, u, c, kind = survey["language"], UI[survey["language"]], CHROME[survey["language"]], KIND[channel]
+    u, c, kind = UI[survey["language"]], CHROME[survey["language"]], KIND[channel]
     sheet, items, n = render(survey, channel)["sheet"], survey["items"], state.n
     now = open_time(t0) if not state.taps else tap_time(t0, len(state.taps), n)
     if channel == "web":
@@ -413,7 +413,7 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
 
 
 def _voice(survey, channel, state, key, slug, t0, rec, fresh):
-    lang, u, c, kind = survey["language"], UI[survey["language"]], CHROME[survey["language"]], KIND[channel]
+    u, c, kind = UI[survey["language"]], CHROME[survey["language"]], KIND[channel]
     vo, items = render(survey, "voice"), survey["items"]
     ringing = state.stage == "ringing"
     lines = [] if ringing or state.ending == "missed" else [("bot", vo["opening"], state.stage == "invite")]

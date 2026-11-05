@@ -209,7 +209,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
-  Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
+  Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster drops a hand-off whose send window closed (`not_after`) as expired (done on `Semdon-P3`).
   Branch `p5-auto-reload-fix` (8a63a16, no PR) is superseded: `main` has the same fix plus the `app/` reload.
 - P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
   `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
@@ -228,9 +228,10 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   (CFN: ECR + App Runner + Bedrock-only instance role; k8s Deployment/Service replicas 1; README; definition only,
   cfn-lint + kubeconform clean). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
   **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 = @Semdon31). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
-  (`-r requirements-api.txt` + httpx) — post in chat. Still open: call `mel.evaluation.run_eval()` from `cmd_eval`
-  (history on every eval); `late` in the response schema (P3 request, decision pending, see
-  `docs/h4_schema_change_request_late.md`); open the PR to main; create the freeze tag (`docs/release_checklist.md`).
+  (`-r requirements-api.txt` + httpx) — post in chat. Done 5 Nov (`willF-polish`): `mel.cli eval --record LABEL` runs `mel.evaluation.run_eval()`
+  (one history row per timing rule); late answers are counted as `schedule.late_answers` in `run_summary.json`
+  (option B of `docs/h4_schema_change_request_late.md`, no schema change; recorded in `docs/h4_interface_decisions.md`);
+  `scripts/compare_outcomes.py` wraps `mel.simulator.reference_check`; ruff config in `pyproject.toml` + CI step. Still open: open the PR to main; create the freeze tag (`docs/release_checklist.md`).
 - Questions owed to Digital Green (P1 sends them): `docs/questions_for_digital_green.md` is **rewritten and ready
   to send** — the 3 originals refreshed (99.3% at commit 343742f), the 2 missing ones added (MEL rubric; survey
   JSON vs agent-to-UI format), plus Bedrock models/region, late answers, reachability, licence and an AWS-design
@@ -333,6 +334,9 @@ each step below is in the owner's own files. Numbers are from the full pack (6,9
    (P5 co-owns README; agree the wording with them).
 6. Still open from before: real usernames in `.github/CODEOWNERS` (still `@p1`..`@p5`, so no
    reviewer is requested), and send the questions in `docs/questions_for_digital_green.md`.
+   Status 5 Nov (`willF-polish`): 1 done by P1 (`lucas-p1`); 2 decided, option B (`schedule.late_answers`,
+   `docs/h4_interface_decisions.md`); 4 documented as the agreed default in `docs/TEAM.md` (no CSV change);
+   5 done; 6 CODEOWNERS done. Open: 3 and the questions to Digital Green (a person has to send them).
 
 **P4 (Survey Writing & Safety)**
 1. **Publish the relevance threshold** as one named value P3 and P5 import, for example

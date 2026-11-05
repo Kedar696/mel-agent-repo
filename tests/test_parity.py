@@ -3,7 +3,6 @@ import json
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -160,6 +159,6 @@ def test_compare_golden_reports_added_removed_changed(tmp_path):
     new.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in new_rows) + "\n", encoding="utf-8")
     r = run("scripts/compare_golden.py", str(old), str(new))
     assert r.returncode == 0, r.stderr
-    assert f"added:   1  G-9999" in r.stdout
+    assert "added:   1  G-9999" in r.stdout
     assert f"removed: 1  {rows[0]['golden_id']}" in r.stdout
     assert f"{rows[1]['golden_id']}: expected.rule" in r.stdout

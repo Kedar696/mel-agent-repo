@@ -65,6 +65,10 @@ mel.schedule.build_handoff(insight, survey) -> handoff                          
 mel.schedule.CapLedger().allow(handoff) -> bool; OptOutList().record(resp) / .blocks(h)  # P3
 mel.channels.render(survey, channel) -> payload                                          # P3
 mel.simulator.simulate(survey, channel, case, seed, send_at=None) -> response             # P3
+mel.channels.FarmerReachability(load_farmers()).reachable(farmer_id, channel) -> bool    # P3
+#   Agreed default (5 Nov): farmers.csv has no reachability column, so every channel is reachable unless
+#   an explicit override (`unreachable_by_farmer`) says otherwise; `preferred_channel` is never read as
+#   "the other channels are unreachable". A real `reachable_channels` column would replace the override.
 #   send_at = decision.send_time["send_at"] for the first channel; the CLI and the app pass it
 mel.evaluation.score_golden(golden=None) -> metrics                                      # P5
 ```
