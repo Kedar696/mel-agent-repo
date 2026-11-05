@@ -68,7 +68,11 @@ def verify(survey: dict, insight: dict, n_items: int, *, template: dict | None =
     if rel < RELEVANCE_THRESHOLD:
         problems.append(f"relevance {rel:.2f} is below the send bar {RELEVANCE_THRESHOLD}: name the crop or animal, "
                         "the problem, or the advised action")
-    if template is not None and rel < relevance(template, insight):
+    # "At least as relevant as the template" only in English. P4's score looks for fixed word lists that the Hindi
+    # templates are written from, so a good Hindi draft with other words or spellings scores lower than the template
+    # (5 Nov pilot: 43 of 44 Hindi rejections were this check). Hindi drafts still need the 0.3 send bar.
+    hindi = str(survey.get("language", "")).startswith("hi")
+    if template is not None and not hindi and rel < relevance(template, insight):
         problems.append("less relevant than the template: ask about the specific advised action")
     long_ = [q.get("item_id", "?") for q in items if len(q.get("prompt") or "") > MAX_PROMPT_CHARS]
     if long_:

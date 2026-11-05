@@ -100,7 +100,9 @@ def test_resume_is_free(bedrock, mock):
     results, meter, _ = run_batch(mock, pack, workers=2, progress=None)
     assert bedrock.calls == calls                           # all from the cache
     row = C.row_from_results("batch", "again", meter, results)
-    assert row["spent_usd"] == 0 and row["calls"] == 0 and row["usd_per_survey"] is None
+    assert row["spent_usd"] == 0 and row["calls"] == 0
+    # cached answers are priced as when they were made, so a re-run projects the same as the fresh run
+    assert row["full_price_usd"] == pytest.approx(0.003 * row["surveys"]) and row["usd_per_survey"] == pytest.approx(0.003)
 
 
 def test_budget_cap_stops_new_work(bedrock, mock):

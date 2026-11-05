@@ -20,7 +20,7 @@ What the template creates (all private, encrypted, on-demand, nothing running wh
 - an S3 bucket for input and results, with public access blocked and server-side encryption (SSE-S3);
 - the AgentCore execution role, with only the permissions it needs (least privilege): Bedrock invoke and
   ApplyGuardrail, CloudWatch PutMetricData, and read/write on that one bucket;
-- the Bedrock Guardrail: denied topics "agronomic advice" and "asking for personal information", plus filters for
+- the Bedrock Guardrail: denied topic "asking for personal information" (an "agronomic advice" topic was dropped: it blocked every survey; P4's guards cover new advice), plus filters for
   personal information;
 - a CloudWatch dashboard for the `FasalPulse/Agent` metrics: runs, seconds, calls, tokens, cost, revisions,
   fallbacks;
@@ -33,7 +33,7 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 ## 2. Hackathon requirements: where we stand
 | Requirement (Workshop Studio) | Status |
 |---|---|
-| Use only `us-east-1` or `us-west-2` | ✅ everything runs in `us-east-1`. The console opens in us-west-2 by default, so switch it to N. Virginia. |
+| Use only `us-east-1` or `us-west-2` | ✅ everything runs in `us-west-2` (Oregon), the console's default; set `MEL_BEDROCK_REGION=us-west-2` in every terminal tab. (Earlier model runs, 4–5 Nov, used us-east-1.) |
 | Keep total spend under $500 | ✅ the full run is capped at $40 (expected about $5–10; the pilot gives the real figure). The AI judge costs about $0.05 per 1,000 surveys. AgentCore is billed by use. |
 | No public S3 buckets, no weakened security | ✅ the bucket is private and encrypted. No AWS keys in git (`.env` and `out/` are git-ignored). The event's temporary keys are pasted only into the terminal. |
 | IaC when applicable | 🟡 `infra/fasal-pulse.yaml` written, lint-clean (cfn-lint), tested (`tests/test_infra.py`); not deployed yet |

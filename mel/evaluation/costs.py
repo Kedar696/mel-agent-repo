@@ -60,11 +60,21 @@ class CostMeter:
             b["usd"] = round(b["usd"] + (r.get("cost_usd") or 0), 6)
             models[p].add(r.get("model"))
         unpriced = sum(1 for r in rows if r.get("ok", True) and not r.get("cached") and r.get("cost_usd") is None)
+        ok = [r for r in rows if r.get("ok", True)]
+        # Full price of the run: every distinct request once, cached ones priced as when they were made. A request
+        # repeated inside one run is a free cache hit even on a fresh run, so it counts once (by its cache key).
+        # None when a row predates list_cost_usd / key.
+        full = None
+        if not any(r.get("list_cost_usd") is None or not r.get("key") for r in ok):
+            price = {}
+            for r in ok:
+                price.setdefault(r["key"], r["list_cost_usd"] or 0)
+            full = round(sum(price.values()), 6)
         return {"calls": sum(b["calls"] for b in by.values()), "cached_calls": sum(1 for r in rows if r.get("cached")),
                 "failed_calls": sum(1 for r in rows if not r.get("ok", True)), "unpriced_calls": unpriced,
                 "input_tokens": sum(b["input_tokens"] for b in by.values()),
                 "output_tokens": sum(b["output_tokens"] for b in by.values()),
-                "spent_usd": round(sum(b["usd"] for b in by.values()), 6),
+                "spent_usd": round(sum(b["usd"] for b in by.values()), 6), "full_price_usd": full,
                 "by_purpose": {k: dict(v) for k, v in sorted(by.items())},
                 "models": {k: sorted(m for m in v if m) for k, v in sorted(models.items())},
                 "fresh_tags": sorted({r.get("tag") for r in rows if not r.get("cached") and r.get("ok", True)
@@ -119,4 +129,13 @@ def row_from_results(kind: str, label: str, meter: CostMeter, results: list[dict
             "files": sum(len(r["surveys"]) for r in surveyed), "surveys_written_fresh": written,
             "revisions": sum((r.get("metrics") or {}).get("revisions", 0) for r in surveyed),
             "sources": dict(sorted(sources.items())), "fallbacks": dict(sorted(fallbacks.items())),
-            **s, **projection(s["spent_usd"], written), **extra}
+            **s, **_projection_for(s, written, len(surveyed)), **extra}
+
+
+def _projection_for(s: dict, written_fresh: int, surveyed: int) -> dict:
+    """Cost per survey from the full price of every call (cached ones priced as when made) over every survey in the
+    run. A mostly-cached re-run then projects the same as a fresh one. Falls back to real spend over surveys that
+    made a fresh writing call when the log has no full prices."""
+    if s.get("full_price_usd") is not None and surveyed:
+        return {**projection(s["full_price_usd"], surveyed), "projection_basis": "full price of every call, cached included"}
+    return {**projection(s["spent_usd"], written_fresh), "projection_basis": "real spend over freshly written surveys"}

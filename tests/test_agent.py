@@ -173,3 +173,20 @@ def test_agentcore_stream_is_read_event_by_event(one):
     got = list(invoke("arn:aws:bedrock-agentcore:us-east-1:1:runtime/x", {"insight": one}, client=Client()))
     assert [e["step"] for e in got] == [e["step"] for e in evs] + ["result"]
     assert list(parse_stream(['data: "{\\"step\\": \\"evidence\\"}"']))[0]["step"] == "evidence"   # double-encoded
+
+
+def test_template_comparison_is_english_only(one):
+    """P4's keyword score is built from the Hindi templates' own words, so a Hindi draft is not held to 'at least as
+    relevant as the template' (5 Nov pilot: it rejected 43 of 44 Hindi drafts). The 0.3 send bar still applies."""
+    from mel.agent.orchestrator import verify
+    from mel.writer.relevance import RELEVANCE_THRESHOLD
+    n = question_count(one)
+    for lang in ("en-IN", "hi-IN"):
+        tmpl = {"language": lang, "items": template_items(one, lang)}
+        weaker = json.loads(json.dumps(tmpl))
+        for q in weaker["items"]:
+            q["prompt"] = "Did it help?" if lang == "en-IN" else "क्या इससे मदद मिली?"
+        v = verify(weaker, one, n, template=tmpl)
+        assert v["relevance"] < min(RELEVANCE_THRESHOLD, verify(tmpl, one, n)["relevance"])
+        assert any("less relevant" in p for p in v["problems"]) == (lang == "en-IN")
+        assert any("send bar" in p for p in v["problems"])
