@@ -129,6 +129,10 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   `docs/results/activity_attention.{md,json}` + Evaluation tab. Tests: `tests/test_activity.py` (23). Spec:
   `.kiro/specs/activity-attention/`; cross-owner changes (P2/P3/P4/P5) agreed, written in
   `docs/activity_attention_request.md`. **Uncommitted** on `lucas-p1` pending review.
+- **Terraform (P2, 5 Nov, `willF-terraform`):** `infra/terraform/` = `fasal-pulse.yaml` + `ui-express.yaml` in one
+  config (`agent.tf`, `ui.tf`, `main.tf`; AWS provider ~> 6.72, per-resource `region`). Same names, permissions and
+  dashboard. Not applied anywhere; in the event account use other `project_name`/`ui_name`. CI job `terraform`:
+  fmt + validate. Steps in `infra/README.md` "Terraform".
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
