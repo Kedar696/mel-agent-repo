@@ -238,6 +238,57 @@ def _judge_bars(cal) -> alt.Chart:
                    fmt=".0%")
 
 
+BLIND = Path(__file__).resolve().parents[1] / "docs" / "results"
+
+
+def load_blind() -> tuple[dict | None, int]:
+    """(people's blind comparison from scripts/blind_sheet.py score, or None; number of pairs on the sheet)."""
+    try:
+        pairs = max(0, len((BLIND / "blind_sheet.csv").read_text(encoding="utf-8").splitlines()) - 1)
+    except OSError:
+        pairs = 0
+    try:
+        res = json.loads((BLIND / "blind_comparison.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        res = None
+    if res and not (res.get("preferred", {}).get("bedrock", 0) + res.get("preferred", {}).get("template", 0)
+                    + res.get("preferred", {}).get("same", 0)):
+        res = None
+    return res, pairs
+
+
+def _blind():
+    """People score Bedrock and template surveys side by side without knowing which is which (scripts/blind_sheet.py).
+    It checks the AI judge's preference for Bedrock, which may only reward the longer questions."""
+    res, pairs = load_blind()
+    if not pairs and not res:
+        return
+    if not res:
+        c = _card("blind", "People's blind comparison: Bedrock vs templates",
+                  f"Scoring in progress: {pairs} pairs, each a Bedrock survey and a template survey for the same "
+                  "conversation, in random order. People score both without knowing which is which.")
+        c.caption("The AI judge prefers the Bedrock surveys, but they are about twice as long, and a judge may reward length. "
+                  "This panel fills in when the scores are back (python scripts/blind_sheet.py score ...).")
+        return
+    pref, mean = res.get("preferred", {}), res.get("mean_score", {})
+    b, t, same = pref.get("bedrock", 0), pref.get("template", 0), pref.get("same", 0)
+    who = ", ".join(res.get("scorers") or []) or "the team"
+    c = _card("blind", f"People's blind comparison: {res.get('verdict', '')}",
+              f"{res.get('rows_scored', 0)} scored pairs from {who}; nobody knew which survey was which")
+    rows = [{"metric": "Mean score (1-5)", "series": s, "v": mean.get(k)} for s, k in (("Bedrock", "bedrock"), ("Templates", "template"))
+            if mean.get(k) is not None]
+    if rows:
+        _show(c, _paired(pd.DataFrame(rows), ["Bedrock", "Templates"], [DEEP, BLUE], "metric", fmt=".2f", domain=(0, 5)), 200)
+    longer = res.get("longer_survey", {})
+    lw, sw = longer.get("longer won", 0), longer.get("shorter won", 0)
+    chars = res.get("avg_survey_chars", {})
+    c.markdown(
+        f"Picked as better: **Bedrock {b}**, **templates {t}**, same {same} (sign test p = {res.get('p_value_sign_test')}). "
+        + (f"The longer survey won {lw} of {lw + sw} picks. " if lw + sw else "")
+        + (f"Bedrock surveys average {chars.get('bedrock'):.0f} characters of questions, templates {chars.get('template'):.0f}."
+           if chars.get("bedrock") and chars.get("template") else ""))
+
+
 def _models(sweep) -> tuple[alt.Chart | None, dict | None]:
     ok = [m for m in sweep.get("models", []) if m.get("rank") and m.get("usd_per_1000_surveys") and m.get("rank_r") is not None]
     if not ok:
@@ -423,6 +474,8 @@ def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label,
                  if pick else f"{n_ok} Bedrock models tried as the judge")
         c = _card("models", title, "Up is closer to the team's own scores, left is cheaper")
         _show(c, chart, 300)
+
+    _blind()
 
     from mel.evaluation.costs import load_costs
     ledger = load_costs()     # docs/results/cost_history.jsonl: one row per run that wrote surveys with Bedrock
