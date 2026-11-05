@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Fasal Pulse - MEL Survey Agent: the Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode.
+  One stack holds the image registry, a CodeBuild project that builds ui.Dockerfile straight from
+  GitHub, the three ECS roles, an ECS cluster and the Express service (Fargate behind an HTTPS load
+  balancer, one task). No account IDs or credentials are stored here. The event account runs the
+  same settings, created by hand with the CLI commands in infra/README.md.
+
+Parameters:
+  Name:
+    Type: String
+    Default: fasal-pulse-ui
+    AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Name of the ECR repository, cluster and service (lowercase; ECR requires it).
+  RepoUrl:
+    Type: String
+    Default: https://github.com/michvinh-7/mel-agent-repo.git
+    Description: Public Git repository CodeBuild clones.
+  GitRef:
+    Type: String
+    Default: main
+    Description: Branch or tag CodeBuild builds.
+  ImageTag:
+    Type: String
+    Default: ""
+    Description: >
+      Leave empty on the first deploy (creates the registry and the build project only), run the
+      build, then deploy again with the short commit SHA the build printed to create the service.
+      Deploy with a new SHA to roll the service to a new image.
+  AgentCoreArn:
+    Type: String
+    Default: ""
+    Description: Optional ARN of the Bedrock AgentCore runtime. When set, "Run the agent" in the app runs live on it.
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageTag, ""]]
+  HasAgentCore: !Not [!Equals [!Ref AgentCoreArn, ""]]
+
+Resources:
+
+  # ---- The image registry and the build that fills it -----------------------------------------
+  UiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref Name
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: >
+          {"rules":[{"rulePriority":1,"description":"Keep only the last 10 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
+          "action":{"type":"expire"}}]}
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: build-and-push
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${Name}*
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"   # ECR accepts no narrower resource for this call
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:InitiateLayerUpload, ecr:UploadLayerPart,
+                         ecr:CompleteLayerUpload, ecr:PutImage, ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource: !GetAtt UiRepository.Arn
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${Name}-build
+      Description: Builds ui.Dockerfile from GitHub and pushes it to the UI registry (no Docker needed on a laptop).
+      ServiceRole: !GetAtt BuildRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      TimeoutInMinutes: 30
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub /aws/codebuild/${Name}
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        PrivilegedMode: true   # docker build
+        EnvironmentVariables:
+          - Name: REPO_URL
+            Value: !Ref RepoUrl
+          - Name: GIT_REF
+            Value: !Ref GitRef
+          - Name: ECR_URI
+            Value: !GetAtt UiRepository.RepositoryUri
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - git clone --depth 1 --branch "$GIT_REF" "$REPO_URL" src
+                - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_URI%%/*}"
+            build:
+              commands:
+                - cd src && TAG=$(git rev-parse --short HEAD) && docker build -f ui.Dockerfile -t "$ECR_URI:$TAG" -t "$ECR_URI:latest" . && docker push "$ECR_URI:$TAG" && docker push "$ECR_URI:latest" && echo "PUSHED $ECR_URI:$TAG"
+
+  # ---- The three roles Express Mode needs -------------------------------------------------------
+  ExecutionRole:   # lets ECS pull the image and write logs
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  InfrastructureRole:   # lets ECS create the load balancer, target groups, security groups and scaling
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
+
+  TaskRole:   # what the running app may call: only invoke the AgentCore runtime (no keys in the app)
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-agentcore
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource: !Sub arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*
+
+  # ---- The service ------------------------------------------------------------------------------
+  UiCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref Name
+
+  UiService:
+    Type: AWS::ECS::ExpressGatewayService
+    Condition: HasImage
+    Properties:
+      ServiceName: !Ref Name
+      Cluster: !Ref UiCluster
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      InfrastructureRoleArn: !GetAtt InfrastructureRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      HealthCheckPath: /_stcore/health
+      PrimaryContainer:
+        Image: !Sub ${UiRepository.RepositoryUri}:${ImageTag}
+        ContainerPort: 8501
+        Environment: !If
+          - HasAgentCore
+          - - Name: MEL_AGENTCORE_ARN
+              Value: !Ref AgentCoreArn
+          - !Ref AWS::NoValue
+      ScalingTarget:   # one task only: Streamlit keeps each visitor's session inside the process
+        MinTaskCount: 1
+        MaxTaskCount: 1
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt UiRepository.RepositoryUri
+  BuildProject:
+    Description: Run `aws codebuild start-build --project-name <this>` to build and push the image.
+    Value: !Ref BuildProject
+  Url:
+    Condition: HasImage
+    Description: The app. Its DNS name can take about 10 minutes to resolve after the service is ACTIVE.
+    Value: !GetAtt UiService.Endpoint
