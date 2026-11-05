@@ -146,6 +146,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
   relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,050 sends / 0 blocked (after P3 #24). README/scorecard
   regenerated: runs 8-9 (P4 relevance 0.69 -> 0.81). Write-up: `docs/results/judge_calibration.md`.
+- **REMINDER for P5 (deferred 5 Nov):** score the blind Bedrock sheet `docs/results/hand_scores_bedrock.csv` before
+  claiming model-written surveys beat templates (judge 4.9 vs 4.5 may just reward longer questions).
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
   `mel/schedule/broadcast.py`, P3 to review): to end of March 10 -> 5 s responsive, 38 -> 8 s never-answers, same
   counts. Judge's `BedrockClient` now wraps P4's `ModelClient` (purpose "judge" in out/bedrock_calls.jsonl);
