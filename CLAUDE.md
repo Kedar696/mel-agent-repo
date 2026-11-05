@@ -3,7 +3,7 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04 (p5-merge-all: P3/P4/P1 branches + judge in app)_
+_Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -36,9 +36,11 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
 ## Status (mock data)
 - On `main` (4 Nov): PRs #1–#2 (P5), #3 (P2), #4 `p5-eval-v2`, #5 `p5-judge`, plus P1 (`lucas-p1`) and P4
   (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Open: P5 `p5-full-data` (pushed, PR to open);
-  P4 `kedar-p4` one-line fix for their hosted demo.
-- 462 tests pass on `main` (~19 s), 463 on `p5-full-data`. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
-  CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`, `validate`, `eval` on every PR.
+  P4 `kedar-p4` one-line fix for their hosted demo; **P1 `lucas-p1`** (5 Nov; merged origin/main in, pushed, PR to
+  open) — weekly cap in `mel.cli run`, REST API + Docker + infra/, Apache-2.0, Py 3.12, CODEOWNERS, DG questions.
+- **801 tests pass on `lucas-p1`** (Py 3.12 VM, ~2.5 min); 462 on `main`. `validate`: 0 invalid files. Mock: 57
+  insights → 16 surveys, 41 no-survey. CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`,
+  `validate`, `eval`, `parity`, and now builds the API image + smoke-tests `/healthz` on every PR.
 - Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
   brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
   answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity **0.99** (P4's templates copy the answer
@@ -191,15 +193,24 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
   Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
   not in the response schema, so P3's outcomes would give an empty queue.
-- P1: merged: batch runner, `run_pipeline()`/`PipelineResult`, `--limit`/`--farmer`, junk report, Excel parity,
-  CI. Open: call `mel.evaluation.run_eval()` from `cmd_eval` (history on every eval); REST API + Dockerfile;
-  `infra/` + LICENSE + public repo; Bedrock account access (region/models) for P4 and P5; `boto3` in
-  requirements; `late` in the response schema (P3 request); P3's batch-wiring request (weekly limit and
-  opt-outs are applied in the app but not in `mel.cli run`); real usernames in
-  CODEOWNERS (still `@p1..@p5`).
-- Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
-  MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
-  `docs/questions_for_digital_green.md` drafts only the first 3; whether they were sent is unknown.
+- P1 (5 Nov, `lucas-p1`, pushed; not yet merged to main): **DONE** — P3's batch-wiring request: `mel.cli run`
+  now applies the weekly cap + opt-outs + P4 quality gate via `run_batch` (threshold `mel.writer.RELEVANCE_THRESHOLD`
+  = 0.3), writes `schedule` into `run_summary.json`; full pack 2,616 planned → 2,038 out (1,613 sent, 425 moved,
+  480 merged, 98 skipped, 0 rejected, **0 cap_violations**), R1–R8 / no_survey / eval unchanged; hand-off, survey
+  and response file counts drop (explain in the PR). **REST API** `mel/api` (`POST /surveys`, `GET /surveys/due`,
+  `/healthz`; FastAPI; one in-memory `SeasonScheduler` per process, state lost on restart; `tests/test_api.py`).
+  **Dockerfile** + `.dockerignore` (built, run, three endpoints exercised, HEALTHCHECK healthy). **`infra/`**
+  (CFN: ECR + App Runner + Bedrock-only instance role; k8s Deployment/Service replicas 1; README; definition only,
+  cfn-lint + kubeconform clean). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
+  **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 temp = @WestphalianFresco
+  until Semdon's username). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
+  (`-r requirements-api.txt` + httpx) — post in chat. Still open: call `mel.evaluation.run_eval()` from `cmd_eval`
+  (history on every eval); `late` in the response schema (P3 request, decision pending, see
+  `docs/h4_schema_change_request_late.md`); open the PR to main; create the freeze tag (`docs/release_checklist.md`).
+- Questions owed to Digital Green (P1 sends them): `docs/questions_for_digital_green.md` is **rewritten and ready
+  to send** — the 3 originals refreshed (99.3% at commit 343742f), the 2 missing ones added (MEL rubric; survey
+  JSON vs agent-to-UI format), plus Bedrock models/region, late answers, reachability, licence and an AWS-design
+  section. P1 still has to actually send it; whether an earlier version was sent is unknown.
 - FINAL contract (4 Nov) also adds: REST API + Dockerfile + infra/ + LICENSE + public repo (P1); SimClock +
   broadcaster stub + self_eval gate (P3); Bedrock `ModelClient`, BCP 47 `lang`, self_eval (P4). Its P2 section
   still describes the R7 misses backwards (we said no-survey, key said survey); tell P2.
@@ -217,6 +228,9 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Environment notes
 - macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. The full pack is committed in the repo (see the pack location above).
+- P1 works on an **Amazon Linux 2023 VM** (Linux, bash, Python 3.12 in `.venv`, Docker available). The project
+  requires Python 3.12 (`pyproject.toml`, CI). On the AL2023 VM, `python3.12 -m venv .venv` creates the venv; the
+  Windows form is `py -3.12 -m venv .venv` (not testable from the VM).
 
 ## Blockers for teammates (from P3, 2026-11-04)
 Checked against `Semdon-P3` and `origin/main` (9239abe) on 4 Nov; none of these is fixed on either. Each is the
