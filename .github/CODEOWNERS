@@ -29,13 +29,11 @@
 /tests/test_decision.py   @WestphalianFresco
 /tests/test_timing.py     @WestphalianFresco
 
-# P3 (Semdon) has no GitHub username yet, so P3's files are temporarily owned by @WestphalianFresco
-# (Will, P2, listed as P3's backup in docs/TEAM.md). Replace with Semdon's username when it is known.
-/mel/schedule/            @WestphalianFresco
-/mel/channels/            @WestphalianFresco
-/mel/simulator/           @WestphalianFresco
-/tests/test_schedule.py   @WestphalianFresco
-/tests/test_simulator.py  @WestphalianFresco
+/mel/schedule/            @Semdon31
+/mel/channels/            @Semdon31
+/mel/simulator/           @Semdon31
+/tests/test_schedule.py   @Semdon31
+/tests/test_simulator.py  @Semdon31
 
 /mel/writer/              @Kedar696
 /tests/test_writer.py     @Kedar696

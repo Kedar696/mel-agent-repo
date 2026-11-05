@@ -53,3 +53,11 @@ def test_persona_change_restarts_the_season(app):
     _click(app, "To end of March")
     m = _metrics(app)
     assert m["Opted out"] == m["Messages sent"] > 0 and m["Answered"] == 0
+
+
+def test_hindi_is_labelled_pending_review(app):
+    """Survey demo: Hindi carries a "pending review" label until P4's review sheet is fully checked."""
+    pending = lambda: [c.value for c in app.caption if c.value.startswith("Hindi pending review")]
+    assert not pending()                                     # English first, no label
+    app.toggle(key="lang_hi").set_value(True).run()
+    assert not app.exception and pending()

@@ -135,6 +135,19 @@ Question:
 - Is Apache-2.0 fine, or do you require a specific licence for the submission? ⚙ (we would swap the LICENSE
   file).
 
+## 10. Weather-dependent advice: should the window move? ⚙
+
+Your Vision doc asks how the send window should be set when advice depends on the weather. The brief's mustard
+example says "spray within 2 days if no rain is forecast". The pack has no weather data and no field for this;
+only the advice text says it (1,169 of 6,999 advice summaries mention rain, fog, frost, the forecast or the
+weather). Today we plan these windows like any other advice.
+
+Questions:
+- Will insights carry a structured weather condition (for example `weather_condition: "no_rain"`), and can we
+  read the district forecast through AgMCP? ⚙ (we would count only suitable days toward the action window; see
+  "Weather-dependent advice" in `mel/timing/README.md`).
+- Or should the window ignore the weather, as it does now?
+
 ---
 
 ## AWS design
