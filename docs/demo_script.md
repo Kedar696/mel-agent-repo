@@ -8,7 +8,10 @@ opens on **Dashboard**; the demo starts on the second tab:
 1. A farmer gets a follow-up about her own advice → **Survey demo** (second tab)
 2. The MEL team checks quality before trusting the agent → **Dashboard** (first tab), Evaluation section
    (the main part)
-3. A negative answer triggers follow-up → **Follow-up queue** (third tab)
+3. A negative answer triggers follow-up → **Follow-up queue** (fourth tab)
+
+Optional, if there is time or a judge asks: the **Season** tab (third tab) runs the simulated clock from
+November to March (Part 2b).
 
 The Overview section at the top of the Dashboard is a **backup screen** for questions only. Its numbers count up
 the first time they come into view, so open the Dashboard once before you start.
@@ -93,7 +96,7 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 >
 > **[Every survey we write]** Then we ran all **6,999** conversations: about 2,600 surveys, over 5,000 files
 > in two languages. **100%** are in the right format, **100%** pass the safety checks, **100%** go out at
-> a sensible time, and it takes about 2 milliseconds per survey: 6 seconds for the whole season.
+> a sensible time, and it takes under 4 milliseconds per survey: about 10 seconds for the whole season.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
@@ -118,9 +121,20 @@ The last miss under the brief rules is G-0145: the answer key accepts a one-day 
 brief needs two days. Record each new change with
 `python scripts/readme_numbers.py --write --record "what changed"` and add a row here.
 
+## Part 2b (optional). The season on a simulated clock (20 seconds)
+
+**Screen:** Season (third tab). Leave "How farmers respond" on *Responsive* and press **+1 week** once, then
+**To end of March**. To show failures, pick *Never answers* or *Opts out on the first message* and press
+**To end of March** again (changing it restarts the season).
+
+**Say:**
+> Digital Green asked to see the scheduler run on a simulated clock. One clock drives both the scheduler and
+> the broadcaster: a week at a time, or the whole season in a few seconds. The weekly limit, opt-outs and the
+> quality check all apply: surveys below the relevance bar are blocked, never sent.
+
 ## Part 3. A bad answer gets followed up (30 seconds)
 
-**Screen:** Follow-up queue (third tab). Pick a reason at the top if you like (each shows its count), then
+**Screen:** Follow-up queue (fourth tab). Pick a reason at the top if you like (each shows its count), then
 pick a farmer with the circle at the start of a row: the ticket beside the list shows the next step and the
 conversation log (what she asked, the advice, then each survey question and her answer, the flagged one
 marked). The tickets are simulated from each survey's trouble answer; the taps from part 1 are not added
@@ -164,9 +178,10 @@ EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any con
 - **Why 0% window match by default?** The brief and the answer key disagree on send times. The answer-key
   setting scores 100% but asks 3 in 4 farmers before they could act, so the brief stays the default until
   Digital Green confirms. *(Switch Send-time rule in the Evaluation section to show both.)*
-- **How fast is it?** About 2 ms per survey; all 6,999 conversations in about 6 seconds.
-- **Can the season be fast-forwarded?** Not on screen yet: P3's simulated clock is in the code
-  (`mel/schedule/clock.py`), but the app has no season screen.
+- **How fast is it?** Under 4 ms per survey; all 6,999 conversations in about 10 seconds.
+- **Can the season be fast-forwarded?** Yes: the Season tab. One shared simulated clock (P3's
+  `SeasonScheduler`) moves a day, a week or to 31 March; "Send next step" is the manual trigger, one channel
+  attempt at a time. The relevance bar there (0.5) is provisional until P4 and P5 agree it.
 
 ## If something breaks
 

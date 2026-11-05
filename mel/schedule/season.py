@@ -29,6 +29,7 @@ clock cannot advance past its end. The demo UI that drives this API lives in P5'
 app; the callable P3 surface and a Season-tab sketch are documented in
 `docs/p3_season_screen_api.md`.
 """
+from collections import Counter
 from datetime import timedelta
 
 from mel.timing import parse_ist, fmt_ist
@@ -90,7 +91,7 @@ class SeasonScheduler:
     """
 
     def __init__(self, start=None, *, relevance_threshold: float, persona: str = "default",
-                 seed: int = 0, season: Season | None = None):
+                 seed: int = 0, season: Season | None = None, reachability=None):
         self.season = season or Season()
         self.clock = SimClock(start if start is not None else self.season.start_ist)
         self.broadcaster = Broadcaster(self.clock)      # the SAME clock instance
@@ -99,8 +100,15 @@ class SeasonScheduler:
         self.relevance_threshold = relevance_threshold
         self.persona = persona
         self.seed = seed
+        # Optional per-farmer channel reachability (mel.channels.FarmerReachability). When set,
+        # a channel the farmer cannot be reached on is skipped, exactly like a persona's
+        # unreachable channel, while channel_order is preserved for reachable channels.
+        self.reachability = reachability
         self._admit_log: list = []
         self._sent_steps: dict[str, set[str]] = {}      # handoff_id -> channels already stepped
+        # P5 metrics: tallies of admission decisions and per-step outcomes.
+        self.admit_counts: Counter = Counter()
+        self.step_counts: Counter = Counter()
 
     # ------------------------------------------------------------- admission
     def admit(self, handoff: dict):
@@ -109,9 +117,16 @@ class SeasonScheduler:
         skipped / opted_out hand-off is never queued."""
         a = self.cap.admit(handoff, opt_out=self.opt_out)
         self._admit_log.append(a)
+        self.admit_counts[a.decision] += 1          # P5: sent/opted_out/moved/merged/skipped
         if a.decision in ("sent", "moved", "merged"):
             self.broadcaster.queue(a.handoff)
         return a
+
+    def metrics(self) -> dict:
+        """P5 counts from ACTUAL decisions (never hard-coded). `admitted` is the admission
+        breakdown (sent/moved/merged/skipped/opted_out); `steps` is the per-step outcome
+        breakdown (sent/nothing/no_reachable_channel)."""
+        return {"admitted": dict(self.admit_counts), "steps": dict(self.step_counts)}
 
     def admit_all(self, handoffs) -> list:
         """Admit many hand-offs in send-window order (the order they would really go out), so
@@ -169,30 +184,36 @@ class SeasonScheduler:
 
         b = self.broadcaster.next_due(relevance_threshold=self.relevance_threshold)
         if b is None:
+            self.step_counts["nothing"] += 1
             return StepResult("nothing", reason="no step due at " + self.clock.now_ist())
 
         h = b.handoff
         hid = h["handoff_id"]
         done = self._sent_steps.setdefault(hid, set())
 
-        # The next channel step for this hand-off that the persona can actually be reached
-        # on and that has not been tried yet. Unreachable channels (case None) are skipped,
-        # exactly as the broadcaster/ simulate_handoff() skip them.
+        # The next channel step for this hand-off the farmer can actually be reached on and
+        # that has not been tried yet. A channel is skipped when the persona cannot reach it
+        # (case None) OR, when reachability data is supplied, the farmer record marks it
+        # unreachable. channel_order is preserved for the reachable channels.
+        farmer_id = h["survey"]["farmer_id"]
         channel = case = None
         for stepdef in h["channel_order"]:
             ch = stepdef["channel"]
             if ch in done:
                 continue
-            c = case_for_channel(self.persona, ch)
             done.add(ch)                       # mark tried (skipped or stepped) so we advance
+            if self.reachability is not None and not self.reachability.reachable(farmer_id, ch):
+                continue                       # farmer not reachable here per the data
+            c = case_for_channel(self.persona, ch)
             if c is None:
-                continue                       # unreachable: skip to the next channel
+                continue                       # persona cannot be reached here
             channel, case = ch, c
             break
 
         if channel is None:
             # No remaining reachable channel: the hand-off is finished, drop it.
             self.broadcaster.remove(hid)
+            self.step_counts["no_reachable_channel"] += 1
             return StepResult("nothing", handoff_id=hid, reason="no reachable channel left")
 
         # Simulate this one channel attempt, sending at the clock's current instant. The case
@@ -208,6 +229,7 @@ class SeasonScheduler:
         terminal = rec["retry_decision"] in STOP_DECISIONS
         if opted_out or terminal or len(done) >= len(h["channel_order"]):
             self.broadcaster.remove(hid)
+        self.step_counts["sent"] += 1
         return StepResult("sent", handoff_id=hid, channel=channel, record=rec)
 
     def run_due(self, max_steps: int = 1000) -> list[StepResult]:

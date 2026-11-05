@@ -47,9 +47,27 @@ scorer rates surveys higher and lower in the same places as the team's average d
   templates do (for example, "Did you top-dress urea?").
 - Highest: "call an expert" (4.8).
 
+## All 94 golden-set surveys (current templates, 4 Nov)
+`MEL_JUDGE=1 python -m mel.evaluation.judge --run`. Results are in `out/judge_results.jsonl`, which is not in git.
+
+- **Average AI relevance: 4.82 out of 5.** 78 surveys got a 5, 15 got a 4, 1 got a 3. No survey scored 1 or 2.
+- **By advice type:**
+  - plan 5.00
+  - don't act 4.92
+  - call an expert 4.91
+  - do this 4.72
+  - wait and watch 4.67
+- **Cost and time:** 94 calls, 37,635 input tokens and 6,684 output tokens, 65 seconds in total.
+- **Why surveys lost a point:** almost always the second question was generic.
+  - In most cases this was "How is your goat now?" or "Do you need more help?" after a specific first question.
+  - The one 3 was G-0090 (cabbage): "Did you compare mandi prices?" followed by "How is your cabbage now?". A
+    price check doesn't change how the crop is doing.
+  - Ideas for P4: make the outcome question match the concern (the templates already have a `concern` style),
+    and make the wait-and-watch second question about whether the problem grew, not "Do you need more help?".
+- The judge's 1 to 5 score sits beside P4's rule-based relevance (0 to 1, 0.69). They aren't on the same scale.
+  Keep them side by side rather than turning one into the other.
+
 ## Next
-- Run the judge on all 94 survey rows (`MEL_JUDGE=1 python -m mel.evaluation.judge --run`). This gives an AI
-  relevance score to put beside P4's rule-based relevance (0.69).
-  - The judge's score is on a 1 to 5 scale, and P4's relevance is 0 to 1.
-- Possible rubric v2: tell the judge to give a 3 to any question that doesn't name the advised action.
+- Possible rubric v2: tell the judge to give a 3 to any question that doesn't name the advised action. It is
+  a little lenient now.
 - Switch the judge to P4's `ModelClient`.

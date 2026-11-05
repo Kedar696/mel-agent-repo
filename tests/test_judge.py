@@ -89,3 +89,23 @@ def test_bedrock_client_needs_a_model_id(monkeypatch):
     monkeypatch.delenv("MEL_JUDGE_MODEL", raising=False)
     with pytest.raises(RuntimeError, match="MEL_JUDGE_MODEL"):
         J.BedrockClient()
+
+
+def test_summary_file_round_trips_and_ranks(pairs, tmp_path):
+    path = tmp_path / "summary.json"
+    rows = [{"golden_id": g["golden_id"], "score": 5 - (i % 2), "cached": True, "seconds": 0,
+             "input_tokens": 0, "output_tokens": 0, "cost_usd": None} for i, (g, _, _) in enumerate(pairs)]
+    run = J.run_summary({"n": len(rows), "judge_relevance": 4.5, "rows": rows}, pairs, "m")
+    J.write_summary(path, run=run)
+    J.write_summary(path, calibration={"within_1": 0.9})
+    got = J.load_summary(path)
+    assert got["run"]["n"] == len(rows) and "rows" not in got["run"] and got["calibration"]["within_1"] == 0.9
+    assert sum(got["run"]["score_counts"].values()) == len(rows)
+    assert J.load_summary(tmp_path / "missing.json") == {}
+    assert J._corr([1, 2, 3], [2, 4, 6]) == 1.0 and J._corr([5, 5], [1, 2]) is None
+
+
+def test_survey_from_text_round_trips(pairs):
+    for _, _, s in pairs:
+        t = J.survey_text(s)
+        assert J.survey_text(J.survey_from_text(t)) == t
