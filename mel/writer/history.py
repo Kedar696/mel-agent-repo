@@ -3,6 +3,8 @@ part of the team pipeline, tested and scored).
 
 The agent remembers what it knows about a farmer BEFORE the insight was created and adapts the survey:
   H1  repeat problem   : same crop + same concern earlier this season -> ask "same problem again?"
+  H5  low turned high  : that earlier report was low severity and this one is high -> ask whether the earlier
+                         advice was followed before it got worse (a "yes" means it failed: follow-up)
   H2  known barrier    : an earlier survey said the input was not available / too costly -> ask about that directly
   H3  survey fatigue   : the last surveys went unanswered -> shorter survey (2 or 1 questions)
   H4  light user       : activity_level == 'light' -> at most 2 questions
@@ -67,7 +69,9 @@ def build_context(i, mem):
     prof = mem.farmers.get(i['farmer_id'], {})
     return {
         'prior_insight_count': len(prior),
-        'repeat': {'count': len(same), 'last_date': same[-1]['created_at'][:10], 'last_resolution': same[-1]['resolution_type']} if same else None,
+        'repeat': {'count': len(same), 'last_date': same[-1]['created_at'][:10], 'last_resolution': same[-1]['resolution_type'],
+                   'last_severity': same[-1].get('severity')} if same else None,
+        'escalated': bool(same) and same[-1].get('severity') == 'low' and i.get('severity') in ('high', 'critical'),
         'barrier': barrier,
         'non_responses_in_last3': sum(r['status'] in NON_RESPONSE for r in last3) if len(last3) == 3 else sum(r['status'] in NON_RESPONSE for r in last3),
         'last_surveys_seen': len(last3),
@@ -80,6 +84,7 @@ def build_context(i, mem):
 def summary_lines(ctx):
     L = [f"Earlier insights for this farmer: {ctx['prior_insight_count']}"]
     if ctx['repeat']: L.append(f"Same crop and problem raised {ctx['repeat']['count']}x before (last {ctx['repeat']['last_date']}, advice was {ctx['repeat']['last_resolution']})")
+    if ctx['escalated']: L.append(f"Last time this problem was low severity; now it is high")
     if ctx['barrier']: L.append(f"An earlier survey answer said: {ctx['barrier']}")
     if ctx['last_surveys_seen']: L.append(f"Last {ctx['last_surveys_seen']} surveys: {ctx['non_responses_in_last3']} not answered")
     if ctx['activity_level']: L.append(f"Activity level: {ctx['activity_level']}")
@@ -107,6 +112,14 @@ def personalize(items, i, mem, attention=None):
                  'पिछली बार आपने बताया था कि यह बहुत महँगा है। क्या इस बार हो पाया?',
                  [O('managed', 'Yes, managed', 'हाँ, हो गया'), O('still_costly', 'No, still costly', 'नहीं, अब भी महँगा', 'cost_barrier'), O('not_needed', 'Did not need it', 'ज़रूरत नहीं पड़ी')])
         notes.append(('H2', 'earlier survey: input too costly'))
+    # H5 low turned high: the earlier advice was for a mild problem that then got worse within days. Whether the
+    # farmer followed it tells MEL if that advice failed (follow-up) or was never tried.
+    elif ctx['escalated'] and rt in ACTIONABLE:
+        extra = ('survey-single-select', 'Last time this problem looked mild. Did you follow that advice before it got worse?',
+                 'पिछली बार यह समस्या हल्की लग रही थी। क्या बिगड़ने से पहले आपने वह सलाह अपनाई थी?',
+                 [O('followed_worse', 'Yes, still got worse', 'हाँ, फिर भी बिगड़ी', 'advice_did_not_work'),
+                  O('not_followed', 'No, did not follow', 'नहीं, नहीं अपनाई'), O('not_sure', 'Not sure', 'पता नहीं')])
+        notes.append(('H5', f"same crop and problem was low severity on {ctx['repeat']['last_date']}, now {i.get('severity')}"))
     # H1 repeat problem
     elif ctx['repeat'] and rt in ACTIONABLE:
         extra = ('survey-single-select', 'Is this the same problem you told us about before?',

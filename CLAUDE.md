@@ -74,7 +74,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   **Restart** that resets the phone only; pretend history), then the green insight card | the interactive
   channel preview (`app/channel_preview.py`, one 378x700 phone for all channels, restart/show_restart API) |
   the scheduler hand-off, survey checks and the answer record; JSON in collapsed developer details. History
-  rules H1-H4 are always on in the app (the old toggle is gone). **Your own insight** (`app/custom_context.py`): the editor (farmer's question, advice, Details for crop/problem/severity/advice
+  rules H1-H5 are always on in the app (the old toggle is gone; H5 = low severity turned high, demo pick I-001996). **Your own insight** (`app/custom_context.py`): the editor (farmer's question, advice, Details for crop/problem/severity/advice
   type/timing/channel/language/district) runs once through `run_insight` on submit and then collapses; ids `I-9000NN`, real IST
   `created_at`, session only, never in the batch or the numbers; empty advice = "No advice given yet." and R4;
   tests in `tests/test_custom_context.py`. **Dashboard**: P3's weekly-limit decisions (full data:
@@ -86,7 +86,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   The Simulate answers tab, the static all-questions panel and the data caption are gone. Theme: `app/theme.py`
   + `.streamlit/config.toml` (Mukta, ivory/green/marigold, see `docs/uiux-design.md`). Dates and times on screen are
   Eastern Time, MM/DD/YYYY, 12-hour via `app/display_time.py`; stored timestamps and JSON stay ISO/IST.
-  Voice channel: "Read the call aloud" plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
+  Voice channel: the speaker beside Restart (tap = read the call aloud / mute, chevron = volume) plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
   in `.env`; see `.env.example`); off and silent without a key.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
@@ -95,7 +95,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
   channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
   FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H4 now live in
+  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H5 now live in
   `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7

@@ -20,28 +20,31 @@ Design notes
 import streamlit as st
 
 # Hex values for Python callers (chart colours, st.bar_chart(color=...)). Same values as the CSS variables.
+# FarmerChat's own palette (farmer.chat, 4 Nov): bright green for accents, deep green for actions, forest for
+# the strong surfaces, mint sections, zinc grays, a yellow highlight. The variable names below are unchanged,
+# so every mel-* surface in the app follows the retheme without edits.
 PALETTE = {
-    "ivory": "#F7F3E8", "sand": "#EEE7D7", "paper": "#FFFDF8", "line": "#DED6C3",
-    "ink": "#1E2A22", "muted": "#5F6B62",
-    "green": "#2A6B4A", "green_deep": "#1E5A3F", "green_ink": "#174A33", "green_soft": "#E3EFE4",
-    "marigold": "#E3A51F", "marigold_ink": "#8A5A0C", "marigold_soft": "#FBEFD0",
-    "clay": "#A4422E", "clay_soft": "#F7E4DE", "slate": "#5D6A62",
+    "ivory": "#F1F7F2", "sand": "#E6EFE8", "paper": "#FFFFFF", "line": "#E4E4E7",
+    "ink": "#18181B", "muted": "#52525C",
+    "green": "#008236", "green_deep": "#0A5A2E", "green_ink": "#08361B", "green_soft": "#E3F6E8",
+    "marigold": "#FFC400", "marigold_ink": "#7A5A00", "marigold_soft": "#FFF4CC",
+    "clay": "#E5533D", "clay_soft": "#FCE7E3", "slate": "#52525C", "bright": "#00C950",
 }
 
 CSS = """
 :root{
-  --mel-ivory:#F7F3E8;--mel-sand:#EEE7D7;--mel-paper:#FFFDF8;--mel-line:#DED6C3;--mel-line-strong:#C9BFA6;
-  --mel-ink:#1E2A22;--mel-ink-soft:#44524A;--mel-muted:#5F6B62;
-  --mel-green:#2A6B4A;--mel-green-deep:#1E5A3F;--mel-green-ink:#174A33;--mel-green-soft:#E3EFE4;--mel-green-pale:#BFDCC6;
-  --mel-marigold:#E3A51F;--mel-marigold-pale:#F6D37C;--mel-marigold-soft:#FBEFD0;--mel-marigold-ink:#8A5A0C;
-  --mel-clay:#A4422E;--mel-clay-soft:#F7E4DE;--mel-slate:#5D6A62;--mel-slate-soft:#ECEAE2;
+  --mel-ivory:#F1F7F2;--mel-sand:#E6EFE8;--mel-paper:#FFFFFF;--mel-line:#E4E4E7;--mel-line-strong:#D4D4D8;
+  --mel-ink:#18181B;--mel-ink-soft:#3F3F46;--mel-muted:#52525C;
+  --mel-green:#008236;--mel-green-deep:#0A5A2E;--mel-green-ink:#08361B;--mel-green-soft:#E3F6E8;--mel-green-pale:#9FE3B5;--mel-bright:#00C950;
+  --mel-marigold:#FFC400;--mel-marigold-pale:#FFDE6B;--mel-marigold-soft:#FFF4CC;--mel-marigold-ink:#7A5A00;
+  --mel-clay:#E5533D;--mel-clay-soft:#FCE7E3;--mel-slate:#52525C;--mel-slate-soft:#F4F4F5;
   --mel-wa:#075E54;--mel-wa-bar:#008069;--mel-wa-bg:#ECE5DD;--mel-wa-in:#FFFFFF;--mel-wa-out:#DCF8C6;--mel-wa-link:#027EB5;
   --mel-tg:#2AABEE;--mel-tg-bar:#517DA2;--mel-tg-bg:#E6EBEE;--mel-tg-in:#FFFFFF;--mel-tg-out:#EFFDDE;--mel-tg-link:#168ACD;
-  --mel-font:"Mukta","Kohinoor Devanagari","Devanagari Sangam MN","Nirmala UI","Noto Sans Devanagari","Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mel-font:"Inter","Noto Sans Devanagari","Kohinoor Devanagari","Devanagari Sangam MN","Nirmala UI","Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mel-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --mel-fs-body:17px;--mel-fs-small:14px;--mel-fs-label:13px;--mel-fs-lead:19px;
   --mel-lh:1.55;--mel-lh-hi:1.65;
-  --mel-r-card:14px;--mel-r-ctl:10px;--mel-r-pill:999px;
+  --mel-r-card:20px;--mel-r-ctl:12px;--mel-r-pill:999px;
   --mel-t-fast:140ms;--mel-t-base:220ms;--mel-ease:cubic-bezier(.2,.7,.2,1);
   --mel-gap:12px;
 }
@@ -55,7 +58,7 @@ CSS = """
 [data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] li{line-height:var(--mel-lh)}
 [data-testid="stMarkdownContainer"] p:lang(hi){line-height:var(--mel-lh-hi)}
 [data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{font-size:var(--mel-fs-small);color:var(--mel-muted);line-height:1.5}
-[data-testid="stHeading"] h1,[data-testid="stHeading"] h2,[data-testid="stHeading"] h3{letter-spacing:0;color:var(--mel-ink)}
+[data-testid="stHeading"] h1,[data-testid="stHeading"] h2,[data-testid="stHeading"] h3{letter-spacing:-.02em;color:var(--mel-ink);font-weight:700}
 [data-testid="stHeading"] h2{margin-top:.6rem}
 [data-testid="stWidgetLabel"] p{font-size:15px;font-weight:500;color:var(--mel-ink-soft)}
 a{color:var(--mel-green)}
@@ -63,11 +66,13 @@ a{color:var(--mel-green)}
 .mel-note{font-size:var(--mel-fs-small);color:var(--mel-muted);line-height:1.5}
 .mel-hi{line-height:var(--mel-lh-hi)}
 
-/* ---- masthead, report title line, section labels ---------------------------- */
-.mel-mast{display:flex;align-items:baseline;justify-content:space-between;gap:6px 24px;flex-wrap:wrap;padding:4px 0 12px;border-bottom:1px solid var(--mel-line)}
-.mel-mast .mel-brand{font-size:26px;font-weight:700;color:var(--mel-green-ink);line-height:1.1;letter-spacing:0}
-.mel-mast .mel-brand span{font-size:17px;font-weight:500;color:var(--mel-muted);margin-left:10px}
-.mel-mast .mel-tag{font-size:14px;color:var(--mel-muted)}
+/* ---- masthead (FarmerChat's green band and ✻ wordmark), report title line, section labels ---------- */
+.mel-mast{display:flex;align-items:center;justify-content:space-between;gap:8px 24px;flex-wrap:wrap;padding:16px 22px;margin-bottom:8px;
+  border-radius:var(--mel-r-card);background:linear-gradient(135deg,#0B8F42 0%,#008236 55%,#066B2E 100%);color:#fff;box-shadow:0 4px 13px rgba(0,130,54,.18)}
+.mel-mast .mel-brand{display:flex;align-items:center;gap:10px;font-size:24px;font-weight:700;color:#fff;line-height:1.1;letter-spacing:-.02em}
+.mel-mast .mel-mark{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.18);font-size:20px;font-weight:400;line-height:1}
+.mel-mast .mel-brand span{font-size:15px;font-weight:600;color:#fff;background:rgba(255,255,255,.16);border-radius:var(--mel-r-pill);padding:4px 12px;margin-left:6px;letter-spacing:0}
+.mel-mast .mel-tag{font-size:14px;color:rgba(255,255,255,.85)}
 .mel-report{display:flex;align-items:flex-end;justify-content:space-between;gap:6px 24px;flex-wrap:wrap;padding:14px 0 12px;border-bottom:1px solid var(--mel-line);margin:2px 0 14px;animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
 .mel-report .mel-kicker{font-size:13px;font-weight:600;color:var(--mel-green-ink);margin-bottom:2px}
 .mel-report .mel-kicker.own{color:var(--mel-marigold-ink)}
@@ -79,12 +84,13 @@ a{color:var(--mel-green)}
 .mel-source b{color:var(--mel-marigold-ink);font-weight:600;margin-right:8px}
 
 /* ---- tabs (Streamlit 1.66: stTabs > [role=tablist] > stTab; panels stTabPanel) ------ */
-[data-testid="stTabs"] [role="tablist"]{gap:4px;border-bottom:1px solid var(--mel-line)}
-[data-testid="stTab"]{padding:10px 16px;border-radius:10px 10px 0 0;color:var(--mel-muted);transition:color var(--mel-t-fast),background var(--mel-t-fast),box-shadow var(--mel-t-fast)}
-[data-testid="stTab"] p{font-size:17px;font-weight:500}
-[data-testid="stTab"]:hover{color:var(--mel-ink);box-shadow:inset 0 -3px 0 var(--mel-line-strong)}
-[data-testid="stTab"][aria-selected="true"]{color:var(--mel-green-ink);box-shadow:inset 0 -3px 0 var(--mel-green)}
+[data-testid="stTabs"] [role="tablist"]{gap:6px;border-bottom:0;padding:4px 0 8px}
+[data-testid="stTab"]{padding:9px 18px;border-radius:var(--mel-r-pill);color:var(--mel-muted);transition:color var(--mel-t-fast),background var(--mel-t-fast)}
+[data-testid="stTab"] p{font-size:16px;font-weight:500}
+[data-testid="stTab"]:hover{color:var(--mel-ink);background:var(--mel-sand)}
+[data-testid="stTab"][aria-selected="true"]{color:var(--mel-green-ink);background:var(--mel-green-soft)}
 [data-testid="stTab"][aria-selected="true"] p{font-weight:600}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"],[data-testid="stTabs"] [data-baseweb="tab-border"]{display:none}
 [data-testid="stTabPanel"]{padding-top:18px}
 [data-testid="stTabPanel"]>div{animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
 
@@ -99,21 +105,26 @@ a{color:var(--mel-green)}
 [data-testid="stAlert"]{border-radius:var(--mel-r-card)}
 
 /* ---- controls (kept light on purpose; see selector policy above) ---------- */
-[data-testid="stBaseButton-secondary"]{border:1px solid var(--mel-line-strong);background:var(--mel-paper);color:var(--mel-ink);font-weight:600;min-height:44px;padding:8px 16px;transition:background var(--mel-t-fast),border-color var(--mel-t-fast),color var(--mel-t-fast),transform var(--mel-t-fast)}
+[data-testid="stBaseButton-secondary"]{border:1px solid var(--mel-line-strong);border-radius:var(--mel-r-pill);background:var(--mel-paper);color:var(--mel-ink);font-weight:600;min-height:44px;padding:8px 18px;transition:background var(--mel-t-fast),border-color var(--mel-t-fast),color var(--mel-t-fast),transform var(--mel-t-fast)}
 [data-testid="stBaseButton-secondary"]:hover{border-color:var(--mel-green);color:var(--mel-green-ink);background:var(--mel-green-soft)}
 [data-testid="stBaseButton-secondary"]:active{transform:scale(.985)}
-[data-testid="stBaseButton-primary"]{background:var(--mel-green);border-color:var(--mel-green);font-weight:600;min-height:44px;transition:background var(--mel-t-fast),transform var(--mel-t-fast)}
-[data-testid="stBaseButton-primary"]:hover{background:var(--mel-green-ink);border-color:var(--mel-green-ink)}
+[data-testid="stBaseButton-primary"]{background:var(--mel-green);border-color:var(--mel-green);border-radius:var(--mel-r-pill);color:#fff;font-weight:600;min-height:44px;padding:8px 20px;box-shadow:0 4px 13px rgba(0,130,54,.18);transition:background var(--mel-t-fast),transform var(--mel-t-fast)}
+[data-testid="stBaseButton-primary"]:hover{background:var(--mel-green-deep);border-color:var(--mel-green-deep)}
 [data-testid="stBaseButton-primary"]:active{transform:scale(.985)}
 [data-testid="stButtonGroup"] button[data-variant="segmented_control"]{min-height:40px}
 [data-testid="stButtonGroup"] button[data-variant="segmented_control"] span{font-size:15px;font-weight:500}
-[data-testid="stAppViewContainer"] button:focus-visible,[data-testid="stAppViewContainer"] [role="tab"]:focus-visible,[data-testid="stAppViewContainer"] summary:focus-visible{outline:3px solid var(--mel-marigold);outline-offset:2px;box-shadow:none}
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"][aria-checked="true"]{background:var(--mel-green-soft);color:var(--mel-green-ink)}
+[data-testid="stAppViewContainer"] button:focus-visible,[data-testid="stAppViewContainer"] [role="tab"]:focus-visible,[data-testid="stAppViewContainer"] summary:focus-visible{outline:3px solid var(--mel-bright);outline-offset:2px;box-shadow:none}
 
 /* icon-only Restart in the Survey Studio settings bar: st.button(key="studio_restart", icon=...). The label
    "Restart survey" stays in the accessibility tree but is clipped off screen; the Material icon is what shows. */
-.st-key-studio_restart button{width:40px;min-width:40px;min-height:40px;padding:0;justify-content:center;gap:0}
-.st-key-studio_restart button [data-testid="stMarkdownContainer"]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.st-key-studio_restart button,.st-key-tts_toggle button{width:40px;min-width:40px;min-height:40px;padding:0;justify-content:center;gap:0}
+.st-key-studio_restart button [data-testid="stMarkdownContainer"],.st-key-tts_pill button [data-testid="stMarkdownContainer"]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .st-key-studio_restart button [data-testid="stIconMaterial"],.st-key-studio_restart button span[class*="material-symbols"]{font-size:22px;margin:0}
+/* Read-aloud speaker beside Restart (sound_button): speaker tts_toggle + volume chevron tts_pop joined as one pill. */
+.st-key-tts_toggle button{border-top-right-radius:0;border-bottom-right-radius:0}
+.st-key-tts_pop button{min-height:40px;padding:0 8px;gap:0;margin-left:-1px;border-top-left-radius:0;border-bottom-left-radius:0}
+.st-key-tts_toggle button [data-testid="stIconMaterial"]{font-size:22px;margin:0}
 
 /* ---- mel-* surfaces (same class names as before, larger scale) ------------ */
 .mel-card{background:var(--mel-paper);border:1px solid var(--mel-line);border-radius:var(--mel-r-card);padding:18px 20px;margin-bottom:var(--mel-gap);color:var(--mel-ink);font-size:16px;line-height:1.5;animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
@@ -124,19 +135,17 @@ a{color:var(--mel-green)}
 .mel-badge.red{background:var(--mel-clay-soft);color:var(--mel-clay)}
 .mel-badge.slate{background:var(--mel-slate-soft);color:var(--mel-slate)}
 .mel-rule{display:grid;grid-template-columns:40px 180px 1fr 44px;gap:12px;align-items:center;font-size:15px;margin:9px 0}
-.mel-id{font-family:var(--mel-mono);font-size:13px;background:var(--mel-sand);border-radius:6px;padding:2px 7px;color:var(--mel-ink-soft)}
+.mel-id{font-family:var(--mel-font);font-size:13px;font-weight:600;background:var(--mel-green-soft);border-radius:var(--mel-r-pill);padding:3px 9px;color:var(--mel-green-ink)}
 .mel-track{height:10px;border-radius:10px;background:var(--mel-sand);overflow:hidden}
 .mel-fill{height:100%;border-radius:10px;background:var(--mel-line-strong);transition:width var(--mel-t-base) var(--mel-ease)}
-.mel-fill.green{background:var(--mel-green)}.mel-fill.amber{background:var(--mel-marigold)}.mel-fill.red{background:var(--mel-clay)}
+.mel-fill.green{background:var(--mel-bright)}.mel-fill.amber{background:var(--mel-marigold)}.mel-fill.red{background:var(--mel-clay)}
 
-/* the one strong surface: the selected insight */
-.mel-insight{background:var(--mel-green-deep);color:#F2F8F2;border-radius:var(--mel-r-card);padding:24px 24px 20px;margin-bottom:var(--mel-gap);font-size:17px;line-height:1.6;animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
+/* the one strong surface: the selected insight, in FarmerChat's forest green */
+.mel-insight{background:linear-gradient(160deg,var(--mel-green-deep),var(--mel-green-ink));color:#F2F8F2;border-radius:var(--mel-r-card);padding:24px 24px 20px;margin-bottom:var(--mel-gap);font-size:17px;line-height:1.6;animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
 .mel-insight>div:first-child,.mel-insight .mel-eyebrow{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;color:var(--mel-green-pale)!important;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mel-insight h3{color:#fff;margin:10px 0 18px;font-size:24px;line-height:1.3;font-weight:600;letter-spacing:0}
 .mel-insight .f{border-top:1px solid rgba(255,255,255,.18);padding:14px 0;font-size:18px;line-height:1.6}
 .mel-insight .f span{display:block;color:var(--mel-green-pale);text-transform:none;letter-spacing:0;font-size:13px;font-weight:600;margin-bottom:4px}
-.mel-meta{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;border-top:1px solid rgba(255,255,255,.18);padding-top:14px;font-size:15px}
-.mel-meta span{display:block;color:var(--mel-green-pale);text-transform:none;letter-spacing:0;font-size:13px;font-weight:600}
 .mel-why{border-top:1px solid rgba(255,255,255,.18);margin-top:16px;padding-top:14px;color:var(--mel-marigold-pale);font-size:15px;font-weight:600}
 .mel-why p{color:#DCEBDD;margin:6px 0 0;font-size:16px;font-weight:400;line-height:1.55}
 
@@ -146,11 +155,9 @@ a{color:var(--mel-green)}
 /* scheduler hand-off strip */
 .mel-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px 24px;align-items:start;font-size:15px}
 .mel-strip b{font-size:16px!important;font-weight:600}
-.mel-tl{position:relative;height:10px;background:var(--mel-sand);border-radius:6px;margin:10px 0 6px}
-.mel-tl i{position:absolute;top:0;height:10px;border-radius:6px}.mel-tl i.w{background:var(--mel-green)}.mel-tl i.x{background:var(--mel-marigold)}
-.mel-tlab{display:flex;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;color:var(--mel-muted);font-size:13px;white-space:nowrap}
-.mel-ch b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;background:var(--mel-green-soft);color:var(--mel-green-ink);font-size:13px;margin-right:4px}
-.mel-ch small{color:var(--mel-muted);margin:0 6px;font-size:13px}
+.mel-route{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px}
+.mel-route span{background:var(--mel-green-soft);color:var(--mel-green-ink);border-radius:var(--mel-r-pill);padding:3px 10px;font-size:14px;font-weight:600}
+.mel-route small{color:var(--mel-muted);font-size:13px}
 
 /* scheduling plan (right column): one card, sections separated by a hairline */
 .mel-plan{background:var(--mel-paper);border:1px solid var(--mel-line);border-radius:var(--mel-r-card);padding:18px 20px;margin-bottom:var(--mel-gap);color:var(--mel-ink);font-size:16px;line-height:1.5;animation:mel-rise var(--mel-t-base) var(--mel-ease) both}
@@ -188,7 +195,8 @@ a{color:var(--mel-green)}
   .mel-strip{grid-template-columns:1fr;gap:14px}
   .mel-plan{padding:16px}
   .mel-report .mel-sum{text-align:left;max-width:none}
-  .mel-mast .mel-brand{font-size:22px}
+  .mel-mast{padding:12px 16px}.mel-mast .mel-brand{font-size:20px}
+  [data-testid="stMetric"]{min-height:0;padding:12px 16px}
 }
 """
 

@@ -135,6 +135,9 @@ def test_sheet_close_dismiss_and_opt_out():
 def test_voice_keys_and_hang_up_times():
     s = survey("1-mustard-aphid-spray", "hi-IN")  # a single-select survey: P3's anchor is q3, not q1
     v = PreviewState.new(s, "voice")
+    assert v.stage == "ringing" and not v.started
+    v.answer("q1", "yes")  # nothing works until the phone is picked up
+    v.pick_up()
     v.start()
     v.answer("q1", "yes")
     v.hang_up()
@@ -145,6 +148,7 @@ def test_voice_keys_and_hang_up_times():
     assert rec["items"][0]["input_kind"] == "speech"  # a yes/no on a call is spoken (simulate.py)
     assert rec["recorded_at"] == rec["timestamps"]["answered"]
     w = PreviewState.new(s, "voice")  # nothing answered: the cut is logged after the pick-up, not before
+    w.pick_up()
     w.start()
     w.hang_up()
     rec = build_record(s, "voice", w)
@@ -152,15 +156,25 @@ def test_voice_keys_and_hang_up_times():
     assert rec["answers"] == {} and rec["answered_by"] is None and rec["timestamps"]["answered"] is None
     assert parse_ist(rec["recorded_at"]) > parse_ist(rec["timestamps"]["opened"])
     d = PreviewState.new(s, "voice")
+    d.pick_up()
     d.decline()
     assert build_record(s, "voice", d)["raw_event"] == "pressed 2 at the opening (not now)"
+    m = PreviewState.new(s, "voice")  # the phone rings out: P3's voice_no_answer, nothing presented
+    m.miss()
+    rec = build_record(s, "voice", m)
+    valid(rec)
+    assert (rec["failure_code"], rec["retry_decision"], rec["answers"]) == ("voice_no_answer", "fall_back_to_next_channel", {})
+    assert all(i["result"] == "not_reached" for i in rec["items"]) and rec["timestamps"]["opened"] is None
 
 
 def _drive(st, how):
     """Walk a fresh state to one ending; None when the channel has no such control."""
     ch = st.channel
+    st.pick_up()
     st.start()
-    if how == "finished":
+    if how == "missed" and ch == "voice":
+        st.reset(), st.miss()
+    elif how == "finished":
         for i in st.ids:
             st.answer(i, st.values[i][0])
     elif how == "stop":
@@ -168,7 +182,7 @@ def _drive(st, how):
         if ch in STOP_WORD:
             st.send_text(STOP_WORD[ch])
         elif ch == "voice":
-            st.reset(), st.opt_out()  # key 9 is offered at the opening only
+            st.reset(), st.pick_up(), st.opt_out()  # key 9 is offered during the greeting only
         else:
             st.opt_out()
     elif how == "typed" and ch in STOP_WORD:
@@ -179,7 +193,7 @@ def _drive(st, how):
             st.answer(st.ids[0], st.values[st.ids[0]][0])
         st.close()
     elif how == "declined" and ch in ("whatsapp", "voice"):
-        st.reset(), st.decline()
+        st.reset(), st.pick_up(), st.decline()
     elif how == "dropped" and ch == "voice":
         st.answer(st.ids[0], st.values[st.ids[0]][0])
         st.hang_up()
@@ -195,7 +209,7 @@ def test_every_ending_on_every_channel_is_valid_and_chronological():
         for lang in ("hi-IN", "en-IN"):
             s = load_scenario(name)["surveys"][lang]
             for ch in ("app", "web", "whatsapp", "telegram", "voice"):
-                for how in ("finished", "stop", "typed", "closed", "dismissed", "declined", "dropped"):
+                for how in ("finished", "stop", "typed", "closed", "dismissed", "declined", "dropped", "missed"):
                     st = _drive(PreviewState.new(s, ch), how)
                     if st is None:
                         continue
@@ -204,7 +218,7 @@ def test_every_ending_on_every_channel_is_valid_and_chronological():
                     assert rec["answers"] == st.taps, (name, ch, how)  # the record carries the taps, nothing else
                     assert rec["timestamps"]["sent"] == "2027-01-10T09:30:00+05:30"
                     n += 1
-    assert n == 3 * 2 * (4 + 4 + 4 + 3 + 4)  # app, web, whatsapp, telegram, voice endings per survey
+    assert n == 3 * 2 * (4 + 4 + 4 + 3 + 5)  # app, web, whatsapp, telegram, voice endings per survey
 
 
 def test_send_time_fallback_and_tap_times_match_the_record():
@@ -320,14 +334,17 @@ def _voice_app():
 
 def test_voice_clock_follows_the_call():
     """Voice sends at 10:00 IST (window + 3 h), which the phone shows as 11:30 PM Eastern the evening before:
-    rings 11:30, picked up 11:50, key 1 at 11:52, cut logged 11:55. Durations stay durations."""
+    rings 11:30, picked up 11:50 (timer 00:00), key 1 at 11:52 (02:00), cut logged 11:55 (05:00)."""
     from streamlit.testing.v1 import AppTest
     at = AppTest.from_function(_voice_app, default_timeout=60).run()
     screen = lambda: " ".join(m.value for m in at.markdown)
-    assert "11:30 PM</span>" in screen() and "Incoming call" in screen() and "potato leaves" not in screen()
-    assert "Phone clock: Eastern Time (EST)." in screen()
+    assert "11:30 PM</span>" in screen() and "Incoming call" in screen() and "Hello, this is a call" not in screen()
+    assert {b.key for b in at.button} >= {"t|vo|miss", "t|vo|pickup"}
+    at.button(key="t|vo|pickup").click().run()
+    assert "11:50 PM</span>" in screen() and 'data-start="0" data-live="1">00:00' in screen()
+    assert "Hello, this is a call" in screen() and "potato leaves" not in screen()
     at.button(key="t|vo|start").click().run()
-    assert "11:50 PM</span>" in screen() and "00:00" in screen() and "potato leaves" in screen()
+    assert "potato leaves" in screen()
     at.button(key="t|vo|q1|yes").click().run()
     assert "11:52 PM</span>" in screen() and "02:00" in screen()
     at.button(key="t|vo|hang").click().run()

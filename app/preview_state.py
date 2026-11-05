@@ -21,7 +21,13 @@ OPENING = ("whatsapp", "voice")  # a Start / Not now moment before question 1 (t
 STOP_WORD = {"whatsapp": "STOP", "telegram": "/stop"}  # typed by the farmer to opt out (outcome_codes.json)
 WA_MAX_BUTTONS = 3  # WhatsApp allows 3 reply buttons; longer lists open a picker (render._whatsapp)
 OPEN_MIN, LAST_MIN = 20, 25  # P3's timeline: opened 20 min after the send, last answer at 25 min
-ENDINGS = ("finished", "closed", "dismissed", "declined", "opted_out", "free_text", "dropped")
+ENDINGS = ("finished", "closed", "dismissed", "declined", "opted_out", "free_text", "dropped", "missed")
+
+
+def first_stage(channel: str) -> str:
+    """Where an attempt begins: the phone rings (voice), the template waits for Start (WhatsApp), or
+    question 1 is already on screen (Telegram, app, web)."""
+    return "ringing" if channel == "voice" else "invite" if channel == "whatsapp" else "question"
 
 
 @dataclass
@@ -42,8 +48,7 @@ class PreviewState:
     def new(cls, survey: dict, channel: str) -> "PreviewState":
         items = survey["items"]
         return cls(channel, tuple(it["item_id"] for it in items),
-                   {it["item_id"]: tuple(v for _, v in choices(it)) for it in items},
-                   stage="invite" if channel in OPENING else "question")
+                   {it["item_id"]: tuple(v for _, v in choices(it)) for it in items}, stage=first_stage(channel))
 
     @property
     def n(self) -> int:
@@ -61,7 +66,7 @@ class PreviewState:
     @property
     def started(self) -> bool:
         """Anything to start over from."""
-        return self.done or bool(self.taps) or self.stage != ("invite" if self.channel in OPENING else "question")
+        return self.done or bool(self.taps) or self.stage != first_stage(self.channel)
 
     # ---- transitions. Each one ignores a tap that no longer fits the screen (a double click, or a click
     # from before a rerun), so one tap advances exactly one question.
@@ -71,6 +76,16 @@ class PreviewState:
     def _end(self, how: str):
         self.ending, self.ended_from = how, self.stage
         self._go("ended")
+
+    def pick_up(self):
+        """The farmer answers the ringing phone: the greeting starts."""
+        if self.stage == "ringing":
+            self._go("invite")
+
+    def miss(self):
+        """The farmer lets the phone ring out (or declines the call): P3's voice_no_answer."""
+        if self.stage == "ringing":
+            self._end("missed")
 
     def start(self):
         """WhatsApp Start; the IVR greeting ends."""
@@ -124,7 +139,7 @@ class PreviewState:
 
     def reset(self):
         self.step, self.taps, self.ending, self.ended_from, self.typed = 0, {}, None, None, None
-        self._go("invite" if self.channel in OPENING else "question")
+        self._go(first_stage(self.channel))
 
 
 # ------------------------------------------------------------------------------------------ time
@@ -170,9 +185,9 @@ def build_record(survey: dict, channel: str, state: PreviewState, send_at: str |
                    raw_event=f"Close tapped at step {len(taps) + 1} of {state.n}")
         return rec
     case = {"dismissed": "sheet_dismissed", "declined": "farmer_declined", "opted_out": "farmer_opted_out",
-            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped"}[how]
+            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped", "missed": "voice_no_answer"}[how]
     base = simulate(survey, channel, case, send_at=at)
-    if how in ("dismissed", "declined"):  # nothing was answered: P3's record is already exact
+    if how in ("dismissed", "declined", "missed"):  # nothing was answered: P3's record is already exact
         return base
     return _reseat(base, full, survey, state)
 
