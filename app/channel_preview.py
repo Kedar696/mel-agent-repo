@@ -168,9 +168,9 @@ _WIDGETS = {
 """,
     "telegram": _ACT + """
 .st-key-__S__{background:linear-gradient(165deg,#d9e5ef,#d8e6d9 55%,#e9e2d3)}
-.st-key-__S__-act{width:calc((100% - 20px) * .84 + 20px);padding-top:3px}
-.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:3px}
-.st-key-__S__-act [data-testid="stHorizontalBlock"]{gap:3px}
+.st-key-__S__-act{width:calc((100% - 20px) * .84 + 20px);padding-top:8px}
+.st-key-__S__ .st-key-__S__-act,.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
+.st-key-__S__-act [data-testid="stHorizontalBlock"]{gap:8px}
 .st-key-__S__-act button{background:rgba(66,89,107,.62);color:#fff;border-radius:6px;min-height:2.4rem}
 .st-key-__S__-act button:hover{background:rgba(66,89,107,.8);color:#fff}
 .st-key-__S__-act button p{color:#fff}
@@ -179,7 +179,7 @@ _WIDGETS = {
     "app": _ACT + """
 .st-key-__S__{background:#f4f6f3}
 .st-key-__S__-act{background:#fff;padding:0 16px 14px}
-.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
+.st-key-__S__ .st-key-__S__-act,.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
 .st-key-__S__-act button{border:1.5px solid #c9d8cc;border-radius:12px;background:#fbfdfb;color:#1a2a20;min-height:2.7rem}
 .st-key-__S__-act button:hover{border-color:var(--mel-green,#266b4a);background:#eef6ef;color:#1a2a20}
 .st-key-__S__-act [data-testid="stHorizontalBlock"]{margin-top:4px}
@@ -190,7 +190,7 @@ _WIDGETS = {
 .st-key-__S__{background:#102219}
 .st-key-__S__-act{padding:4px 18px 16px}
 .st-key-__S__-act [data-testid="stHorizontalBlock"]{gap:8px;margin-top:8px}
-.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
+.st-key-__S__ .st-key-__S__-act,.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
 .st-key-__S__-act button{background:rgba(255,255,255,.13);color:#fff;border-radius:14px;min-height:3.2rem;white-space:normal}
 .st-key-__S__-act button:hover{background:rgba(255,255,255,.24);color:#fff}
 .st-key-__S__-act button [data-testid="stMarkdownContainer"],.st-key-__S__-act button p{color:#fff;font-size:14.5px;white-space:normal;overflow:visible;text-overflow:clip}

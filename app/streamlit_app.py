@@ -18,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 def _reload_mel_if_changed():
@@ -157,8 +158,7 @@ def memory():
 
 
 rows, admits, n_valid, n_files = batch()
-html('<div class="mel-mast"><div class="mel-brand">Fasal Pulse <span>MEL Survey Agent</span></div>'
-     '<div class="mel-tag">Follow-up surveys for FarmerChat advice, Digital Green track. Synthetic data; nothing is sent.</div></div>')
+html('<div class="mel-mast"><div class="mel-brand">Fasal Pulse <span>MEL Survey Agent</span></div></div>')
 tab_over, tab_studio, tab_season, tab_follow = st.tabs(["Dashboard", "Survey demo", "Season", "Follow-up queue"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
@@ -214,7 +214,6 @@ with tab_over:
     limit = Counter(d for d, _ in admits.values())
     held = len(admits) - limit["sent"]
     high = sum(o["handoff"]["priority"] == "high" for o in surveyed)
-    llm = sum(s.get("_source") == "llm" for o in surveyed for s in o["surveys"].values())
     c = st.columns(6)
     c[0].metric("Insights processed", n)
     c[1].metric("Surveys planned", len(surveyed), f"{len(surveyed) / n:.0%} of insights", delta_color="off", delta_arrow="off")
@@ -233,26 +232,16 @@ with tab_over:
         html(f'<div class="mel-card"><b>Decisions by rule</b><div class="mel-note">'
              f'Why an insight was or wasn\'t surveyed</div>{bars}</div>')
     with right:
-        st.markdown("**First channel planned**")
-        first_counts = Counter(CH_NAME[o["handoff"]["channel_order"][0]["channel"]] for o in surveyed)
-        st.bar_chart({"surveys": first_counts}, horizontal=True, color=PALETTE["green"], height=170)
-        st.markdown("**Survey source**")
-        st.caption(f"Template: {len(surveyed) * 2 - llm:,}. Claude: {llm:,}."
-                   + ("  (LLM writer off: set MEL_USE_LLM=1)" if not llm else ""))
-    with st.expander("How it fits FarmerChat"):
-        st.markdown("""
-1. The farmer chats with FarmerChat (app, web, WhatsApp, Telegram or voice).
-2. FarmerChat's insight extractor sums up the chat: crop or animal, problem, advice, whether to check back.
-   *(Digital Green gave us 6,999 synthetic ones.)*
-3. **This agent:** decides survey or not (rules R1–R8), remembers the farmer's earlier conversations
-   (history rules H1–H4), writes 1–3 tap questions in Hindi and English, checks them, and sets the send window.
-4. **Scheduler hand-off:** send window, channel order, weekly limit, priority, expiry.
-5. The farmer answers on their channel. Answers that mean trouble go back to FarmerChat staff (Follow-up queue).
-
-Out of scope: real delivery and real farmers. Everything here is simulated.""")
-    st.caption(f"Weekly limit (P3): {limit['sent']:,} sent as planned, {limit['moved']:,} moved to a later date, "
-               f"{limit['merged']:,} merged into the farmer's other survey and {limit['skipped']:,} skipped. "
-               f"High-priority surveys are exempt.")
+        # Same bars as "Decisions by rule", so they grow in with the dashboard animation (COUNT_UP_JS watches
+        # .mel-fill); st.bar_chart draws a static Vega chart the animation cannot reach.
+        first_counts = Counter(o["handoff"]["channel_order"][0]["channel"] for o in surveyed)
+        top_ch = max(first_counts.values() or [1])
+        ch_bars = "".join(
+            f'<div class="mel-rule" style="grid-template-columns:180px 1fr 44px"><span>{CH_NAME[ch]}</span>'
+            f'<div class="mel-track"><div class="mel-fill green" style="width:{first_counts.get(ch, 0) / top_ch * 100:.0f}%"></div></div>'
+            f'<b>{first_counts.get(ch, 0):,}</b></div>' for ch in CHANNELS)
+        html(f'<div class="mel-card"><b>First channel planned</b><div class="mel-note">'
+             f'Where each survey goes first</div>{ch_bars}</div>')
 
 # ---------------------------------------------------------------- Survey demo
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
@@ -421,13 +410,17 @@ def _tts(text: str) -> bytes | None:
 
 def voice_readout(sv: dict, preview_key: str, rec):
     """Read aloud what the farmer hears on the call: the greeting, then each question as it comes up, then the
-    closing line. ElevenLabs text to speech, multilingual; nothing is sent to a farmer."""
-    if not st.toggle("Read the call aloud", key="tts_on", help="ElevenLabs text to speech (Hindi and English). "
-                                                                 "Needs ELEVENLABS_API_KEY; see .env.example."):
+    closing line. ElevenLabs text to speech, multilingual; nothing is sent to a farmer. Mute and Volume act on the
+    player directly (a tiny script), so changing them never restarts the line."""
+    c = st.columns([1.3, 0.7, 1.6], vertical_alignment="bottom")
+    if not c[0].toggle("Read the call aloud", key="tts_on", help="ElevenLabs text to speech (Hindi and English). "
+                                                                    "Needs ELEVENLABS_API_KEY; see .env.example."):
         return
     if not tts.api_key():
         st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) and rerun to hear the call.")
         return
+    mute = c[1].toggle("Mute", key="tts_mute")
+    volume = c[2].slider("Volume", 0, 100, 80, key="tts_volume", format="%d%%")
     state, vo = st.session_state.get(f"mel_preview|{preview_key}"), render(sv, "voice")
     if state is None or state.stage == "invite":
         line = vo["opening"]
@@ -444,6 +437,11 @@ def voice_readout(sv: dict, preview_key: str, rec):
         return
     if audio:
         st.audio(audio, format="audio/mpeg", autoplay=True)
+        components.html(f"""<script>
+const vol = {volume / 100:.2f}, muted = {str(mute).lower()};
+const apply = () => window.parent.document.querySelectorAll('audio').forEach(a => {{ a.volume = vol; a.muted = muted; }});
+apply(); [150, 500, 1200, 2500].forEach(t => setTimeout(apply, t));
+</script>""", height=0)
 
 
 def report_strip(kicker: str, title: str, note: str = ""):
@@ -476,7 +474,7 @@ with tab_studio:
     else:
         # The picker's widget key is dropped while own mode hides it; last_pick (plain state) brings it back.
         st.session_state.setdefault("studio_pick", st.session_state.get("last_pick", next(iter(picks), BROWSE)))
-        pick = bar[0].selectbox("Demo picks", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
+        pick = bar[0].selectbox("Demo selection", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
         st.session_state["last_pick"] = pick
         if sub:
             bar[1].button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own, width="stretch")
@@ -516,7 +514,8 @@ with tab_studio:
         a0 = ins.get("asset") or {}
         kicker, title = "Browsed insight", f"{str(a0.get('name') or '').title()}: {str(ins.get('concern') or '').replace('_', ' ')} ({ins.get('insight_id')})"
     if ins is not None:
-        report_strip(kicker, title, note)
+        if kicker != "Demo insight":  # a demo pick is already named in the selector; no repeated heading
+            report_strip(kicker, title, note)
         d = out["decision"]
         a = ins.get("asset") or {}
         mem, pretend, restart = None, "none", False
@@ -814,9 +813,6 @@ with tab_over:
     src, card = r["full"] or r["mock"], r["card"]
 
     st.subheader("Answer key")
-    st.caption(f"{'Full pack' if r['full'] else 'Mock subset'}: {src['n']} cases with the right answer. "
-               f"Mock subset ({r['mock']['n']} rows): decision {r['mock']['decision_acc']:.1%}, "
-               f"window {r['mock']['window_acc']:.1%}.")
     g = st.columns(5)
     g[0].metric("Decision", _pct(src["decision_acc"]), "survey or not", delta_color="off", delta_arrow="off")
     g[1].metric("Rule", _pct(src["rule_acc"]), "which of R1–R8", delta_color="off", delta_arrow="off")
