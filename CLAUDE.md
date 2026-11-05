@@ -176,6 +176,11 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   expander "How the agent wrote this survey" (recorded run from `docs/results/agent_runs/` or live; AgentCore when
   `MEL_AGENTCORE_ARN`). CLI `python -m mel.agent [--record] [--remote ARN] ids`. Without Bedrock it matches the
   pipeline exactly (test).
+- **Cost tracking + full run (P5, 5 Nov, `p5-agent-orchestrator`):** `mel/evaluation/costs.py` (CostMeter reads
+  `out/bedrock_calls.jsonl` from its start offset; ledger `docs/results/cost_history.jsonl`; projection x 2,616 surveys).
+  `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,
+  free resume via cache, files to `out/agent_batch/`, summary `docs/results/full_bedrock_run.json`. Dashboard "What it
+  costs". Decided: Haiku 4.5, hi+en, history off, cap $40. **Pilot and full run not yet run** (need AWS keys).
 - **REMINDER for P5 (deferred 5 Nov):** score the blind Bedrock sheet `docs/results/hand_scores_bedrock.csv` before
   claiming model-written surveys beat templates (judge 4.9 vs 4.5 may just reward longer questions).
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in

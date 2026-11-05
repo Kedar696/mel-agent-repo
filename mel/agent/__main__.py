@@ -21,19 +21,13 @@ RUNS = ROOT / "docs" / "results" / "agent_runs"
 DEMO_PICKS = ["I-001253", "I-001645", "I-005625", "I-001996", "I-000291"]   # the app's Survey demo picks
 
 
-def _inputs(insight_id):
-    from mel.config import PACK_DATA
-    from mel.data import load_insights, load_farmers
-    from mel.timing import chat_hours
-    pack = (PACK_DATA / "insights.jsonl").exists() and not os.environ.get("MEL_DATA_DIR")
-    insights = load_insights(PACK_DATA / "insights.jsonl" if pack else None)
-    farmers = load_farmers(PACK_DATA / "farmers.csv" if pack else None)
-    ins = next((i for i in insights if i.get("insight_id") == insight_id), None)
+def _inputs(insight_id, pack=None):
+    from .inputs import Pack
+    pack = pack or Pack()
+    ins = pack.by_id.get(insight_id)
     if ins is None:
         sys.exit(f"unknown insight {insight_id}")
-    same = [i for i in insights if i.get("farmer_id") == ins.get("farmer_id")]
-    return ins, {"farmer": farmers.get(ins.get("farmer_id")),
-                 "history_hours": chat_hours(same, ins.get("farmer_id"), ins.get("created_at"))}
+    return ins, pack.inputs_for(ins)
 
 
 def _extras():
@@ -72,8 +66,11 @@ def main():
     ids = a.insight_ids or (DEMO_PICKS if a.record else [])
     if not ids:
         ap.error("give an insight id (or --record for the demo picks)")
+    from mel.evaluation.costs import CostMeter, record_cost, row_from_results
+    from .inputs import Pack
+    pack, meter, results = Pack(), CostMeter(), []
     for iid in ids:
-        ins, inputs = _inputs(iid)
+        ins, inputs = _inputs(iid, pack)
         if a.remote:
             from mel.agent.remote import invoke
             stream = invoke(a.remote, {"insight": ins})
@@ -84,6 +81,8 @@ def main():
         for e in stream:
             events.append(e)
             _print(e)
+        if events and events[-1].get("step") == "result":
+            results.append(events[-1])
         if a.record:
             RUNS.mkdir(parents=True, exist_ok=True)
             judge = os.environ.get("MEL_JUDGE_MODEL") if os.environ.get("MEL_AGENT_JUDGE") == "1" else None
@@ -93,6 +92,12 @@ def main():
                    "judge": judge, "guardrail": os.environ.get("MEL_GUARDRAIL_ID") or None, "events": events}
             (RUNS / f"{iid}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
             print(f"recorded -> {(RUNS / f'{iid}.json').relative_to(ROOT)}")
+
+    if not a.remote and meter.summary()["calls"]:        # an AgentCore run is metered in CloudWatch instead
+        row = record_cost(row_from_results("single", f"agent: {', '.join(ids)}", meter, results,
+                                           writer=llm.write_model() if llm.enabled() else None,
+                                           checker=llm.check_model() or None))
+        print(f"cost: ${row['spent_usd']:.4f} -> ledger row {row['run']} (docs/results/cost_history.jsonl)")
 
 
 if __name__ == "__main__":

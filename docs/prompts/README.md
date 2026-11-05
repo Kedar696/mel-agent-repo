@@ -18,5 +18,6 @@ Reusable prompts for the team.
 | [update_status_prompt.md](update_status_prompt.md) | Keep CLAUDE.md's Status and Open items current after work lands (docs-only) |
 
 | [p4_writer_safety_prompt.md](p4_writer_safety_prompt.md) | Brief Claude on the P4 writer and safety work: what exists, what changed, what is left |
+| [../demo_day_plan.md](../demo_day_plan.md) | Demo-day plan (6 Nov): hackathon rules check, technical stack, order of work for the full Bedrock run, AgentCore, IaC and slides |
 
 Add new prompts here as `<purpose>_prompt.md` and list them in this table.

@@ -102,7 +102,8 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > us scored 20 surveys by hand. The AI lands within one point of a person **97%** of the time; we agree with
 > each other only **83%** of the time. **[Which model makes the best judge?]** We tried every model on Amazon
 > Bedrock, 70 of them, and picked the cheapest one that's as accurate as the best: about **5 cents per 1,000
-> surveys**.
+> surveys**. **[What it costs]** Every run is costed: writing every survey in the dataset with Bedrock, in both
+> languages, costs *(read the "Full run, actual" tile)*.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can

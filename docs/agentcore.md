@@ -76,3 +76,27 @@ In the 50-survey comparison (`docs/results/bedrock_writer_comparison.md`), Haiku
 under a third of the cost. Haiku failed the safety checks on 8% of drafts. The Verifier's revision loop and the
 template fallback deal with exactly that case. Gemma 3 12B is the judge, a different model family, so it does not
 grade its own writing.
+
+## Cost tracking and the full run
+Every run that writes surveys with Bedrock adds a row to `docs/results/cost_history.jsonl`.
+- **What a row records:** the models used, the number of surveys, tokens and dollars split into writing, checking
+  and judging, revisions, template fallbacks, cost per survey, and the projected cost for the whole dataset
+  (2,616 surveys in Hindi and English).
+- **Which runs add one:** the batch runner, `python -m mel.agent`, and a live "Run the agent" in the local app.
+- **On AgentCore,** the same numbers go to CloudWatch instead.
+- **On the Dashboard,** the "What it costs" section shows them.
+
+```
+export MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-east-1 MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+export MEL_JUDGE_MODEL=google.gemma-3-12b-it
+python -m mel.agent.batch --sample 40 --judge --label "pilot: Haiku 4.5, hi+en"
+python -m mel.agent.batch --max-usd 40 --judge --label "full set: Haiku 4.5, hi+en"
+```
+1. **The pilot** writes 40 surveys spread across advice types. It prints the cost per survey and the projected
+   full cost.
+2. **The full run** writes every survey in both languages with 8 parallel workers. It stops sending new requests
+   at `--max-usd`.
+   - It writes the files to `out/agent_batch/<time>/` and the summary to `docs/results/full_bedrock_run.json`.
+   - If it stops (budget cap, or your AWS keys expire), run the same command again. Everything already written
+     comes from the cache for $0.
+3. **Commit** `docs/results/cost_history.jsonl` and `docs/results/full_bedrock_run.json`.
