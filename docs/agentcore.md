@@ -105,6 +105,32 @@ MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-west-2 MEL_BEDROCK_WRITE_MODEL=us.anthropic.
 This records the five Survey demo picks into `docs/results/agent_runs/`. Commit them. Add `--remote <ARN>` to record
 the runs from AgentCore instead.
 
+## Fewer tokens (5 Nov, after the full run)
+The full run spent about 340 output tokens per draft and made 1,776 revisions. Three changes in `mel/writer/llm.py`
+cut that (P4's file; P4 to review):
+- **One line per question.** The model writes `TYPE | QUESTION | ANSWER | ANSWER`; a star marks an answer that means
+  failure (`*f` did not work, `*d` crop or animal damaged, `*i` could not get the input, `*e` could not reach the
+  expert). Our code builds the schema items (ids, types, values, scale fields), so no output tokens go on JSON keys.
+  `max_tokens` is 400. The older JSON answers still parse, so replayed caches keep working.
+- **Hindi is a translation.** Once the English survey passes the Verifier, the model translates those lines instead
+  of writing Hindi from the insight: a shorter request, the same questions in both languages, and none of the Hindi
+  "less relevant than the template" rejections.
+- **The limits are in the prompt** (questions under 100 characters, answers of 1 to 3 words under 20 characters), so
+  fewer revisions.
+- **One payment per distinct request.** Two farmers with the same advice get the same request; with 8 workers both
+  used to be in flight at once and both were paid for. The second now waits for the first and takes its answer
+  from the cache.
+
+Not yet measured on Bedrock. To measure: `python -m mel.agent.batch --sample 40 --judge --label "pilot 3: compact
+lines"` and compare with pilot 2 ($0.0039 per survey).
+
+## Replay file: the same questions for $0
+Every answer is cached on disk (`out/cache/bedrock/`, keyed by the request). `python -m mel.writer.llm export-cache`
+adds them to `docs/results/bedrock_cache.jsonl`; commit it. `ModelClient` reads that file after the disk cache, so a
+laptop without AWS keys, the hosted app and every rerun get the same questions without calling Bedrock. A changed
+prompt is a new request, so a stale answer is never replayed. Bedrock's own prompt caching is not used: Haiku 4.5
+caches only prefixes of 4,096 tokens or more, and ours are about 300.
+
 ## Why Haiku 4.5 as the writer
 In the 50-survey comparison (`docs/results/bedrock_writer_comparison.md`), Haiku scored 4.89 against Sonnet's 4.90 at
 under a third of the cost. Haiku failed the safety checks on 8% of drafts. The Verifier's revision loop and the

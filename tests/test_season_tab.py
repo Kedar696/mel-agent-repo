@@ -61,3 +61,60 @@ def test_hindi_is_labelled_pending_review(app):
     assert not pending()                                     # English first, no label
     app.toggle(key="lang_hi").set_value(True).run()
     assert not app.exception and pending()
+
+
+def test_demo_pick_shows_the_bedrock_written_questions(app):
+    """Survey demo: the phone carries the survey Bedrock wrote (recorded from AgentCore), not the template."""
+    caps = [c.value for c in app.caption]
+    assert any(c.startswith("Questions written by Bedrock") and "recorded" in c for c in caps), caps
+    assert any("Template vs Bedrock questions" in e.label for e in app.expander)
+
+
+def test_own_insight_is_written_by_bedrock(tmp_path, monkeypatch):
+    """Create your own insight with Bedrock on: the model reads the conversation and fills in the Details, the agent
+    writes the English questions and translates them into Hindi. Every request is answered from the on-disk cache
+    (filled first with a stand-in client), so nothing here calls AWS."""
+    from streamlit.testing.v1 import AppTest
+    from app import custom_context as cc
+    from mel.agent import run_agent
+    from mel.writer import llm
+    for k, v in {"MEL_USE_LLM": "1", "MEL_BEDROCK_WRITE_MODEL": "test-write-model", "MEL_CACHE_DIR": str(tmp_path / "cache"),
+                 "MEL_LLM_LOG": str(tmp_path / "calls.jsonl"),
+                 "MEL_DATA_DIR": str(Path(__file__).resolve().parents[1] / "data" / "mock")}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("MEL_BEDROCK_CHECK_MODEL", raising=False)
+    question = "My goat has not eaten for two days and has a fever."
+    advice = "Call the government vet today and keep the goat in the shade with clean water."
+    replies = ["asset: goat\nconcern: livestock_health\nseverity: high\nadvice_type: escalate_to_expert\n"
+               "act_within_days: 1\ncheck_back: next_day\nquestions: 2",
+               "confirm | Did you call the government vet about your goat? | Yes | No*e\nscale | How is your goat's health now?",
+               "confirm | क्या आपने बकरी के लिए सरकारी पशु चिकित्सक को बुलाया? | हाँ | नहीं*e\nscale | अब आपकी बकरी की सेहत कैसी है?"]
+
+    class Runtime:
+        def converse(self, **kw):
+            return {"output": {"message": {"content": [{"text": replies.pop(0)}]}}, "usage": {"inputTokens": 100, "outputTokens": 40}}
+
+    llm.set_client(llm.ModelClient(runtime=Runtime(), sleep=lambda s: None))
+    read = llm.read_conversation(question, advice)
+    fields = cc.apply_reading({**cc.DEFAULTS, "question": question, "advice": advice}, read)
+    list(run_agent(cc.build_insight(fields, cc.new_ids(1), cc.now_ist()), memory=None, n_items=read["questions"]))
+    llm.set_client(None)
+    assert not replies                                                    # the three answers are on disk now
+    saved = {k: v for k, v in sys.modules.items() if k == "mel" or k.startswith("mel.")}
+    try:
+        at = AppTest.from_file(str(APP), default_timeout=120).run()
+        assert not at.exception, [e.message for e in at.exception]
+        at.button(key="own_add").click().run()
+        at.text_area(key="cc_question").set_value(question)
+        at.text_area(key="cc_advice").set_value(advice).run()
+        at.button(key="custom_submit").click().run()
+        assert not at.exception, [e.message for e in at.exception]
+        text = " ".join(m.value for m in at.markdown) + " " + " ".join(c.value for c in at.caption)
+        assert "Questions written by Bedrock just now (test-write-model)" in text
+        assert "Bedrock read the conversation as: Goat · animal health · high severity" in text and "2 questions" in text
+        assert any("Template vs Bedrock questions" in e.label for e in at.expander)
+        assert at.session_state["custom_draft"]["asset"] == "goat"          # the Details now show what the model read
+    finally:
+        for k in [k for k in sys.modules if k == "mel" or k.startswith("mel.")]:
+            del sys.modules[k]
+        sys.modules.update(saved)

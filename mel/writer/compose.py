@@ -64,14 +64,15 @@ def _finish(s: dict, insight: dict, source: str, model: str = "", fallback: str 
     return s
 
 
-def _try_model(base: dict, insight: dict, lang: str, attention=None) -> tuple[dict | None, str]:
+def _try_model(base: dict, insight: dict, lang: str, attention=None, source_items=None) -> tuple[dict | None, str]:
     """-> (survey or None, reason it was not used). The model survey is used only if it passes ALL of:
     guards, relevance at least as good as the template for this insight, and the small-model check (when one is configured).
-    `attention` (off by default) feeds question_count so the 2-vs-3 rule and the steady_high cap hold here too."""
+    `attention` (off by default) feeds question_count so the 2-vs-3 rule and the steady_high cap hold here too.
+    `source_items` (the approved English survey) turns the request into a translation (see llm.llm_items)."""
     if not llm.enabled():
         return None, "model_off"
     n = question_count(insight, attention)
-    items = llm.llm_items(insight, lang, n_items=n)
+    items = llm.llm_items(insight, lang, n_items=n, source_items=source_items)
     if not items:
         return None, "model_unavailable_or_unreadable"
     if len(items) != n:        # the 2-vs-3 rule (and steady_high cap) holds on the model path too
@@ -105,15 +106,17 @@ def history_notes(insight: dict, memory, attention=None) -> list[tuple[str, str]
     return personalize(build_items(insight, STYLE, attention), insight, memory, attention)[1]
 
 
-def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None, attention=None) -> dict:
+def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None, attention=None,
+                   source_items=None) -> dict:
     """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem.
     With `memory` (history.FarmerMemory), the history rules adapt the template; a personalised survey always uses the template.
-    `attention` (activity-attention, off by default): `surge` keeps up to 3 questions (H4 skipped), `steady_high` caps at 2."""
+    `attention` (activity-attention, off by default): `surge` keeps up to 3 questions (H4 skipped), `steady_high` caps at 2.
+    `source_items`: the approved English items to translate instead of writing `lang` from scratch."""
     lang = norm_lang(lang)
     base = _base(insight, lang, _window(decision))
     notes = history_notes(insight, memory, attention)
     if not notes:
-        cand, why = _try_model(base, insight, lang, attention)
+        cand, why = _try_model(base, insight, lang, attention, source_items)
         if cand:
             return _finish(cand, insight, "llm", llm.write_model())
     else:
@@ -127,6 +130,12 @@ def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=No
 
 
 def write_surveys(insight: dict, send_window: dict, langs=LANGS, memory=None, attention=None) -> dict[str, dict]:
-    """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']]."""
-    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang, memory, attention)
-            for lang in langs}
+    """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']].
+    English first: a Bedrock-written English survey is translated into Hindi, not written again."""
+    done, source = {}, None
+    for lang in sorted(langs, key=lambda l: norm_lang(l) != "en-IN"):   # English is written first, whatever the order
+        s = compose_survey({"send_window": send_window}, insight, lang, memory, attention, source_items=source)
+        done[norm_lang(lang)] = s
+        if source is None and norm_lang(lang) == "en-IN" and s.get("_source") == "llm":
+            source = s["items"]
+    return {norm_lang(lang): done[norm_lang(lang)] for lang in langs}      # in the caller's order, as before
