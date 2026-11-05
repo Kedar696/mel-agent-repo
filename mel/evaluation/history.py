@@ -29,10 +29,12 @@ def load_history(path=HISTORY) -> list[dict]:
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     for r in rows:
         r.setdefault("timing_basis", "brief")  # rows recorded before the timing setting existed
+        r.setdefault("history", False)          # rows recorded before P4's history rules joined the pipeline
     return rows
 
 
-def record_run(label: str, golden: dict, card: dict, path=HISTORY, timing_basis: str = "brief") -> dict:
+def record_run(label: str, golden: dict, card: dict, path=HISTORY, timing_basis: str = "brief",
+               history: bool = False) -> dict:
     """Append one run. `golden` = score_golden() result (full pack), `card` = run_scorecard() result,
     `timing_basis` = which send-window rule was active (MEL_TIMING_BASIS)."""
     row = {
@@ -40,7 +42,7 @@ def record_run(label: str, golden: dict, card: dict, path=HISTORY, timing_basis:
         "at": datetime.now(IST).isoformat(timespec="seconds"),
         "commit": _git("rev-parse", "--short", "HEAD") or "unknown",
         "uncommitted_changes": bool(_git("status", "--porcelain", "--untracked-files=no")),
-        "label": label, "timing_basis": timing_basis,
+        "label": label, "timing_basis": timing_basis, "history": history,
         "golden_rows": golden["n"], "insights": card["n_insights"],
         **{k: round(v, 4) if isinstance(v, float) else v
            for k, v in {**golden, **card}.items() if k in KEYS},

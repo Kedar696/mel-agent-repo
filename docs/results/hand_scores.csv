@@ -1,41 +1,201 @@
 sample,golden_id,insight_id,crop_or_animal,resolution,farmer_asked,advice_given,questions,score_1_to_5,scorer,notes
 1,G-0003,I-000523,cabbage,do_not_act,Farmer reports small green caterpillars making holes in the leaves in cabbage (nursery and transplanting) and asks what is wrong.,"Advised not to use the same insecticide again and again for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
-Q2. How is your cabbage now?  [Better / Same as before / Worse]",,,
+Q2. How is your cabbage now?  [Better / Same as before / Worse]",5,Kedar,
+1,G-0003,I-000523,cabbage,do_not_act,Farmer reports small green caterpillars making holes in the leaves in cabbage (nursery and transplanting) and asks what is wrong.,"Advised not to use the same insecticide again and again for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cabbage now?  [Better / Same as before / Worse]",5,Lucas,
+1,G-0003,I-000523,cabbage,do_not_act,Farmer reports small green caterpillars making holes in the leaves in cabbage (nursery and transplanting) and asks what is wrong.,"Advised not to use the same insecticide again and again for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cabbage now?  [Better / Same as before / Worse]",3,Michael,
+1,G-0003,I-000523,cabbage,do_not_act,Farmer reports small green caterpillars making holes in the leaves in cabbage (nursery and transplanting) and asks what is wrong.,"Advised not to use the same insecticide again and again for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cabbage now?  [Better / Same as before / Worse]",4,Semdon,
+1,G-0003,I-000523,cabbage,do_not_act,Farmer reports small green caterpillars making holes in the leaves in cabbage (nursery and transplanting) and asks what is wrong.,"Advised not to use the same insecticide again and again for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cabbage now?  [Better / Same as before / Worse]",5,Will,
 2,G-0006,I-000702,mustard,plan_created,Farmer asks about soil testing in mustard.,"Gave a plan in stages: first take a soil sample and get it tested at the nearest soil testing lab, then watch for the soil test result and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
-Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",,,
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Kedar,
+2,G-0006,I-000702,mustard,plan_created,Farmer asks about soil testing in mustard.,"Gave a plan in stages: first take a soil sample and get it tested at the nearest soil testing lab, then watch for the soil test result and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",5,Lucas,
+2,G-0006,I-000702,mustard,plan_created,Farmer asks about soil testing in mustard.,"Gave a plan in stages: first take a soil sample and get it tested at the nearest soil testing lab, then watch for the soil test result and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Michael,
+2,G-0006,I-000702,mustard,plan_created,Farmer asks about soil testing in mustard.,"Gave a plan in stages: first take a soil sample and get it tested at the nearest soil testing lab, then watch for the soil test result and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Semdon,
+2,G-0006,I-000702,mustard,plan_created,Farmer asks about soil testing in mustard.,"Gave a plan in stages: first take a soil sample and get it tested at the nearest soil testing lab, then watch for the soil test result and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Will,
 3,G-0012,I-000934,mustard,direct_action,Farmer asks how to handle nitrogen shortage in mustard (rosette and branching).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you follow the advice for your mustard?  [Yes / No]
-Q2. How is your mustard now?  [Better / Same as before / Worse]",,,
+Q2. How is your mustard now?  [Better / Same as before / Worse]",3,Kedar,
+3,G-0012,I-000934,mustard,direct_action,Farmer asks how to handle nitrogen shortage in mustard (rosette and branching).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you follow the advice for your mustard?  [Yes / No]
+Q2. How is your mustard now?  [Better / Same as before / Worse]",3,Lucas,
+3,G-0012,I-000934,mustard,direct_action,Farmer asks how to handle nitrogen shortage in mustard (rosette and branching).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you follow the advice for your mustard?  [Yes / No]
+Q2. How is your mustard now?  [Better / Same as before / Worse]",5,Michael,
+3,G-0012,I-000934,mustard,direct_action,Farmer asks how to handle nitrogen shortage in mustard (rosette and branching).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you follow the advice for your mustard?  [Yes / No]
+Q2. How is your mustard now?  [Better / Same as before / Worse]",5,Semdon,
+3,G-0012,I-000934,mustard,direct_action,Farmer asks how to handle nitrogen shortage in mustard (rosette and branching).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you follow the advice for your mustard?  [Yes / No]
+Q2. How is your mustard now?  [Better / Same as before / Worse]",4,Will,
 4,G-0014,I-000949,wheat,direct_action,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches.,"Q1. Did you follow the advice for your wheat?  [Yes / No]
-Q2. How is your wheat now?  [Better / Same as before / Worse]",,,
+Q2. How is your wheat now?  [Better / Same as before / Worse]",3,Kedar,
+4,G-0014,I-000949,wheat,direct_action,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches.,"Q1. Did you follow the advice for your wheat?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",4,Lucas,
+4,G-0014,I-000949,wheat,direct_action,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches.,"Q1. Did you follow the advice for your wheat?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Michael,
+4,G-0014,I-000949,wheat,direct_action,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches.,"Q1. Did you follow the advice for your wheat?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",3,Semdon,
+4,G-0014,I-000949,wheat,direct_action,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches.,"Q1. Did you follow the advice for your wheat?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",4,Will,
 5,G-0015,I-000985,wheat,wait_and_monitor,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to wait and watch for new drying patches over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
-Q2. Is the problem growing?  [Getting less / Same as before / Growing]",,,
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Kedar,
+5,G-0015,I-000985,wheat,wait_and_monitor,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to wait and watch for new drying patches over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",3,Lucas,
+5,G-0015,I-000985,wheat,wait_and_monitor,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to wait and watch for new drying patches over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Michael,
+5,G-0015,I-000985,wheat,wait_and_monitor,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to wait and watch for new drying patches over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Semdon,
+5,G-0015,I-000985,wheat,wait_and_monitor,Farmer reports plants drying in patches and pulling out easily in wheat (sowing and emergence) and asks what is wrong.,Advised to wait and watch for new drying patches over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Will,
 6,G-0019,I-001118,gram,plan_created,Farmer asks how to handle sulphur shortage in gram (seedling).,"Gave a plan in stages: first apply a sulphur fertiliser as per soil test advice, then watch for colour of the young leaves and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
-Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",,,
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Kedar,
+6,G-0019,I-001118,gram,plan_created,Farmer asks how to handle sulphur shortage in gram (seedling).,"Gave a plan in stages: first apply a sulphur fertiliser as per soil test advice, then watch for colour of the young leaves and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Lucas,
+6,G-0019,I-001118,gram,plan_created,Farmer asks how to handle sulphur shortage in gram (seedling).,"Gave a plan in stages: first apply a sulphur fertiliser as per soil test advice, then watch for colour of the young leaves and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Michael,
+6,G-0019,I-001118,gram,plan_created,Farmer asks how to handle sulphur shortage in gram (seedling).,"Gave a plan in stages: first apply a sulphur fertiliser as per soil test advice, then watch for colour of the young leaves and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Semdon,
+6,G-0019,I-001118,gram,plan_created,Farmer asks how to handle sulphur shortage in gram (seedling).,"Gave a plan in stages: first apply a sulphur fertiliser as per soil test advice, then watch for colour of the young leaves and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Will,
 7,G-0039,I-002098,wheat,wait_and_monitor,Farmer asks about afternoon wilting in wheat.,Advised to wait and watch for wilting the next afternoon over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
-Q2. Is the problem growing?  [Getting less / Same as before / Growing]",,,
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Kedar,
+7,G-0039,I-002098,wheat,wait_and_monitor,Farmer asks about afternoon wilting in wheat.,Advised to wait and watch for wilting the next afternoon over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Lucas,
+7,G-0039,I-002098,wheat,wait_and_monitor,Farmer asks about afternoon wilting in wheat.,Advised to wait and watch for wilting the next afternoon over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Michael,
+7,G-0039,I-002098,wheat,wait_and_monitor,Farmer asks about afternoon wilting in wheat.,Advised to wait and watch for wilting the next afternoon over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Semdon,
+7,G-0039,I-002098,wheat,wait_and_monitor,Farmer asks about afternoon wilting in wheat.,Advised to wait and watch for wilting the next afternoon over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Will,
 8,G-0050,I-002814,buffalo,escalate_to_expert,Farmer reports the buffalo shivering on cold nights in their buffalo and asks what is wrong.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
-Q2. How is your buffalo now?  [Better / Same as before / Worse]",,,
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Kedar,
+8,G-0050,I-002814,buffalo,escalate_to_expert,Farmer reports the buffalo shivering on cold nights in their buffalo and asks what is wrong.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Lucas,
+8,G-0050,I-002814,buffalo,escalate_to_expert,Farmer reports the buffalo shivering on cold nights in their buffalo and asks what is wrong.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Michael,
+8,G-0050,I-002814,buffalo,escalate_to_expert,Farmer reports the buffalo shivering on cold nights in their buffalo and asks what is wrong.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",4,Semdon,
+8,G-0050,I-002814,buffalo,escalate_to_expert,Farmer reports the buffalo shivering on cold nights in their buffalo and asks what is wrong.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Will,
 9,G-0051,I-002847,cow,plan_created,Farmer follows up on vaccination in their cow after trying earlier advice.,"Gave a plan in stages: first take the animal to the next vaccination camp of the animal husbandry department, then watch for the vaccination date and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
-Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",,,
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Kedar,
+9,G-0051,I-002847,cow,plan_created,Farmer follows up on vaccination in their cow after trying earlier advice.,"Gave a plan in stages: first take the animal to the next vaccination camp of the animal husbandry department, then watch for the vaccination date and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Lucas,
+9,G-0051,I-002847,cow,plan_created,Farmer follows up on vaccination in their cow after trying earlier advice.,"Gave a plan in stages: first take the animal to the next vaccination camp of the animal husbandry department, then watch for the vaccination date and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Michael,
+9,G-0051,I-002847,cow,plan_created,Farmer follows up on vaccination in their cow after trying earlier advice.,"Gave a plan in stages: first take the animal to the next vaccination camp of the animal husbandry department, then watch for the vaccination date and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",5,Semdon,
+9,G-0051,I-002847,cow,plan_created,Farmer follows up on vaccination in their cow after trying earlier advice.,"Gave a plan in stages: first take the animal to the next vaccination camp of the animal husbandry department, then watch for the vaccination date and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",5,Will,
 10,G-0053,I-002966,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
-Q2. How is your goat now?  [Better / Same as before / Worse]",,,
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Kedar,
+10,G-0053,I-002966,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Lucas,
+10,G-0053,I-002966,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Michael,
+10,G-0053,I-002966,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",4,Semdon,
+10,G-0053,I-002966,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Will,
 11,G-0055,I-003014,maize,direct_action,Farmer asks how to handle lodging in maize.,Advised to stop irrigation on windy days and do not add more nitrogen.,"Q1. Did you follow the advice for your maize?  [Yes / No]
-Q2. How is your maize now?  [Better / Same as before / Worse]",,,
+Q2. How is your maize now?  [Better / Same as before / Worse]",3,Kedar,
+11,G-0055,I-003014,maize,direct_action,Farmer asks how to handle lodging in maize.,Advised to stop irrigation on windy days and do not add more nitrogen.,"Q1. Did you follow the advice for your maize?  [Yes / No]
+Q2. How is your maize now?  [Better / Same as before / Worse]",4,Lucas,
+11,G-0055,I-003014,maize,direct_action,Farmer asks how to handle lodging in maize.,Advised to stop irrigation on windy days and do not add more nitrogen.,"Q1. Did you follow the advice for your maize?  [Yes / No]
+Q2. How is your maize now?  [Better / Same as before / Worse]",5,Michael,
+11,G-0055,I-003014,maize,direct_action,Farmer asks how to handle lodging in maize.,Advised to stop irrigation on windy days and do not add more nitrogen.,"Q1. Did you follow the advice for your maize?  [Yes / No]
+Q2. How is your maize now?  [Better / Same as before / Worse]",3,Semdon,
+11,G-0055,I-003014,maize,direct_action,Farmer asks how to handle lodging in maize.,Advised to stop irrigation on windy days and do not add more nitrogen.,"Q1. Did you follow the advice for your maize?  [Yes / No]
+Q2. How is your maize now?  [Better / Same as before / Worse]",5,Will,
 12,G-0061,I-003405,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat (jointing and boot) and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
-Q2. How is your wheat now?  [Better / Same as before / Worse]",,,
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Kedar,
+12,G-0061,I-003405,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat (jointing and boot) and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",4,Lucas,
+12,G-0061,I-003405,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat (jointing and boot) and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Michael,
+12,G-0061,I-003405,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat (jointing and boot) and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Semdon,
+12,G-0061,I-003405,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat (jointing and boot) and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Will,
 13,G-0067,I-003512,tomato,plan_created,Farmer asks how to handle zinc shortage in tomato (flowering).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
-Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",,,
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Kedar,
+13,G-0067,I-003512,tomato,plan_created,Farmer asks how to handle zinc shortage in tomato (flowering).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",4,Lucas,
+13,G-0067,I-003512,tomato,plan_created,Farmer asks how to handle zinc shortage in tomato (flowering).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",3,Michael,
+13,G-0067,I-003512,tomato,plan_created,Farmer asks how to handle zinc shortage in tomato (flowering).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",5,Semdon,
+13,G-0067,I-003512,tomato,plan_created,Farmer asks how to handle zinc shortage in tomato (flowering).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. How much of the plan have you done?  [All steps / Some steps / Not started]
+Q2. How useful was the plan? 1 means not useful, 5 means very useful.  [scale 1-5]",5,Will,
 14,G-0071,I-003695,wheat,wait_and_monitor,Farmer reports yellow powder in stripes on the leaves in wheat (tillering).,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
-Q2. Is the problem growing?  [Getting less / Same as before / Growing]",,,
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Kedar,
+14,G-0071,I-003695,wheat,wait_and_monitor,Farmer reports yellow powder in stripes on the leaves in wheat (tillering).,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Lucas,
+14,G-0071,I-003695,wheat,wait_and_monitor,Farmer reports yellow powder in stripes on the leaves in wheat (tillering).,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",3,Michael,
+14,G-0071,I-003695,wheat,wait_and_monitor,Farmer reports yellow powder in stripes on the leaves in wheat (tillering).,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Semdon,
+14,G-0071,I-003695,wheat,wait_and_monitor,Farmer reports yellow powder in stripes on the leaves in wheat (tillering).,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you keep checking your wheat?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Will,
 15,G-0107,I-005270,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
-Q2. How is your wheat now?  [Better / Same as before / Worse]",,,
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Kedar,
+15,G-0107,I-005270,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",4,Lucas,
+15,G-0107,I-005270,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Michael,
+15,G-0107,I-005270,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",4,Semdon,
+15,G-0107,I-005270,wheat,do_not_act,Farmer reports small green insects on leaves and ears in wheat and asks what is wrong.,"Advised not to spray when only a few insects are seen for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same as before / Worse]",5,Will,
 16,G-0110,I-005351,buffalo,escalate_to_expert,Farmer asks how to handle deworming in their buffalo.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
-Q2. How is your buffalo now?  [Better / Same as before / Worse]",,,
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Kedar,
+16,G-0110,I-005351,buffalo,escalate_to_expert,Farmer asks how to handle deworming in their buffalo.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Lucas,
+16,G-0110,I-005351,buffalo,escalate_to_expert,Farmer asks how to handle deworming in their buffalo.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Michael,
+16,G-0110,I-005351,buffalo,escalate_to_expert,Farmer asks how to handle deworming in their buffalo.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",4,Semdon,
+16,G-0110,I-005351,buffalo,escalate_to_expert,Farmer asks how to handle deworming in their buffalo.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did an expert see your buffalo?  [Yes / No]
+Q2. How is your buffalo now?  [Better / Same as before / Worse]",5,Will,
 17,G-0113,I-005385,goat,escalate_to_expert,Farmer reports whether the goat is due for vaccination in their goat and asks what is wrong.,Advised to call the nearest veterinary doctor because vaccination needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
-Q2. How is your goat now?  [Better / Same as before / Worse]",,,
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Kedar,
+17,G-0113,I-005385,goat,escalate_to_expert,Farmer reports whether the goat is due for vaccination in their goat and asks what is wrong.,Advised to call the nearest veterinary doctor because vaccination needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Lucas,
+17,G-0113,I-005385,goat,escalate_to_expert,Farmer reports whether the goat is due for vaccination in their goat and asks what is wrong.,Advised to call the nearest veterinary doctor because vaccination needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Michael,
+17,G-0113,I-005385,goat,escalate_to_expert,Farmer reports whether the goat is due for vaccination in their goat and asks what is wrong.,Advised to call the nearest veterinary doctor because vaccination needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",4,Semdon,
+17,G-0113,I-005385,goat,escalate_to_expert,Farmer reports whether the goat is due for vaccination in their goat and asks what is wrong.,Advised to call the nearest veterinary doctor because vaccination needs a closer look.,"Q1. Did an expert see your goat?  [Yes / No]
+Q2. How is your goat now?  [Better / Same as before / Worse]",5,Will,
 18,G-0117,I-005751,tomato,direct_action,Farmer is deciding what to do about afternoon wilting in tomato.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you follow the advice for your tomato?  [Yes / No]
-Q2. How is your tomato now?  [Better / Same as before / Worse]",,,
+Q2. How is your tomato now?  [Better / Same as before / Worse]",3,Kedar,
+18,G-0117,I-005751,tomato,direct_action,Farmer is deciding what to do about afternoon wilting in tomato.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you follow the advice for your tomato?  [Yes / No]
+Q2. How is your tomato now?  [Better / Same as before / Worse]",4,Lucas,
+18,G-0117,I-005751,tomato,direct_action,Farmer is deciding what to do about afternoon wilting in tomato.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you follow the advice for your tomato?  [Yes / No]
+Q2. How is your tomato now?  [Better / Same as before / Worse]",5,Michael,
+18,G-0117,I-005751,tomato,direct_action,Farmer is deciding what to do about afternoon wilting in tomato.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you follow the advice for your tomato?  [Yes / No]
+Q2. How is your tomato now?  [Better / Same as before / Worse]",5,Semdon,
+18,G-0117,I-005751,tomato,direct_action,Farmer is deciding what to do about afternoon wilting in tomato.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you follow the advice for your tomato?  [Yes / No]
+Q2. How is your tomato now?  [Better / Same as before / Worse]",3,Will,
 19,G-0129,I-006279,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
-Q2. How is your cauliflower now?  [Better / Same as before / Worse]",,,
+Q2. How is your cauliflower now?  [Better / Same as before / Worse]",4,Kedar,
+19,G-0129,I-006279,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cauliflower now?  [Better / Same as before / Worse]",4,Lucas,
+19,G-0129,I-006279,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cauliflower now?  [Better / Same as before / Worse]",1,Michael,
+19,G-0129,I-006279,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cauliflower now?  [Better / Same as before / Worse]",4,Semdon,
+19,G-0129,I-006279,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cauliflower now?  [Better / Same as before / Worse]",4,Will,
 20,G-0139,I-006527,potato,wait_and_monitor,Farmer reports insects in stored potato in potato (sorting and cold storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you keep checking your potato?  [Yes / No]
-Q2. Is the problem growing?  [Getting less / Same as before / Growing]",,,
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Kedar,
+20,G-0139,I-006527,potato,wait_and_monitor,Farmer reports insects in stored potato in potato (sorting and cold storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you keep checking your potato?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Lucas,
+20,G-0139,I-006527,potato,wait_and_monitor,Farmer reports insects in stored potato in potato (sorting and cold storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you keep checking your potato?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",3,Michael,
+20,G-0139,I-006527,potato,wait_and_monitor,Farmer reports insects in stored potato in potato (sorting and cold storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you keep checking your potato?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",4,Semdon,
+20,G-0139,I-006527,potato,wait_and_monitor,Farmer reports insects in stored potato in potato (sorting and cold storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you keep checking your potato?  [Yes / No]
+Q2. Is the problem growing?  [Getting less / Same as before / Growing]",5,Will,

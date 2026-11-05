@@ -98,3 +98,30 @@ def test_rules_changed_compares_each_run_with_the_previous(tmp_path):
     (row,) = rules_changed(load_history(path))
     assert row["change"] == "fix" and row["timing_basis"] == "answer_key"
     assert row["decision_acc"] == (0.9, round(g["decision_acc"], 4))
+
+
+def test_rules_changed_compares_within_the_same_send_time_rule(tmp_path):
+    from mel.evaluation import rules_changed
+    g, c = score_golden(), run_scorecard(load_insights()[:5])
+    path = tmp_path / "h.jsonl"
+    record_run("base", g, c, path=path)                                   # 1 brief
+    record_run("setting", {**g, "window_acc": 1.0}, c, path=path, timing_basis="answer_key")  # 2 answer_key
+    record_run("p4 brief", g, c, path=path)                               # 3 brief
+    record_run("p4 key", {**g, "window_acc": 1.0}, c, path=path, timing_basis="answer_key")   # 4 answer_key
+    rows = {r["run"]: r for r in rules_changed(load_history(path))}
+    assert rows[2]["vs_run"] == 1 and rows[3]["vs_run"] == 1 and rows[4]["vs_run"] == 2
+    assert rows[3]["window_acc"][0] == rows[3]["window_acc"][1]
+
+
+def test_sheet_keeps_the_farmers_actual_taps():
+    """Survey Studio's tap-through passes the real taps to P3's simulate_sheet (answers=, added 4 Nov)."""
+    from mel.data import errors
+    from mel.simulator import simulate_sheet
+    sv = next(o["handoff"]["survey"] for o in (run_insight(i) for i in load_insights())
+              if o["decision"].survey and len(o["handoff"]["survey"]["items"]) >= 2)
+    q1, q2 = sv["items"][0], sv["items"][1]
+    worst = {q1["item_id"]: q1["options"][-1]["value"], q2["item_id"]: q2["options"][-1]["value"]}
+    closed = simulate_sheet(sv, "app", [q1["item_id"]], closed=True, answers=worst)
+    assert closed["status"] == "partial" and closed["answers"] == {q1["item_id"]: worst[q1["item_id"]]}
+    done = simulate_sheet(sv, "app", [it["item_id"] for it in sv["items"]], answers=worst)
+    assert all(done["answers"][k] == v for k, v in worst.items()) and not errors("response", done)

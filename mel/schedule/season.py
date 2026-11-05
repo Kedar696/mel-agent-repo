@@ -1,0 +1,257 @@
+"""The season driver: one shared SimClock behind the scheduler and the broadcaster, with a
+manual trigger for every scheduled step. Owner: P3.
+
+The demo needs to move through the November-to-March rabi season in minutes, not months,
+and a presenter needs to be able to fire the *next* due step by hand rather than wait for
+real time. This module ties the existing pieces together without changing any of them:
+
+  * `SimClock` (mel/schedule/clock.py) is the single source of "now". Both the scheduler
+    side (admission + cap + opt-out + expiry) and the broadcaster side (due / send-hours /
+    quality gate) read this one instance. Nothing here or in the broadcaster ever calls
+    `datetime.now()`, so a season walk is deterministic and reproducible.
+
+  * `CapLedger` / `OptOutList` (mel/schedule/handoff.py) still make exactly the cap and
+    opt-out decisions they always did. `Broadcaster` (mel/schedule/broadcast.py) still
+    decides due / pending / waiting / expired / rejected the same way. This class only
+    orchestrates them around the shared clock.
+
+  * Delivery stays simulated: a triggered step calls `mel.simulator.simulate()` with the
+    clock's current instant as the send time. No real messaging is added.
+
+A "scheduled step" is one channel attempt for one admitted hand-off (the hand-off's
+`channel_order` is the list of steps). `step()` runs the single next due step; `run_due()`
+runs every step that is due right now by repeatedly calling `step()`; `advance(days)` moves
+the one shared clock forward (clamped at the season end) so a later `step()` / `run_due()`
+sees different work as due.
+
+The season range (November to March by default, from `Season`) is configurable and the
+clock cannot advance past its end. The demo UI that drives this API lives in P5's Streamlit
+app; the callable P3 surface and a Season-tab sketch are documented in
+`docs/p3_season_screen_api.md`.
+"""
+from collections import Counter
+from datetime import timedelta
+
+from mel.timing import parse_ist, fmt_ist
+from .clock import SimClock, Season
+from .handoff import CapLedger, OptOutList
+from .broadcast import Broadcaster, within_send_hours
+
+
+def _days(days: int) -> timedelta:
+    """Validate a day count the way SimClock.advance does (whole int, >= 0, not bool) and
+    return it as a timedelta. Keeps the season clamp honouring the same guards."""
+    if isinstance(days, bool) or not isinstance(days, int):
+        raise TypeError("advance(days) takes a whole number of days (int)")
+    if days < 0:
+        raise ValueError("advance(days) cannot go backwards; days must be >= 0")
+    return timedelta(days=days)
+
+
+class StepResult:
+    """The outcome of one manually triggered scheduled step.
+
+      kind:
+        "sent"      -- a channel attempt ran; `record` is the simulated response.
+        "nothing"   -- no step was due to send at the clock's current instant.
+      handoff_id / channel identify which hand-off and channel the step touched (None for
+      "nothing"). `record` is the simulator's response record for a "sent" step, else None.
+    """
+    def __init__(self, kind: str, handoff_id=None, channel=None, record=None, reason=""):
+        assert kind in ("sent", "nothing"), kind
+        self.kind = kind
+        self.handoff_id = handoff_id
+        self.channel = channel
+        self.record = record
+        self.reason = reason
+
+    def __repr__(self):
+        return f"StepResult({self.kind!r}, {self.handoff_id!r}, {self.channel!r}, {self.reason!r})"
+
+
+class SeasonScheduler:
+    """Scheduler + broadcaster sharing one SimClock, with a manual per-step trigger.
+
+        sched = SeasonScheduler(relevance_threshold=0.5)   # starts at the rabi season's 1 Nov
+        sched.admit_all(handoffs)          # cap + opt-out gate, queue what is sent/moved/merged
+        sched.step()                       # run the next due scheduled step (one channel attempt)
+        sched.advance(7)                   # move the shared clock a week; different work is now due
+        sched.run_due()                    # fire every step due at the new instant
+        sched.advance_to_end()             # jump to the season's last instant (fast-forward)
+
+    The clock is shared: `sched.clock is sched.broadcaster.clock` is always true, so the
+    scheduler and broadcaster can never disagree about the current time. `relevance_threshold`
+    is explicit (P3 invents no shared bar); it is handed to the broadcaster's quality gate.
+
+    Season range: `season` (a `Season`) defines the November-to-March range the demo walks.
+    It defaults to the rabi season from config (1 Nov .. `window_rules.season_end` 19:00). The
+    clock starts at `start` if given, else the season start. `advance()` never moves past the
+    season end -- it clamps there and `is_season_over()` then reports True -- so a fast-forward
+    cannot run off into an endless future.
+    """
+
+    def __init__(self, start=None, *, relevance_threshold: float, persona: str = "default",
+                 seed: int = 0, season: Season | None = None, reachability=None):
+        self.season = season or Season()
+        self.clock = SimClock(start if start is not None else self.season.start_ist)
+        self.broadcaster = Broadcaster(self.clock)      # the SAME clock instance
+        self.cap = CapLedger()
+        self.opt_out = OptOutList()
+        self.relevance_threshold = relevance_threshold
+        self.persona = persona
+        self.seed = seed
+        # Optional per-farmer channel reachability (mel.channels.FarmerReachability). When set,
+        # a channel the farmer cannot be reached on is skipped, exactly like a persona's
+        # unreachable channel, while channel_order is preserved for reachable channels.
+        self.reachability = reachability
+        self._admit_log: list = []
+        self._sent_steps: dict[str, set[str]] = {}      # handoff_id -> channels already stepped
+        # P5 metrics: tallies of admission decisions and per-step outcomes.
+        self.admit_counts: Counter = Counter()
+        self.step_counts: Counter = Counter()
+
+    # ------------------------------------------------------------- admission
+    def admit(self, handoff: dict):
+        """Gate one hand-off through opt-out + cap (the scheduler side), and queue it on the
+        broadcaster when it is sent / moved / merged. Returns the Admit decision. A
+        skipped / opted_out hand-off is never queued."""
+        a = self.cap.admit(handoff, opt_out=self.opt_out)
+        self._admit_log.append(a)
+        self.admit_counts[a.decision] += 1          # P5: sent/opted_out/moved/merged/skipped
+        if a.decision in ("sent", "moved", "merged"):
+            self.broadcaster.queue(a.handoff)
+        return a
+
+    def metrics(self) -> dict:
+        """P5 counts from ACTUAL decisions (never hard-coded). `admitted` is the admission
+        breakdown (sent/moved/merged/skipped/opted_out); `steps` is the per-step outcome
+        breakdown (sent/nothing/no_reachable_channel)."""
+        return {"admitted": dict(self.admit_counts), "steps": dict(self.step_counts)}
+
+    def admit_all(self, handoffs) -> list:
+        """Admit many hand-offs in send-window order (the order they would really go out), so
+        the cap sees them as it would in the batch run."""
+        ordered = sorted(handoffs, key=lambda h: parse_ist(h["send_window"]["not_before"]))
+        return [self.admit(h) for h in ordered]
+
+    # -------------------------------------------------------------- the clock
+    def now(self):
+        return self.clock.now()
+
+    def now_ist(self) -> str:
+        return self.clock.now_ist()
+
+    def advance(self, days: int):
+        """Move the one shared clock forward, but never past the season end: if the step
+        would overshoot, the clock lands exactly on the season's last instant instead. Both
+        the scheduler's expiry/due checks and the broadcaster's decisions follow the shared
+        clock. Returns the new `now()`."""
+        target = self.clock.now() + _days(days)          # validates days (>=0, whole int)
+        if target > self.season.end:
+            self.clock.set(self.season.end)               # clamp to the season boundary
+        else:
+            self.clock.advance(days)
+        return self.clock.now()
+
+    def advance_to_end(self):
+        """Jump straight to the season's last instant -- the demo's 'fast-forward to the end
+        of March' control. After this, `is_season_over()` is True."""
+        self.clock.set(self.season.end)
+        return self.clock.now()
+
+    def in_season(self) -> bool:
+        """True while the shared clock is within the season range."""
+        return self.season.contains(self.clock.now())
+
+    def is_season_over(self) -> bool:
+        """True once the clock has reached (or been clamped to) the season end."""
+        return self.clock.now() >= self.season.end
+
+    # ------------------------------------------------- the manual per-step trigger
+    def step(self) -> StepResult:
+        """Run exactly ONE due scheduled step at the clock's current instant, by hand.
+
+        Picks the single next hand-off the broadcaster would send now (earliest window
+        first, due, quality-clear, inside send hours), simulates its next not-yet-tried
+        channel as one step, records any opt-out so later steps are blocked, and removes the
+        hand-off from the queue once all its channels have been stepped or it stops. Returns
+        a StepResult. If nothing is due to send now, returns StepResult("nothing").
+        """
+        from mel.simulator import simulate, case_for_channel, STOP_DECISIONS
+
+        # Keep the queue honest: drop anything now expired or quality-rejected (no send).
+        self.broadcaster.drop_expired_and_rejected(relevance_threshold=self.relevance_threshold)
+
+        b = self.broadcaster.next_due(relevance_threshold=self.relevance_threshold)
+        if b is None:
+            self.step_counts["nothing"] += 1
+            return StepResult("nothing", reason="no step due at " + self.clock.now_ist())
+
+        h = b.handoff
+        hid = h["handoff_id"]
+        done = self._sent_steps.setdefault(hid, set())
+
+        # The next channel step for this hand-off the farmer can actually be reached on and
+        # that has not been tried yet. A channel is skipped when the persona cannot reach it
+        # (case None) OR, when reachability data is supplied, the farmer record marks it
+        # unreachable. channel_order is preserved for the reachable channels.
+        farmer_id = h["survey"]["farmer_id"]
+        channel = case = None
+        for stepdef in h["channel_order"]:
+            ch = stepdef["channel"]
+            if ch in done:
+                continue
+            done.add(ch)                       # mark tried (skipped or stepped) so we advance
+            if self.reachability is not None and not self.reachability.reachable(farmer_id, ch):
+                continue                       # farmer not reachable here per the data
+            c = case_for_channel(self.persona, ch)
+            if c is None:
+                continue                       # persona cannot be reached here
+            channel, case = ch, c
+            break
+
+        if channel is None:
+            # No remaining reachable channel: the hand-off is finished, drop it.
+            self.broadcaster.remove(hid)
+            self.step_counts["no_reachable_channel"] += 1
+            return StepResult("nothing", handoff_id=hid, reason="no reachable channel left")
+
+        # Simulate this one channel attempt, sending at the clock's current instant. The case
+        # comes from the persona so opt-out / expiry / fall-back behaviour is preserved.
+        rec = simulate(h["survey"], channel, case,
+                       seed=self.seed, persona=self.persona, send_at=self.clock.now_ist())
+        self.opt_out.record(rec)  # feed opt-outs back so later steps to this farmer are blocked
+
+        # Stop the whole hand-off on an opt-out or any terminal (none/give_up) outcome, or
+        # when every channel has been tried. A fall_back_to_next_channel outcome leaves the
+        # hand-off queued so the next step() tries the next channel.
+        opted_out = rec["failure_code"] == "farmer_opted_out"
+        terminal = rec["retry_decision"] in STOP_DECISIONS
+        if opted_out or terminal or len(done) >= len(h["channel_order"]):
+            self.broadcaster.remove(hid)
+        self.step_counts["sent"] += 1
+        return StepResult("sent", handoff_id=hid, channel=channel, record=rec)
+
+    def run_due(self, max_steps: int = 1000) -> list[StepResult]:
+        """Trigger every step due at the clock's current instant, one `step()` at a time.
+        Stops when nothing more is due (or after `max_steps`, a safety bound)."""
+        out: list[StepResult] = []
+        for _ in range(max_steps):
+            r = self.step()
+            if r.kind == "nothing":
+                break
+            out.append(r)
+        return out
+
+    # ------------------------------------------------------------- housekeeping
+    def sweep_expired(self) -> list:
+        """Drop expired / quality-rejected hand-offs from the queue at the current instant
+        without sending anything. Returns the Broadcast results for the dropped items."""
+        return self.broadcaster.drop_expired_and_rejected(relevance_threshold=self.relevance_threshold)
+
+    @property
+    def pending(self) -> list[dict]:
+        return self.broadcaster.pending
+
+    def __repr__(self):
+        return f"SeasonScheduler(now={self.now_ist()!r}, queued={len(self.broadcaster)})"

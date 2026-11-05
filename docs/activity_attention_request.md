@@ -1,0 +1,184 @@
+# Request: small changes for the activity-attention feature
+
+From: P1 (Data, Contracts & Integration)
+To: P2 (Decision & Timing), P3 (Scheduler), P4 (Survey Writing), P5 (Evaluation & Demo)
+Status: **proposed, not applied.** P1 has not edited any file under `mel/timing/`, `mel/schedule/`,
+`mel/writer/`, `mel/evaluation/` or `app/`. Spec: `.kiro/specs/activity-attention/`.
+
+## Why
+The beneficiary's representative asked us to focus survey attention on positive **change** in activity, not on
+high activity itself. P1 adds a pure, off-by-default module `mel/data/activity.py` that labels each insight with
+a tier — `surge` (quiet then a jump or an urgent question), `steady_high` (constantly busy), or `neutral`
+(everyone else, including farmers who go quiet). The tier rides on `Decision.attention` (the hand-off/survey
+schemas forbid extra fields, so it goes on the Decision exactly as `send_time` does). Three small effects read
+it. **With attention off, every output is identical to today**; this is the regression guarantee.
+
+What P1 provides and these changes call:
+- `Decision.attention` — `{tier, reason, baseline_per_week, recent_count, weight, explanation}` or `None` (off).
+- Tiers: `"surge" | "neutral" | "steady_high"`. Weight 1.5 / 1.0 / 0.5.
+- `run_pipeline(..., attention=False)` / CLI `--attention` (default off; the app passes `attention=True`).
+
+Each change below is gated so that when `attention is None` the path is **exactly** today's code.
+
+---
+
+## P2 — `mel/decision/rules.py` and `mel/timing/send_time.py`
+
+### 2a. Add the field to the `Decision` dataclass (`mel/decision/rules.py`)
+```python
+@dataclass
+class Decision:
+    ...
+    send_time: dict | None = None
+    attention: dict | None = None   # {tier, reason, baseline_per_week, recent_count, weight, explanation}; None = off
+```
+Nothing in `decide()` changes. (Until this lands, P1 sets the attribute dynamically in `run_insight`; the field
+just makes it first-class and keeps `PipelineResult.counts()` tidy.) Shared-shape change ⇒ posting in chat.
+
+### 2b. Surge sends as soon as the window opens (`mel/timing/send_time.py`)
+Add an optional `attention` arg and one rule, placed **first** (above `high_severity`/`advice_evening`), still
+inside the window so it never sends before `not_before`:
+```python
+def pick_send_time(insight, window, farmer=None, history_hours=(), attention=None):
+    if attention and attention.get("tier") == "surge":
+        return _at(window, None, "attention_surge",
+                   "Rising activity: send as soon as the window opens.")
+    ...  # unchanged from here
+```
+`_at(window, None, …)` already clamps to the window opening (same mechanism `high_severity` uses), so R-5.2
+(never before the window opens) holds. `decide()` calls `pick_send_time(..., attention=decision-attention)`;
+P1 will pass it through — tell us the final signature you want.
+
+**Effect, attention off:** `attention` is `None`, the new branch is skipped, send time is unchanged.
+
+---
+
+## P3 — `mel/schedule/handoff.py`
+
+### 3a. `build_handoff` takes the tier and adjusts priority
+```python
+def build_handoff(insight, survey, attention=None):
+    prio = priority(insight)                        # unchanged brief priority
+    if attention is not None:
+        prio = adjust_priority(prio, insight, attention)
+    ...  # the rest uses `prio` exactly as today (exempt, waits, channel_order, frequency_cap)
+```
+```python
+STEP_UP   = {"low": "normal", "normal": "high", "high": "high"}
+STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}   # never demote a brief-high survey
+
+def adjust_priority(brief_prio: str, insight: dict, attention: dict) -> str:
+    tier = attention.get("tier")
+    if tier == "surge":
+        return STEP_UP[brief_prio]
+    if tier == "steady_high":
+        return STEP_DOWN[brief_prio]          # only normal->low; high stays high (R-6.1)
+    return brief_prio                          # neutral
+```
+Because `channel_order`, `wait_hours_by_priority`, and `frequency_cap.exempt` all derive from the final `prio`,
+a promoted surge automatically gets the voice fallback / 6-hour waits / cap exemption, and a demoted steady_high
+loses the high-only extras. No change to the hand-off JSON shape; `priority` stays `high`/`normal`/`low`.
+
+### 3b. Once-per-7-days cap on `activity_jump → high`
+Because `high` skips the weekly cap, promoting every surge to `high` would bypass the cap repeatedly. Gate it
+where surveys are seen in send order (the same place `CapLedger.admit` runs). P1 proposes a tiny helper P3 owns:
+```python
+class HighPromotionBudget:
+    """At most one activity_jump->high per farmer per rolling 7 days."""
+    def __init__(self): self._by = {}         # farmer_id -> [send_start datetimes already promoted to high]
+    def clamp(self, handoff, attention):
+        # Returns the handoff unchanged, or a copy with priority normal if the budget is spent.
+        if not attention or attention.get("reason") != "activity_jump" or handoff["priority"] != "high":
+            return handoff
+        ...  # if an earlier promoted high for this farmer is within 7 days -> copy with priority "normal"
+        ...  # else record this send time and keep high
+```
+Called on each hand-off before `admit()` in the CLI/app send loop (P1 wires the call; P3 owns the class).
+`quiet_then_high_weight` surges and surveys that are `high` by the brief's own rules are **not** budgeted.
+
+**Effect, attention off:** `build_handoff(insight, survey)` keeps its current two-arg call (P1 passes
+`attention=None` only when the flag is on), `adjust_priority` is never reached, the budget is never consulted.
+
+---
+
+## P4 — `mel/writer/compose.py`, `mel/writer/templates.py`, `mel/writer/history.py`
+
+Goal: **surge** ⇒ H4 (light-user cap to 2) does not apply, up to 3 questions; **steady_high** ⇒ at most 2.
+Must hold on the template and LLM paths, with history on or off, and never invent questions past the template's
+real count or the schema's 1–3 cap.
+
+### 4a. Thread the tier down (tier string is all that is needed)
+- `write_surveys(insight, send_window, langs=LANGS, memory=None, attention=None)`
+- `compose_survey(decision, insight, lang=BASELINE_LANG, memory=None, attention=None)`
+- `template_items(insight, lang, style=None, memory=None, attention=None)` → pass into `personalize`
+- `question_count(insight, attention=None)` and `_try_model(..., attention)` so the LLM item-count check matches
+
+### 4b. `question_count` respects steady_high
+```python
+def question_count(insight, attention=None):
+    n = 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+    if attention and attention.get("tier") == "steady_high":
+        n = min(n, 2)
+    return n
+```
+
+### 4c. `personalize` (H4 / H3) respects the tier (`mel/writer/history.py`)
+```python
+def personalize(items, i, mem, attention=None):
+    ...
+    # H3 fatigue: unchanged — still shortens, including for surge (R-6.4)
+    ...
+    tier = (attention or {}).get("tier")
+    if ctx['activity_level'] == 'light' and tier != 'surge':   # H4 skipped for surge (R-5, R-6.6)
+        if limit > 2: notes.append(('H4', 'light user'))
+        limit = min(limit, 2)
+    if tier == 'steady_high':
+        limit = min(limit, 2)
+    if len(items) > limit:
+        items = items[:limit]
+    return items, notes
+```
+"Up to 3" is still bounded by `build_items`' real item count and the schema's 1–3 cap, so surge never invents a
+question (R-6.5). On the LLM path, `_try_model` already asserts `len(items) == question_count(...)`; passing the
+same `attention` keeps it consistent (R-6.6).
+
+**Effect, attention off:** `attention` is `None` everywhere, `question_count` and `personalize` behave exactly
+as today (H4 still caps light users, no steady_high clamp).
+
+---
+
+## P5 — `app/streamlit_app.py` and `mel/evaluation/`
+
+### 5a. App turns attention on
+The app already runs `history=True`; add `attention=True` to its `run_pipeline(...)` call so Decisions carry a
+tier.
+
+### 5b. "Highlighted farmers" list
+A panel (Overview, or its own expander) listing insights where `tier != "neutral"`, sorted by `weight` desc then
+`created_at` desc, each showing `decision.attention["explanation"]`. Data comes from the batch Decisions.
+
+### 5c. Survey Studio: tier + reason, and a made-up-history demo
+Show `tier` and `reason` for the picked insight. Add an attention demo selector next to the existing "pretend
+survey history" picker (the pack's activity is flat with no designed surges), building a small synthetic history
+in-app just as the pretend-answers demo builds a `FarmerMemory` — e.g. "quiet, then urgent" (⇒ surge /
+quiet_then_high_weight), "steady heavy user" (⇒ steady_high), "went quiet" (⇒ neutral).
+
+### 5d. Follow-up queue sorted by weight first
+Sort the follow-up queue by `decision.attention["weight"]` desc first, then the current ordering.
+
+### 5e. Evaluation tab: before/after block
+Surface the before/after numbers P1's `scripts/activity_report.py` writes (tier/reason by `activity_level`,
+priority & cap counts, avg questions by `activity_level`, golden decision/rule/channel/item similarity,
+scorecard format/safety/timeliness — which must stay 100%). Name the representative's request as the reason, per
+`CLAUDE.md`. P1 can supply the JSON the tab reads.
+
+**Effect, scoring:** `mel/evaluation/` (golden, scorecard) keeps attention **off** by default (it calls
+`run_insight`/`run_pipeline` without the flag), so all current scores are unchanged unless a run explicitly
+turns it on for the comparison.
+
+---
+
+## If you'd rather P1 not touch your file at all
+Each cross-owner edit above is small and additive. If any owner prefers, P1 can instead consume a thin helper
+you expose (e.g. P3's `adjust_priority`/`HighPromotionBudget`, P4's `attention`-aware `question_count`), and P1
+only calls it. Say which you prefer per file and P1 will wire to that.

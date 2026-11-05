@@ -1,0 +1,288 @@
+"""The broadcaster: given a simulated clock, decide which hand-offs go out now. Owner: P3.
+
+This is the piece the demo's "Season" screen drives. It holds a queue of hand-offs and,
+each time it is asked (never on a timer of its own), reports which ones are due to send at
+the clock's current instant. In production this maps to EventBridge/Step Functions waking
+up a sender; here it is a plain, deterministic function so the walk-through is reproducible
+(see docs/TEAM.md, "Alarm clock and retry").
+
+What the checklist asks of it:
+  * Queue hand-offs by their send-window start, not the order they were added. Two surveys
+    added in any order come out of the queue earliest-window-first.
+  * `broadcast_due(clock, ...)` is an explicit manual trigger. It sends only work that is
+    (a) due -- the window has opened -- and (b) inside the day's send hours, and it drops
+    work whose expiry has already passed. It never advances the clock itself.
+  * Before anything is sent it passes the survey's P4 quality gate: a survey with a failed
+    self-evaluation (schema invalid, gives new advice, asks for personal info), a missing or
+    out-of-range relevance score, or a score below the threshold the caller supplies, is
+    rejected (never sent). A score exactly equal to the threshold is eligible. The threshold
+    is always passed in explicitly -- there is no shared default invented here, because the
+    "right" relevance bar is a P4/P5 decision, not P3's to hard-code.
+"""
+from datetime import datetime, time
+
+from mel.config import rules
+from mel.timing import parse_ist
+
+
+# -------------------------------------------------------------- P4 quality gate
+def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
+    """Why this survey must not be sent, or [] if it is clear to send.
+
+    Reads only the survey's own `self_eval` block (the shape P4 writes, defined in
+    config/schemas/survey.schema.json): `schema_valid`, `relevance_score`,
+    `gives_new_advice`, `asks_personal_info`. `relevance_threshold` is supplied by the
+    caller -- P3 does not invent a shared bar. A score equal to the threshold passes.
+
+    A survey with no `self_eval` at all is treated as not-yet-evaluated and rejected: the
+    broadcaster will not send something the writer never cleared.
+    """
+    if not isinstance(relevance_threshold, (int, float)) or isinstance(relevance_threshold, bool):
+        raise TypeError("relevance_threshold must be a number supplied by the caller")
+    if not 0.0 <= float(relevance_threshold) <= 1.0:
+        raise ValueError("relevance_threshold must be between 0 and 1")
+
+    se = survey.get("self_eval")
+    if not isinstance(se, dict):
+        return ["no self_eval: survey has not been quality-checked"]
+
+    out: list[str] = []
+    if se.get("schema_valid") is not True:
+        out.append("self_eval.schema_valid is not true")
+    if se.get("gives_new_advice") is True:
+        out.append("survey gives new advice")
+    if se.get("asks_personal_info") is True:
+        out.append("survey asks for personal information")
+
+    score = se.get("relevance_score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        out.append("relevance_score is missing or not a number")
+    elif not 0.0 <= float(score) <= 1.0:
+        out.append(f"relevance_score {score} is outside 0..1")
+    elif float(score) < float(relevance_threshold):
+        out.append(f"relevance_score {score} is below threshold {relevance_threshold}")
+    return out
+
+
+def passes_quality(survey: dict, relevance_threshold: float) -> bool:
+    return not quality_failures(survey, relevance_threshold)
+
+
+# ------------------------------------------------------------------ send hours
+def _hm(s: str) -> time:
+    h, m = s.split(":")
+    return time(int(h), int(m))
+
+
+def within_send_hours(when: datetime, send_hours: dict | None = None) -> bool:
+    """True if `when`'s time-of-day is inside [from, to] (inclusive) of the send hours.
+
+    `send_hours` defaults to the project rules ({"from": "07:00", "to": "19:00"}). A
+    hand-off carries its own `send_hours`, so callers normally pass handoff["send_hours"].
+    """
+    sh = send_hours or rules()["send_hours"]
+    t = when.time()
+    return _hm(sh["from"]) <= t <= _hm(sh["to"])
+
+
+# -------------------------------------------------------------- the broadcaster
+class Broadcast:
+    """One broadcaster decision for one hand-off at the clock's current instant.
+
+    `action` is one of:
+      sent     -- due, inside send hours, and quality-clear: it goes out now.
+      waiting  -- due (window open) but outside the day's send hours: hold for later today
+                  or a later day; stays in the queue.
+      pending  -- the send window has not opened yet; stays in the queue.
+      expired  -- past expires_at: dropped from the queue, never sent.
+      rejected -- failed the P4 quality gate: dropped, never sent.
+    """
+    ACTIONS = ("sent", "waiting", "pending", "expired", "rejected")
+
+    def __init__(self, action: str, handoff: dict, reason: str = ""):
+        assert action in self.ACTIONS, action
+        self.action = action
+        self.handoff = handoff
+        self.reason = reason
+
+    @property
+    def handoff_id(self) -> str:
+        return self.handoff.get("handoff_id")
+
+    def __repr__(self) -> str:
+        return f"Broadcast({self.action!r}, {self.handoff_id!r}, {self.reason!r})"
+
+    def __eq__(self, other):
+        return (isinstance(other, Broadcast)
+                and (self.action, self.reason) == (other.action, other.reason)
+                and self.handoff_id == other.handoff_id)
+
+
+class Broadcaster:
+    """A hand-off queue the simulated clock drives.
+
+        clock = SimClock("2026-11-01T07:00:00+05:30")
+        bc = Broadcaster(clock)            # bound to a shared clock
+        bc.queue(handoff_a)
+        bc.queue(handoff_b)
+        results = bc.broadcast_due(relevance_threshold=0.5)   # reads the bound clock
+
+    The queue is always kept in send-window-start order, so `broadcast_due` considers the
+    earliest-opening survey first regardless of the order things were queued. `broadcast_due`
+    is the only thing that acts, and only when you call it: it is the manual trigger.
+
+    Clock sharing: pass a `SimClock` to the constructor and the broadcaster reads time from
+    that one instance every call. `SeasonScheduler` constructs the broadcaster with the same
+    clock it schedules against, so scheduler and broadcaster never disagree about "now" and
+    neither ever touches the system clock. For backward compatibility `broadcast_due` and
+    `due_now` still accept a clock argument; when given, it overrides the bound clock for
+    that call (older callers passed one positionally).
+    """
+
+    def __init__(self, clock=None):
+        self._queue: list[dict] = []
+        self._clock = clock
+        # P5 metrics: running totals of rejected (quality-gate) and expired hand-offs the
+        # broadcaster has dropped over this object's life. Counted from actual decisions in
+        # broadcast_due / drop_expired_and_rejected, never hard-coded.
+        self.rejected_count = 0
+        self.expired_count = 0
+
+    @property
+    def clock(self):
+        return self._clock
+
+    def counts(self) -> dict:
+        """P5: cumulative rejected/expired totals from actual broadcaster decisions."""
+        return {"rejected": self.rejected_count, "expired": self.expired_count}
+
+    def _resolve_clock(self, clock):
+        c = clock if clock is not None else self._clock
+        if c is None:
+            raise ValueError("no clock: construct Broadcaster(clock) or pass a clock to this call")
+        return c
+
+    # -- queue management ----------------------------------------------------
+    def queue(self, handoff: dict) -> None:
+        """Add one hand-off. Idempotent on handoff_id: re-queuing the same hand-off replaces
+        the earlier copy rather than sending twice. The queue stays window-start ordered."""
+        hid = handoff.get("handoff_id")
+        self._queue = [h for h in self._queue if h.get("handoff_id") != hid]
+        self._queue.append(handoff)
+        self._resort()
+
+    def queue_all(self, handoffs) -> None:
+        for h in handoffs:
+            self.queue(h)
+
+    def _resort(self) -> None:
+        self._queue.sort(key=lambda h: parse_ist(h["send_window"]["not_before"]))
+
+    @property
+    def pending(self) -> list[dict]:
+        """Hand-offs still waiting, in send-window-start order."""
+        return list(self._queue)
+
+    def remove(self, handoff_id: str) -> bool:
+        """Drop one hand-off from the queue by id. Returns True if it was present. Used by a
+        per-step trigger once a step has been run for that hand-off."""
+        before = len(self._queue)
+        self._queue = [h for h in self._queue if h.get("handoff_id") != handoff_id]
+        return len(self._queue) != before
+
+    def __len__(self) -> int:
+        return len(self._queue)
+
+    # -- the manual trigger --------------------------------------------------
+    def due_now(self, clock=None) -> list[dict]:
+        """Hand-offs whose send window has opened at the clock's instant, window-start order.
+        A read-only view; it does not send or remove anything. Uses the bound shared clock
+        unless a clock is passed for this call."""
+        now = self._resolve_clock(clock).now()
+        return [h for h in self._queue if parse_ist(h["send_window"]["not_before"]) <= now]
+
+    def drop_expired_and_rejected(self, clock=None, *, relevance_threshold: float) -> list[Broadcast]:
+        """Remove only expired and quality-rejected hand-offs from the queue at the clock's
+        instant, and return those Broadcast results. Pending / waiting / sendable items are
+        left untouched (nothing is sent). Lets a per-step driver keep the queue honest
+        without the whole-queue send that `broadcast_due` performs."""
+        now = self._resolve_clock(clock).now()
+        dropped: list[Broadcast] = []
+        keep: list[dict] = []
+        for h in self._queue:
+            b = self._decide_one(h, now, relevance_threshold)
+            if b.action in ("expired", "rejected"):
+                dropped.append(b)
+            else:
+                keep.append(h)
+        self._queue = keep
+        self._resort()
+        self._tally(dropped)
+        return dropped
+
+    def _tally(self, broadcasts) -> None:
+        """Add expired/rejected outcomes to the running P5 totals (actual decisions)."""
+        for b in broadcasts:
+            if b.action == "rejected":
+                self.rejected_count += 1
+            elif b.action == "expired":
+                self.expired_count += 1
+
+    def next_due(self, clock=None, *, relevance_threshold: float):
+        """The single next hand-off that would be sent right now (earliest window first), as
+        a Broadcast with action 'sent', or None if nothing is sendable at this instant.
+
+        This is the per-step read the manual trigger builds on: it looks only at what is due,
+        quality-clear and inside send hours now, without touching the queue."""
+        now = self._resolve_clock(clock).now()
+        for h in self._queue:
+            b = self._decide_one(h, now, relevance_threshold)
+            if b.action == "sent":
+                return b
+        return None
+
+    def broadcast_due(self, clock=None, *, relevance_threshold: float) -> list[Broadcast]:
+        """Decide, for every queued hand-off, what happens at the clock's current instant.
+
+        `relevance_threshold` is required and explicit (keyword-only): the caller states the
+        P4 relevance bar; P3 does not invent one. Returns a Broadcast per queued hand-off,
+        in send-window-start order. `sent`, `expired` and `rejected` hand-offs leave the
+        queue; `pending` and `waiting` stay for a later call. Reads the bound shared clock
+        unless a clock is passed for this call.
+        """
+        now = self._resolve_clock(clock).now()
+        results: list[Broadcast] = []
+        keep: list[dict] = []
+        for h in self._queue:
+            b = self._decide_one(h, now, relevance_threshold)
+            results.append(b)
+            if b.action in ("pending", "waiting"):
+                keep.append(h)
+        self._queue = keep
+        self._resort()
+        self._tally(results)
+        return results
+
+    @staticmethod
+    def _decide_one(handoff: dict, now: datetime, relevance_threshold: float) -> Broadcast:
+        not_before = parse_ist(handoff["send_window"]["not_before"])
+        expires = parse_ist(handoff["expires_at"])
+
+        # Expired work is dropped before anything else: never send a stale survey.
+        if now > expires:
+            return Broadcast("expired", handoff, reason=f"past expiry {handoff['expires_at']}")
+
+        # Window not open yet: hold.
+        if now < not_before:
+            return Broadcast("pending", handoff, reason=f"window opens {handoff['send_window']['not_before']}")
+
+        # Due. Quality gate before send -- a survey the writer did not clear never goes out.
+        fails = quality_failures(handoff["survey"], relevance_threshold)
+        if fails:
+            return Broadcast("rejected", handoff, reason="; ".join(fails))
+
+        # Due and clear, but only send inside the day's send hours; otherwise wait.
+        if not within_send_hours(now, handoff.get("send_hours")):
+            return Broadcast("waiting", handoff, reason="outside send hours")
+
+        return Broadcast("sent", handoff)
