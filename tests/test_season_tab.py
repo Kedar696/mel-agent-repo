@@ -72,6 +72,23 @@ def test_demo_pick_shows_the_bedrock_written_questions(app):
     assert "11/28/2026 7:00 AM IST" in text              # the farmer's send time, in India time (team decision 5 Nov)
 
 
+def test_finished_survey_says_when_the_next_one_comes(app):
+    """Survey demo: once the farmer taps through, the agent's side says when this farmer is surveyed again."""
+    import re
+    keys = lambda: [b.key for b in app.button if b.key and "preview" in b.key]
+    for _ in range(12):                 # Start (chat channels only), then every question with its first option
+        ks = keys()
+        q = ([k for k in ks if k.endswith("|start")] or [k for k in ks if "|pick" in k]
+             or [k for k in ks if re.search(r"\|q\d+\|", k)])
+        if not q:
+            break
+        app.button(key=q[0]).click().run()
+        assert not app.exception, [e.message for e in app.exception]
+    text = " ".join(m.value for m in app.markdown)
+    assert "Answer record" in text and "Next survey for this farmer" in text, text
+    assert any(s in text for s in ("Not before", "already in the batch", "This survey again", "As soon as")), text
+
+
 def test_own_insight_is_written_by_bedrock(tmp_path, monkeypatch):
     """Create your own insight with Bedrock on: the model reads the conversation and fills in the Details, the agent
     writes the English questions and translates them into Hindi. Every request is answered from the on-disk cache
