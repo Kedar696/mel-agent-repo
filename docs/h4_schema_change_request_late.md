@@ -1,43 +1,41 @@
-# Request to P1: add an optional `late` field to response.schema.json
+# Request to P1: how a late answer is recorded
 
 From: P3 (Scheduler, Channels & Simulator)
-To: P1 (Data, Contracts & Integration — owner of `config/schemas/`)
-Status: **proposed, not applied.** P3 has not edited the shared schema.
+To: P1 (Data, Contracts & Integration, owner of `config/schemas/`)
+Status: **needs a P1 decision.** Checked 5 Nov on `Semdon-P3`, `main` and `lucas-p1`: no decision
+recorded, `response.schema.json` has no `late` field. P3 has not edited the schema.
 
-## Why
-The brief says, for app/web surveys:
+## What the brief requires
+`schedule_handoff.schema.json` → `expires_at`: "After this the survey is dropped, sent or not,
+and late answers are kept but marked late."
 
-> Answers that arrive after `expires_at` are kept but marked **late**.
-> (`schedule_handoff.schema.json`: "late answers are kept but marked late".)
+## What P3 does today (no shared format invented)
+- A late answer is **kept**: `simulate_sheet(..., submit_at=after_expiry)` stores the answers.
+- It is **counted** without a new field: `mel.simulator.is_late(record, handoff["expires_at"])`
+  (answer time strictly after expiry; exactly at expiry is not late).
+- It is **marked** `late: true` only when `MEL_RESPONSE_LATE_FIELD=1`. Never `late: false`, so
+  normal records stay identical to the 183 reference records. Off by default, because today's
+  schema (`additionalProperties: false`) rejects the field and `validate` would fail.
 
-Today `response.schema.json` has `"additionalProperties": false` and no `late` field, so a
-record cannot express lateness without being invalid. P3 will not silently edit a shared
-schema or emit invalid records, so the late flag is currently computed internally and only
-written when the environment variable `MEL_RESPONSE_LATE_FIELD=1` is set. By default every
-record P3 emits stays valid against today's schema.
-
-## The change (one optional boolean)
-Add to `config/schemas/response.schema.json` `properties` (NOT to `required`, so existing
-records stay valid):
-
+## The decision P1 needs to make (pick one)
+**Option A (recommended): optional boolean `late` in `response.schema.json`.**
 ```json
-"late": {
-  "type": "boolean",
-  "description": "True when the answer arrived after expires_at. The answer is kept but flagged; FarmerChat treats it as late, not fresh. Absent means not late."
-}
+"late": {"type": "boolean", "description": "True when the answer arrived after expires_at. Kept, not fresh. Absent means not late."}
 ```
+In `properties`, not `required`. Catch: `config/schemas/` must match the organisers' pack, so
+`mel.cli parity` fails unless either Digital Green adds the field to the pack, or P1 adds a
+documented parity exception for this one property. P1 chooses which.
+Then P3 turns on `MEL_RESPONSE_LATE_FIELD` (one line). `tests/test_p3_completion.py` already
+proves a late record validates against the schema plus this field.
 
-Leave `additionalProperties: false` as-is; adding the property to the schema is what makes
-it allowed.
+**Option B: no schema change.** The stored record stays as today. Lateness is derived with
+`is_late()` from `timestamps.answered` and the hand-off's `expires_at`, and P1 writes a late
+count (or a list of late `response_key`s) into `run_summary.json`. Nothing in the record says
+"late", so this meets "kept" but only meets "marked" through the summary.
 
-## What flips on the P3 side when this lands
-1. P1 adds the property above and re-runs `python -m mel.cli validate` (still 0 invalid).
-2. P3 flips the default of `MEL_RESPONSE_LATE_FIELD` on in `mel/simulator/simulate.py`
-   (one constant), so `simulate()` / `simulate_sheet()` start emitting `late`.
-3. The 183 reference records in the pack do not contain `late`; they remain valid because
-   the field is optional and absent means not late. P3's reference-match test keeps the
-   flag off, so it continues to pass.
-
-## Scope note
-This only affects the answer record (`response`). No change to `survey`,
-`schedule_handoff`, `bottom_sheet`, `insight`, or `no_survey`.
+## Second point to confirm
+The pack's reference record `survey_closed` (a chat tap after expiry) is `stale`, answers `{}`
+("dropped before it reaches FarmerChat"). That contradicts "late answers are kept" for chat
+channels. P3 keeps the reference behaviour (all 183 records must match) and keeps late answers
+for the app/web sheet, which stores answers and submits them later. Please confirm with Digital
+Green that this split is what they want.

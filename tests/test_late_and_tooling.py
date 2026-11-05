@@ -29,7 +29,7 @@ def test_answer_exactly_at_expiry_is_not_late(monkeypatch):
     s = _survey()
     at_expiry = expires_at(s["send_window"])           # exactly the expiry instant
     r = simulate_sheet(s, "web", ["q1"], closed=True, submit_at=at_expiry)
-    assert r.get("late") is False                      # at expiry is NOT late (strict >)
+    assert "late" not in r                             # at expiry is NOT late (strict >): no field
 
 
 def test_answer_after_expiry_is_late(monkeypatch):
@@ -53,15 +53,16 @@ def test_late_answer_default_has_no_late_field_and_is_schema_valid():
 
 
 def test_late_field_when_enabled_is_still_schema_valid_only_if_schema_allows():
-    """When the flag is on, a non-late sheet answer carries late:false. It is schema-valid
-    ONLY once P1 adds the optional field; until then this documents the dependency. We assert
-    the field is present/boolean, not that it validates (that is P1's schema change)."""
+    """With the flag on, an on-time sheet answer carries NO late field (normal records never
+    get `late: false`, so they keep matching the reference records), and stays schema-valid
+    against today's schema."""
     s = _survey()
     old = sim._EMIT_LATE
     try:
         sim._EMIT_LATE = True
         r = simulate_sheet(s, "web", ["q1", "q2", "q3"])   # finished, on time
-        assert r.get("late") is False
+        assert "late" not in r
+        assert not errors("response", r)
     finally:
         sim._EMIT_LATE = old
 
