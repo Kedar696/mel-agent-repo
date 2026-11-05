@@ -76,7 +76,7 @@ Evaluation tab live if time allows.
 | Piece | Status |
 |---|---|
 | Amazon Bedrock: AI writer (P4) and AI relevance judge (P5) | **Built** *(confirm before the demo)* |
-| REST API in a container, so it can move to Digital Green's EKS (P1) | *Fill in at freeze* |
+| REST API in a container, so it can move to Digital Green's EKS (P1) | **Built**: `POST /surveys`, `GET /surveys/due`, `/healthz` (FastAPI); Dockerfile runs it, `infra/` defines ECR + App Runner + an EKS Deployment/Service (definition only, not deployed) |
 | App Runner: a web link to this demo | Optional |
 | EventBridge (send at 07:00, retry later), RDS PostgreSQL (weekly limit, opt-outs), Amazon Connect (voice calls) | **Not built**, production design only |
 
@@ -90,7 +90,7 @@ Evaluation tab live if time allows.
 ## Still to fill in before the deck is final
 - [ ] Team names, repo link (slide 1, 9)
 - [x] AI judge score and agreement with the 20 hand-scored surveys (slide 4)
-- [ ] Bedrock / REST API status at freeze (slide 8)
+- [x] REST API status at freeze (slide 8): built (container + infra/, not deployed). Bedrock status still P5 to confirm.
 - [ ] Any new rule changes: one slide each, numbers from the "Rules we changed" table
 - [ ] Hindi review status (P4): say "pending native review" on slide 3 if not signed off
 - [ ] Screenshots of each app tab for the backup (in case the live demo fails)

@@ -74,7 +74,9 @@ def _write_junk_report(path: Path, insights: list[dict]) -> int:
 
 
 def cmd_run(a):
-    from mel.simulator import simulate
+    from mel.schedule import run_batch, FrequencyScheduler
+    from mel.channels import FarmerReachability
+    from mel.writer import RELEVANCE_THRESHOLD   # P4's published send bar (0.3)
     path = Path(a.insights) if a.insights else DATA / "insights.jsonl"
     try:
         insights = load_insights(path)
@@ -88,21 +90,32 @@ def cmd_run(a):
         farmers = {}  # send time then uses the insight alone
     attention = getattr(a, "attention", False)   # tolerate Namespaces that omit it (older arg builders)
     result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers, attention=attention)
+
+    # The pipeline plans a hand-off per survey. The weekly cap, opt-outs and the P4 quality gate
+    # decide what actually goes out: P3's `run_batch` (docs/p3_batch_wiring_request.md, policy in
+    # docs/cap_policy.md). No-survey rows are written as before; junk report and summary unchanged.
+    by_handoff = {}
     for ins, out in zip(result.insights, result.outputs):
         if "no_survey" in out:
             _dump(OUT / "no_survey" / f"{ins.get('insight_id','unknown')}.json", out["no_survey"])
-            continue
-        for lang, s in out["surveys"].items():
-            _dump(OUT / "surveys" / f"{s['survey_id']}.{lang}.json", clean(s))
-        h = out["handoff"]
+        else:
+            by_handoff[out["handoff"]["handoff_id"]] = out
+    batch = run_batch([o["handoff"] for o in by_handoff.values()],
+                      relevance_threshold=RELEVANCE_THRESHOLD,
+                      simulate=a.simulate, reachability=FarmerReachability(farmers),
+                      ranker=FrequencyScheduler.from_insights(insights))
+    for h in batch.handoffs_to_send:                      # sent + moved; merged ride on the host
+        ids = h["survey"]["source_insight_ids"]
+        for lang, s in by_handoff[h["handoff_id"]]["surveys"].items():
+            _dump(OUT / "surveys" / f"{s['survey_id']}.{lang}.json",
+                  {**clean(s), "source_insight_ids": ids, "send_window": h["send_window"]})
         _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
-        if a.simulate:
-            ch = h["channel_order"][0]["channel"]
-            r = simulate(h["survey"], ch, "completed", send_at=out["decision"].send_time["send_at"])
-            _dump(OUT / "responses" / f"{r['response_key']}.json", r)
+    for r in batch.responses:
+        _dump(OUT / "responses" / f"{r['response_key']}.json", r)
+
     junk = _write_junk_report(OUT / "junk_report.csv", result.insights)
     counts = result.counts()
-    surveys = sum(1 for o in result.outputs if "handoff" in o)
+    surveys = sum(1 for o in result.outputs if "handoff" in o)   # hand-offs the pipeline planned
     summary = {
         "input_path": str(path),
         "rows_read": result.rows_read,
@@ -113,16 +126,21 @@ def cmd_run(a):
         "no_survey": result.rows_processed - surveys,
         "junk_rows": junk,
         **counts,
+        "schedule": batch.counts,   # sent/moved/merged/skipped/opted_out/rejected/duplicates/prevented/cap_violations
     }
     if attention:   # only when on, so the off path writes a byte-for-byte identical summary
         summary.update(result.attention_counts())
     _dump(OUT / "run_summary.json", summary)
+    sc = batch.counts
     print(f"insights={result.rows_processed}  surveys={surveys}  no_survey={summary['no_survey']}  "
           f"junk={junk}  input={path}")
     print("decisions by rule:  ", "  ".join(f"{r}={n}" for r, n in counts["by_rule"].items()))
     print("by language:        ", "  ".join(f"{k}={n}" for k, n in counts["by_language"].items()))
     print("by first channel:   ", "  ".join(f"{k}={n}" for k, n in counts["by_first_channel"].items()))
     print("by priority:        ", "  ".join(f"{k}={n}" for k, n in counts["by_priority"].items()))
+    print(f"schedule:            sent={sc['sent']}  moved={sc['moved']}  merged={sc['merged']}  "
+          f"skipped={sc['skipped']}  rejected={sc['rejected']}  opted_out={sc['opted_out']}  "
+          f"cap_violations={sc['cap_violations']}  (sent+moved go out = {sc['sent'] + sc['moved']})")
     print(f"-> {OUT}  (run_summary.json, junk_report.csv)")
 
 
