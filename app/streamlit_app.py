@@ -846,12 +846,16 @@ with tab_over:
                 table(pd.DataFrame(ex_rows), width="stretch", hide_index=True)
 
     cal, jrun = judge.get("calibration"), judge.get("run")
+    from mel.evaluation.judge_models import load as load_models
+    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
+    names = {m.get("call_id"): f"{m['provider']} {m['name']}" for m in sweep.get("models", []) if m.get("call_id")}
     if cal:
         st.subheader("Can we trust the AI judge?")
         pr = [v for v in (cal.get("people_rank_r") or {}).values() if v is not None]
         st.caption(f"Five of us scored 20 surveys by hand (1–5), each on our own. The AI judge "
-                   f"({_model_name(cal['model'])} on Amazon Bedrock) scored the same questions. "
-                   "It agrees with us at least as well as we agree with each other.")
+                   f"({names.get(cal['model']) or _model_name(cal['model'])} on Amazon Bedrock, picked below for "
+                   "accuracy and cost) scored the same questions. It agrees with us at least as well as we agree with "
+                   "each other.")
         j = st.columns(3)
         j[0].metric("Within 1 point of a person", _pct(cal["within_1"]),
                     f"people with each other: {_pct(cal['people_vs_people']['within_1'])}", delta_color="off", delta_arrow="off")
@@ -865,16 +869,16 @@ with tab_over:
                 f"- A judge that always says 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, "
                 "because people mostly gave 4s and 5s. So the strongest sign is the ranking: the AI gives its 4s to the "
                 "surveys people rated lower, and follows the team's average more closely than any one of us does.\n"
-                "- Small sample (20 surveys). The AI only used 4 and 5, and is a little lenient.\n"
-                "- People caught a data problem the AI missed: the cauliflower advice in G-0129 talks about grain.\n"
+                f"- Small sample (20 surveys). The AI used the scores {', '.join(sorted(str(k) for k in cal.get('judge_scores', {})))}.\n"
+                "- People caught a data problem: the cauliflower advice in G-0129 talks about grain. A judge scores the "
+                "survey, not the advice, so data errors still need a person.\n"
                 "- Details: `docs/results/judge_calibration.md`.")
         if jrun:
             st.caption(f"On all {jrun['n']} answer-key surveys: average {jrun['judge_relevance']:.2f} / 5 "
                        f"({', '.join(f'{v}× {k}' for k, v in sorted(jrun['score_counts'].items(), reverse=True))}), "
-                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost almost always on a generic second question.")
+                       f"{jrun['seconds']:.0f} s on Bedrock. Points were lost mostly on a generic second question "
+                       "(\"Do you need more help?\", \"How is your goat now?\").")
 
-    from mel.evaluation.judge_models import load as load_models
-    sweep = load_models()   # committed results of `python -m mel.evaluation.judge_models --run`
     if sweep.get("models"):
         st.subheader("Which model makes the best judge?")
         ok = [m for m in sweep["models"] if m.get("rank")]
@@ -1012,6 +1016,7 @@ PERSONA_LABEL = {
     "never_answers": "Never answers: the survey expires",
     "opts_out_first": "Opts out on the first message",
     "no_voice": "Cannot take phone calls",
+    "sometimes_fails": "Sometimes says the advice didn't work (about 1 in 4)",
 }
 STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
                 "declined": "Opted out", "partial": "Partly answered"}
@@ -1121,7 +1126,8 @@ with tab_season:
                 delta_color="off", delta_arrow="off")
     st.caption(f"Weekly limit at the start of the season: {adm.get('sent', 0):,} on time, {adm.get('moved', 0):,} moved "
                f"to a later week, {adm.get('merged', 0):,} merged into an earlier survey, {adm.get('skipped', 0):,} "
-               f"skipped. {drops['expired']:,} expired in the queue.")
+               f"skipped. {drops['expired']:,} expired in the queue. "
+               f"{sum(1 for e in log if e['needs a person']):,} answers need a person to follow up.")
 
     if season["days"]:
         weeks = Counter()

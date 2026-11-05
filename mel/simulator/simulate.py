@@ -28,6 +28,7 @@ be emitted once P1 adds it (see docs/h4_schema_change_request_late.md). Until th
 flag is computed internally and only attached when MEL_RESPONSE_LATE_FIELD=1, so every
 record this module emits by default stays schema-valid.
 """
+import hashlib
 import os
 from datetime import datetime, time, timedelta
 
@@ -181,6 +182,12 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
 
     # The full set of answers the persona would give, before the case trims them.
     plan = _answer_plan(items, anchor if case == "negative_outcome" else None)
+    # A persona that sometimes reports the advice failed (see PERSONAS["sometimes_fails"]).
+    # Other personas never reach this, so their records are unchanged.
+    if reports_advice_failure(persona, sid, seed):
+        bad = advice_failure_answer(items)
+        if bad is not None:
+            plan[items[bad[0]]["item_id"]] = bad[1]
     if answers:  # caller override (used by simulate_handoff / Studio)
         plan.update(answers)
 
@@ -355,8 +362,11 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
         "needs_follow_up": bool(reasons) and stored,
         "follow_up_reasons": sorted(set(reasons)) if stored else [],
     }
-    if _EMIT_LATE:
-        rec["late"] = late
+    if _EMIT_LATE and late:
+        # Only a late answer carries the field (`late: true`). Normal records never get
+        # `late: false`, so they stay identical to the 183 reference records once the
+        # optional field is in the schema.
+        rec["late"] = True
     return rec
 
 
@@ -463,7 +473,55 @@ PERSONAS: dict[str, dict] = {
     "opts_out_first": {"per_channel": {}, "fallback_case": "farmer_opted_out", "unreachable": set()},
     # Cannot be reached on voice at all (no phone): that channel is skipped.
     "no_voice": {"per_channel": {}, "fallback_case": "completed", "unreachable": {"voice"}},
+    # Answers on the first channel, but SOMETIMES says the advice did not work: on about a
+    # quarter of surveys (`advice_fails` = 0.25) it picks the survey's advice_did_not_work answer,
+    # which routes the record to the follow-up queue. Which surveys is fixed by
+    # `reports_advice_failure()`: a hash of (seed, survey_id), so the same seed always gives the
+    # same failures. `advice_fails_for` can list survey_ids that always fail (explicit scenario).
+    "sometimes_fails": {"per_channel": {}, "fallback_case": "completed", "unreachable": set(),
+                        "advice_fails": 0.25, "advice_fails_for": frozenset()},
 }
+
+
+def reports_advice_failure(persona_name: str, survey_id: str, seed: int = 0) -> bool:
+    """Does this persona say the advice failed on this survey? Deterministic and independent of
+    Python's per-process hash: sha256 of "seed:survey_id" read as a fraction in [0, 1),
+    compared with the persona's `advice_fails` rate. A survey in `advice_fails_for` always fails.
+    Personas without `advice_fails` never report failure (their behaviour is unchanged)."""
+    p = PERSONAS.get(persona_name) or {}
+    if survey_id in p.get("advice_fails_for", ()):
+        return True
+    rate = p.get("advice_fails")
+    if not rate:
+        return False
+    digest = hashlib.sha256(f"{seed}:{survey_id}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") / 2 ** 64 < float(rate)
+
+
+def is_late(record: dict, expires: str) -> bool:
+    """Was this answer late? True when the record holds accepted answers and its answer time is
+    strictly after `expires` (the hand-off's expires_at). Exactly at expiry is not late.
+
+    Works with today's schema (no `late` field needed): lateness is derived from the record's
+    own `timestamps.answered` and the hand-off. This is how P3 counts late answers until P1
+    decides how a stored record marks them (docs/h4_schema_change_request_late.md)."""
+    ts = (record.get("timestamps") or {}).get("answered")
+    return bool(record.get("answers")) and ts is not None and parse_ist(ts) > parse_ist(expires)
+
+
+def advice_failure_answer(items: list[dict]):
+    """(index, value) of the survey's first answer that means "the advice did not work": an
+    option whose follow_up is advice_did_not_work, or the follow-up threshold of a scale whose
+    follow_up_reason is advice_did_not_work. None if the survey has no such answer."""
+    for k, it in enumerate(items):
+        if it["type"] == "survey-scale":
+            if it.get("follow_up_reason") == "advice_did_not_work" and it.get("follow_up_at_or_below") is not None:
+                return k, it["follow_up_at_or_below"]
+            continue
+        for o in it.get("options", []):
+            if o.get("follow_up") == "advice_did_not_work":
+                return k, o["value"]
+    return None
 
 # After a record, should the broadcaster move to the next channel, or stop?
 _CONTINUE = {"fall_back_to_next_channel"}
@@ -558,7 +616,8 @@ def earliest_send(handoff: dict, when: datetime):
     return when
 
 
-def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> list[dict]:
+def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
+                     reachability=None) -> list[dict]:
     """Walk a hand-off's channel_order the way the broadcaster would and return the answer
     records produced, one per channel actually attempted.
 
@@ -580,8 +639,14 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> 
     if p is None:
         raise ValueError(f"unknown persona {persona!r}; known: {sorted(PERSONAS)}")
     survey = handoff["survey"]
-    # Channels in channel_order the persona can be reached on; order preserved.
-    reachable = [s["channel"] for s in handoff["channel_order"] if _case_for_channel(p, s["channel"]) is not None]
+    # Channels in channel_order the farmer can be reached on; order preserved. A channel is
+    # skipped when the persona cannot be reached there, or when farmer data (an optional
+    # mel.channels.FarmerReachability) explicitly says so. No data means reachable.
+    def ok(ch):
+        if reachability is not None and not reachability.reachable(survey["farmer_id"], ch):
+            return False
+        return _case_for_channel(p, ch) is not None
+    reachable = [s["channel"] for s in handoff["channel_order"] if ok(s["channel"])]
     records: list[dict] = []
     send_at = None  # first attempt: the window opening plus the channel's usual offset
     for i, channel in enumerate(reachable):
@@ -626,8 +691,17 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
                           tap-through passes them). Answered items without a value here get the
                           persona's answer, as before.
       submit_at         : optional IST timestamp the submission happened at. If it is after
-                          the survey's expires_at the record is flagged `late` (only emitted
-                          when MEL_RESPONSE_LATE_FIELD=1; see the module docstring).
+                          the survey's expires_at the answers are still kept, and the record is
+                          flagged `late: true` (only emitted when MEL_RESPONSE_LATE_FIELD=1,
+                          because response.schema.json has no `late` field yet). An answer
+                          exactly at expires_at is not late.
+
+    Answered items may skip a middle question (q1 and q3): every given answer is kept. Items
+    before the last answered one that were not answered are `skipped`; the step showing when
+    the farmer closed is `skipped`; later steps are `not_reached`.
+
+    Raises ValueError for input that cannot be submitted unambiguously: an unknown item_id, the
+    same item_id twice, or closed=True with every item answered (that is a finished sheet).
 
     Returns one response record, exactly as if a single submit call carried the answers.
     """
@@ -635,45 +709,56 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
         raise ValueError(f"simulate_sheet is app/web only, not {channel!r}")
     items = survey["items"]
     ids = [it["item_id"] for it in items]
-    answered = [i for i in answered_item_ids if i in ids]
-    finished_all = len(answered) == len(items) and not closed
-    case = "completed" if finished_all else "sheet_closed_partway"
+    given = list(answered_item_ids)
+    unknown = [i for i in given if i not in ids]
+    if unknown:
+        raise ValueError(f"unknown item_id(s) {unknown}; the survey has {ids}")
+    if len(set(given)) != len(given):
+        raise ValueError(f"item_id answered twice in {given}; a sheet submits each answer once")
+    if closed and len(given) == len(ids):
+        raise ValueError("closed=True but every item was answered: that is a finished sheet (closed=False)")
+    answered = [i for i in ids if i in set(given)]          # item order, whatever the tap order
+    n, all_answered = len(items), len(answered) == len(items)
 
-    # Start from the persona's answers but keep only the ones the farmer gave.
-    rec = simulate(survey, channel, case, seed=seed,
-                   answers={i: (answers or {}).get(i, _good_value(next(it for it in items if it["item_id"] == i)))
-                            for i in answered})
+    values = {i: (answers or {}).get(i, _good_value(items[ids.index(i)])) for i in answered}
+    # Every answered entry is encoded exactly as a full submission would encode it.
+    full = simulate(survey, channel, "completed", seed=seed, answers=values)
 
-    # Trim to exactly the answered set (submit once, retaining given answers).
-    keep = set(answered)
-    new_items = []
-    for it in items:
-        if it["item_id"] in keep:
-            new_items.append(next(r for r in rec["items"] if r["item_id"] == it["item_id"]))
-        else:
+    if all_answered:
+        rec = full                                           # finished: completed / negative_outcome
+    else:
+        # Fields that describe the attempt (keys, timestamps, retry, cap) come from the matching
+        # case; the items and answers come from what the farmer actually gave.
+        rec = simulate(survey, channel, "sheet_closed_partway" if closed else "partial", seed=seed, answers=values)
+        last = max((ids.index(i) for i in answered), default=-1)
+        new_items = []
+        for k, it in enumerate(items):
+            if it["item_id"] in values:
+                new_items.append(next(e for e in full["items"] if e["item_id"] == it["item_id"]))
+                continue
             e = _blank(it)
-            # Items the farmer saw but did not answer before closing are 'skipped';
-            # items never shown are 'not_reached'. Everything after the last answered
-            # step counts as not shown.
-            last_answered_pos = max((ids.index(i) for i in answered), default=-1)
-            e["result"] = "skipped" if ids.index(it["item_id"]) < last_answered_pos else \
-                ("skipped" if (closed and ids.index(it["item_id"]) == last_answered_pos + 1) else "not_reached")
-            if e["result"] == "skipped":
-                e["attempts"] = 1
+            if k < last or (closed and k == last + 1):
+                e.update(result="skipped", attempts=1)       # shown but not answered
             new_items.append(e)
-    rec["items"] = new_items
-    rec["answers"] = {i: v for i, v in rec["answers"].items() if i in keep}
-    rec["complete"] = finished_all and rec["status"] in ("completed", "negative_outcome")
+        reasons = sorted({r for i in answered if (r := _follow_up(items[ids.index(i)], values[i]))})
+        rec.update(
+            items=new_items,
+            answers={i: full["answers"][i] for i in answered},
+            status="negative_outcome" if reasons else "partial",
+            complete=False,
+            needs_follow_up=bool(reasons),
+            follow_up_reasons=reasons,
+            sheet_outcome="closed_partway" if closed else "finished",
+            raw_event=f"Close tapped at step {min(last + 2, n)} of {n}" if closed else None,
+            farmerchat_reply={"http_status": 201, "outcome": "accepted"} if answered else None,
+        )
 
     # One submission timestamp for the whole sheet.
     if submit_at:
         rec["timestamps"]["answered"] = submit_at
         rec["recorded_at"] = submit_at
-        late = parse_ist(submit_at) > parse_ist(expires_at(survey["send_window"]))
-        if late:
-            # After expiry the brief says late answers are kept but marked; the sheet is
-            # 'stale' from FarmerChat's point of view (survey_closed) yet the answers are
-            # retained.
-            if _EMIT_LATE:
-                rec["late"] = True
+    rec.pop("late", None)
+    at = parse_ist(rec["timestamps"]["answered"]) if rec["timestamps"].get("answered") else None
+    if _EMIT_LATE and answered and at is not None and at > parse_ist(expires_at(survey["send_window"])):
+        rec["late"] = True                                   # kept, and marked late
     return rec

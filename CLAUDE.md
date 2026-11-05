@@ -129,21 +129,22 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   (committed) for the Dashboard's "Which model makes the best judge?". **Cost counts:** `--prices` fetches token prices
   (AWS Price List API, best effort) into `docs/results/bedrock_prices.json` for a person to check; cost per survey =
   price x tokens the model really used (from the judge's saved answers, so re-runs price the same). Pick = "best value":
-  the cheapest priced model within 0.10 r and 0.15 gap of the most accurate. Not yet run on Bedrock. `ModelClient.converse`
-  now accepts `system=None` (for models without system prompts; P4 to review).
+  the cheapest priced model within 0.10 r and 0.15 gap of the most accurate. **Ran 5 Nov: 88 listed, 70 ranked; pick =
+  Gemma 3 12B** (`google.gemma-3-12b-it`, on-demand): r 0.72, within 1 pt 97%, gap 0.54, ~$0.05 per 1,000 surveys;
+  now the main judge (judge_summary.json; 94-row relevance 4.48). `ModelClient.converse` accepts `system=None` and
+  `temperature=None` (newer models refuse them; P4 to review).
 - **Send bar 0.3 + plan questions (4 Nov, P4 + P5 agreed; P4 to review the code):** `mel.writer.RELEVANCE_THRESHOLD = 0.3`
   (app Season tab reads it). Plan surveys (both styles) ask the plan's first step + "Is the plan working for your
   {crop} so far?" (new Hindi rows appended to the review sheet); fallback = answer-key wording. Full data: P4
-  relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,066 sends / 0 blocked. README/scorecard numbers
-  NOT yet regenerated (needs `MEL_JUDGE=1 ... judge --run` then `readme_numbers.py --write --record` on a laptop
-  with Bedrock access). Write-up: `docs/results/judge_calibration.md`.
+  relevance 0.72 -> 0.82, 0 surveys below 0.3 (was 80), season 2,050 sends / 0 blocked (after P3 #24). README/scorecard
+  regenerated: runs 8-9 (P4 relevance 0.69 -> 0.81). Write-up: `docs/results/judge_calibration.md`.
 - P5 (4 Nov, `p5-season-speed`): season walk 2-5x faster (quality-check results cached on survey content in
   `mel/schedule/broadcast.py`, P3 to review): to end of March 10 -> 5 s responsive, 38 -> 8 s never-answers, same
   counts. Judge's `BedrockClient` now wraps P4's `ModelClient` (purpose "judge" in out/bedrock_calls.jsonl);
   `ModelClient.last_usage` added (P4 to review).
 - P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
   +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
-  0.5; full data: 2,066 queued, 1,711 sends, 355 blocked by the quality check, whole season ~6 s). Shows India
+  now 0.3; personas incl. P3's `sometimes_fails` (523 answers need a person); full data ~2,050 sends, ~5 s). Shows India
   time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
@@ -229,3 +230,68 @@ owner's call; P3 has not edited their files. The "P3:" line under Open items abo
 
 **Before P3's next PR:** `Semdon-P3` is 9 commits behind `main`; merge `origin/main` first and rerun
 `pytest -q`, `run --simulate`, `validate`, `parity`.
+
+## To-do for teammates from P3 (2026-11-05)
+Replaces the 4 Nov list above where they differ. P3's code for each item is done on `Semdon-P3`;
+each step below is in the owner's own files. Numbers are from the full pack (6,999 insights).
+
+**P1 (Data, Contracts & Integration)**
+1. **Run the batch through P3's scheduler.** In `mel/cli.py` `cmd_run`, replace the loop over
+   `result.outputs` with the patch in `docs/p3_batch_wiring_request.md` (calls
+   `mel.schedule.run_batch`, writes only `batch.handoffs_to_send`, `batch.responses`, and the
+   surveys of hand-offs that go out). Add `"schedule": batch.counts` to `run_summary.json`.
+   Expected on the full pack at threshold 0.5: 1,372 sent, 316 moved, 324 merged, 52 skipped,
+   552 rejected, `cap_violations` 0. P3 tested the patch on a scratch copy: `validate` 0 invalid.
+   Say in the PR that hand-off/survey/response file counts drop (R1-R8 counts do not change).
+2. **Decide how late answers are recorded** (`docs/h4_schema_change_request_late.md`):
+   - Option A: add `"late": {"type": "boolean"}` to `properties` (not `required`) in
+     `config/schemas/response.schema.json`, and either get Digital Green to add it to the pack or
+     add a one-property exception to `check_all_parity`. Then tell P3 to turn on
+     `MEL_RESPONSE_LATE_FIELD`.
+   - Option B: no schema change; write a late count into `run_summary.json` using
+     `mel.simulator.is_late(record, handoff["expires_at"])`.
+   Write the choice into `docs/h4_interface_decisions.md` so it is on record.
+3. **Ask Digital Green** (add to `docs/questions_for_digital_green.md`): a chat tap after expiry
+   is dropped in the pack (`survey_closed`, answers `{}`), but the brief says late answers are
+   kept. Which wins for WhatsApp/Telegram?
+4. **Channel reachability:** add a `reachable_channels` column to `data/mock/farmers.csv`
+   (pipe-separated, like `crops`), or write in `docs/TEAM.md` that "every channel is reachable"
+   is the agreed default. Today P3 skips nothing because the data says nothing.
+5. **README:** add a short "Weekly limit" section to `README.md` linking `docs/cap_policy.md`
+   (P5 co-owns README; agree the wording with them).
+6. Still open from before: real usernames in `.github/CODEOWNERS` (still `@p1`..`@p5`, so no
+   reviewer is requested), and send the questions in `docs/questions_for_digital_green.md`.
+
+**P4 (Survey Writing & Safety)**
+1. **Publish the relevance threshold** as one named value P3 and P5 import, for example
+   `RELEVANCE_THRESHOLD` in `mel/writer/guards.py`, agreed with P5. Today P3's gate and the app's
+   `SEASON_THRESHOLD` use a stand-in 0.5, which rejects 552 of 2,616 full-pack surveys, so the
+   number decides how many surveys go out. Tell P3 when it lands; P3 switches `run_batch`
+   callers and tests to it.
+2. Nothing to change in `self_eval`: P3's gate now also calls your `check_survey()`.
+
+**P5 (Evaluation & Demo)**
+1. **Follow-up queue from real answers:** in `app/streamlit_app.py` `_follow_queue`, instead of
+   forcing each survey's first flagged answer, simulate with
+   `simulate_handoff(h, "sometimes_fails", seed=0)` and build tickets with
+   `mel.simulator.follow_up_tickets(records, surveys)` (same ticket fields you use now:
+   response_key, farmer_id, survey_id, channel, recorded_at, reason, item_id, rec; add the
+   label and insight lookups you already have). Full pack: 429 advice-failed answers → 429 tickets.
+2. **Add the persona to the Season tab:** add `"sometimes_fails": "Sometimes says the advice did
+   not work"` to `PERSONA_LABEL`, and count `negative_outcome` as "Needs a person" in
+   `STATUS_LABEL`.
+3. **Weekly-limit numbers on the Dashboard:** `batch()` replays the cap with plain
+   `CapLedger.admit`, which places a moved survey at once (9 moves land inside a high-priority
+   survey's week). Use `SeasonScheduler(relevance_threshold=...).admit_all(copies)` or
+   `run_batch(...).counts` instead, and show `cap_violations` (should be 0) and `prevented`
+   separately. Do not label skipped/merged surveys as violations.
+4. The Season tab's "Blocked by quality check" (`broadcaster.counts()["rejected"]`) now includes
+   surveys rejected before they are queued; `counts()` also has a new `opted_out` key.
+
+**P2 (Decision & Timing)**: no new asks from P3. Still open from the 4 Nov list: read P3's clock
+(`SeasonScheduler.clock`) in `compute_window()`, G-0145, G-0129, confirm R2.
+
+**P3 itself:** commit the 5 Nov work on `Semdon-P3`, merge `origin/main` (24 commits ahead),
+rerun `pytest -q`, `run --simulate --clean`, `validate`, `parity`, then open the PR. P1's
+activity-attention request (`docs/activity_attention_request.md`: `adjust_priority`,
+`HighPromotionBudget`) waits until P1's `mel/data/activity.py` is merged.

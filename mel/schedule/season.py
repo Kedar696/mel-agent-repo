@@ -35,7 +35,7 @@ from datetime import timedelta
 from mel.timing import parse_ist, fmt_ist
 from .clock import SimClock, Season
 from .handoff import CapLedger, OptOutList
-from .broadcast import Broadcaster, within_send_hours
+from .broadcast import Broadcaster, within_send_hours, queue_key
 
 
 def _days(days: int) -> timedelta:
@@ -91,12 +91,17 @@ class SeasonScheduler:
     """
 
     def __init__(self, start=None, *, relevance_threshold: float, persona: str = "default",
-                 seed: int = 0, season: Season | None = None, reachability=None):
+                 seed: int = 0, season: Season | None = None, reachability=None, ranker=None):
         self.season = season or Season()
         self.clock = SimClock(start if start is not None else self.season.start_ist)
-        self.broadcaster = Broadcaster(self.clock)      # the SAME clock instance
         self.cap = CapLedger()
         self.opt_out = OptOutList()
+        # The SAME clock instance, and the same opt-out list, so a farmer who opts out on one
+        # step is never sent a survey that is still queued.
+        self.broadcaster = Broadcaster(self.clock, opt_out=self.opt_out)
+        # Optional frequency/season/climate ranker (mel.schedule.FrequencyScheduler). It only
+        # breaks ties between hand-offs whose send windows open at the same instant.
+        self.ranker = ranker
         self.relevance_threshold = relevance_threshold
         self.persona = persona
         self.seed = seed
@@ -118,28 +123,53 @@ class SeasonScheduler:
         self.step_counts: Counter = Counter()
 
     # ------------------------------------------------------------- admission
-    def admit(self, handoff: dict):
-        """Gate one hand-off through opt-out + cap (the scheduler side), and queue it on the
-        broadcaster when it is sent / moved / merged. Returns the Admit decision. A
-        skipped / opted_out hand-off is never queued."""
-        a = self.cap.admit(handoff, opt_out=self.opt_out)
+    def admit(self, handoff: dict, rank: float | None = None):
+        """Gate one hand-off (opt-out, then the P4 quality gate, then the weekly cap: see
+        CapLedger.admit_checked) and queue it on the broadcaster when it is sent / moved /
+        merged. Returns the Admit decision. A rejected / skipped / opted_out hand-off is never
+        queued; a rejected one is counted in broadcaster.counts()["rejected"] (P5's "blocked by
+        quality check"). Admitting the same hand-off twice changes nothing."""
+        repeat = self.cap.seen(handoff.get("handoff_id"))
+        a = self.cap.admit_checked(handoff, opt_out=self.opt_out,
+                                   relevance_threshold=self.relevance_threshold)
+        if repeat:
+            return a
         self._admit_log.append(a)
-        self.admit_counts[a.decision] += 1          # P5: sent/opted_out/moved/merged/skipped
+        self.admit_counts[a.decision] += 1   # P5: sent/moved/merged/skipped/opted_out/rejected
+        if a.decision == "rejected":
+            self.broadcaster.rejected_count += 1
         if a.decision in ("sent", "moved", "merged"):
-            self.broadcaster.queue(a.handoff)
+            self.broadcaster.queue(a.handoff, rank=rank)
         return a
 
     def metrics(self) -> dict:
         """P5 counts from ACTUAL decisions (never hard-coded). `admitted` is the admission
-        breakdown (sent/moved/merged/skipped/opted_out); `steps` is the per-step outcome
-        breakdown (sent/nothing/no_reachable_channel)."""
-        return {"admitted": dict(self.admit_counts), "steps": dict(self.step_counts)}
+        breakdown (sent/moved/merged/skipped/opted_out/rejected); `steps` is the per-step
+        outcome breakdown (sent/nothing/no_reachable_channel/...); `dropped` is the
+        broadcaster's rejected/expired/opted-out totals."""
+        return {"admitted": dict(self.admit_counts), "steps": dict(self.step_counts),
+                "dropped": self.broadcaster.counts()}
 
     def admit_all(self, handoffs) -> list:
-        """Admit many hand-offs in send-window order (the order they would really go out), so
-        the cap sees them as it would in the batch run."""
-        ordered = sorted(handoffs, key=lambda h: parse_ist(h["send_window"]["not_before"]))
-        return [self.admit(h) for h in ordered]
+        """Admit many hand-offs in send order (send-window start, ties broken by the ranker's
+        score if one is set, then created time, farmer, id), so the cap sees them as it would
+        in the batch run. Returns the Admit decisions in that order."""
+        from .batch import schedule_in_send_order
+        ranks = {h.get("handoff_id"): self.ranker.score(h) for h in handoffs} if self.ranker else {}
+        out = []
+
+        def queue(hid, a):
+            self._admit_log.append(a)
+            self.admit_counts[a.decision] += 1
+            if a.decision == "rejected":
+                self.broadcaster.rejected_count += 1
+            if a.decision in ("sent", "moved", "merged"):
+                self.broadcaster.queue(a.handoff, rank=ranks.get(hid))
+            out.append(a)
+
+        schedule_in_send_order(handoffs, cap=self.cap, opt_out=self.opt_out,
+                               relevance_threshold=self.relevance_threshold, ranks=ranks, on_final=queue)
+        return out
 
     # -------------------------------------------------------------- the clock
     def now(self):
@@ -242,6 +272,7 @@ class SeasonScheduler:
         # the persona, so opt-out / no-answer / fall-back behaviour follows outcome_codes.json.
         rec = simulate(h["survey"], channel, case, seed=self.seed, persona=self.persona,
                        attempt=attempt, send_at=self.clock.now_ist())
+        self.broadcaster.app.deliver(h, now, channel)   # the simulated app is the only target
         self.opt_out.record(rec)  # feed opt-outs back so later steps to this farmer are blocked
         self.step_counts["sent"] += 1
 

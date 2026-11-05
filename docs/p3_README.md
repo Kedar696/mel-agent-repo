@@ -119,34 +119,32 @@ Tests: `tests/test_frequency.py`.
 
 ---
 
-## 5. Batch admission + cap/opt-out policy — `mel/schedule/batch.py`
+## 5. Batch scheduling and the weekly-limit policy — `mel/schedule/batch.py`
 
 `run_batch(handoffs, *, relevance_threshold, simulate=False, persona, seed, cap, opt_out,
-reachability)` applies the cap and opt-out gate to a batch of pipeline hand-offs in
-**send-window-start order** and returns a `BatchResult` with P5 counts computed from actual
-decisions (never hard-coded).
+reachability, ranker)` is P3's scheduling path for a whole batch. It works on copies (the
+caller's hand-offs are not changed) and returns a `BatchResult` (`items`, `handoffs_to_send`,
+`responses`, `counts`). `SeasonScheduler.admit_all` uses the same admission code
+(`schedule_in_send_order`), so the demo and the batch decide identically.
 
-### The skip / move / merge policy (final, matches `docs/cap_policy.md` and the tests)
-At most **one non-high-priority survey per farmer per 7 days**, counted across all surveys
-and channels. For each hand-off, `CapLedger.admit` decides:
+**The final policy is in `docs/cap_policy.md`** (one place, matches the code and tests). Short
+version: opt-out first, then the P4 quality gate (a rejected survey never takes a weekly slot),
+then at most one non-high-priority survey per farmer per 7 days: move (inside the survey's own
+window and expiry, placed after anything that opens in between), else merge (all insight IDs on
+the host, no duplicates, at most 5), else skip. High priority is exempt and still counts.
 
-| decision | when | effect |
-|---|---|---|
-| `sent` | within the cap, or high-priority (exempt) | scheduled as-is; counts toward the window |
-| `opted_out` | the farmer is on the opt-out list | nothing is sent, ever |
-| `moved` | capped, but a later day still inside this survey's `[not_before, expires_at]` is free | rescheduled to that day (07:00 kept); window width + expiry recomputed |
-| `merged` | capped, cannot move, an earlier survey to the same farmer is still open on this day | questions ride along with it; **both** surveys' `source_insight_ids` preserved, de-duplicated |
-| `skipped` | capped, cannot move, no open survey to merge into | dropped |
+- **Opt-outs always win**, also when produced during a simulated send (fed back, so a later
+  hand-off for that farmer is `opted_out`) and also for a survey already queued (the
+  broadcaster checks the same opt-out list).
+- With `simulate=True`, each hand-off that goes out is walked through its `channel_order`
+  (`simulate_handoff`: fallback, waits, send hours, send window, reachability).
+- `counts`: `sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`, `duplicates`,
+  `prevented` (= skipped + opted_out + rejected; **not** violations) and `cap_violations` (an
+  independent audit of what goes out; full pack: 0). All from actual decisions.
+- **Not yet called by `mel.cli run`** (P1's file): see `docs/p3_batch_wiring_request.md` for the
+  exact patch.
 
-- **High priority is exempt** (sent even when the cap is full) **and still counts** toward
-  later cap decisions.
-- **Opt-outs always win.** An opt-out produced *during* a simulated send is fed back into the
-  `OptOutList`, so a later hand-off for that same farmer in the batch is blocked — zero
-  surveys to an opted-out farmer.
-- `counts`: `sent`, `moved`, `merged`, `skipped`, `opted_out`, and `cap_violations`
-  (= skipped + opted_out). All from actual admit decisions.
-
-Delivery stays simulated (`run_batch(simulate=True)` calls `mel.simulator.simulate`).
+Delivery stays simulated; the broadcaster's only target is `SimulatedApp`.
 
 ## 6. Farmer channel reachability — `mel/channels/reachability.py`
 `FarmerReachability(load_farmers(), unreachable_by_farmer=...)` answers "can this farmer be
@@ -168,11 +166,28 @@ only — never a non-ID field. The existing exact-match test
 (`test_simulate_matches_all_183_reference_records`) stays as the gate; this is the
 human-readable companion for when something drifts.
 
+## 8. Advice-failed persona and follow-up tickets — `mel/simulator/`
+- `PERSONAS["sometimes_fails"]`: answers on the first channel, but on about 25% of surveys
+  (`advice_fails`) picks the survey's `advice_did_not_work` answer. Which surveys is fixed by
+  `reports_advice_failure(persona, survey_id, seed)` (sha256 of seed and survey id), so a seed
+  always gives the same failures. `advice_fails_for` lists survey ids that always fail. The other
+  five personas are unchanged (tested record-for-record).
+- `follow_up_tickets(records, surveys)` (`mel/simulator/follow_up.py`) turns records with
+  `needs_follow_up` into one ticket each, with the same fields as P5's Follow-up tab. The tab can
+  use it on real simulated records instead of forcing each survey's first flagged answer.
+- `is_late(record, expires_at)` counts late answers with today's schema. How a stored record
+  marks them is a P1 decision: `docs/h4_schema_change_request_late.md`.
+
 ## P5 metrics surfaced
-- `SeasonScheduler.metrics()` -> `{"admitted": {...}, "steps": {...}}` from actual decisions.
-- `Broadcaster.counts()` -> `{"rejected": n, "expired": n}` (quality-gate rejections and
-  expired drops), accumulated from actual broadcaster decisions.
-- `run_batch(...).counts` -> sent / moved / merged / skipped / opted_out / cap_violations.
+- `SeasonScheduler.metrics()` -> `{"admitted": {...}, "steps": {...}, "dropped": {...}}`.
+- `Broadcaster.counts()` -> `{"rejected", "expired", "opted_out"}`. `rejected` includes surveys
+  rejected at admission, so the app's "Blocked by quality check" is unchanged in meaning.
+- `run_batch(...).counts` -> see section 5. Use `cap_violations` for violations and
+  `prevented` for what the gate held back.
+- Heads-up for P5: the app's Overview replays the limit with plain `CapLedger.admit` in sort
+  order. That replay places a moved survey immediately, so on the full pack it counts 9 moves
+  that would land inside a high-priority survey's week. `SeasonScheduler.admit_all` /
+  `run_batch` do not.
 
 ## Cross-owner requests (not done here, by design — ownership + parity)
 - **Batch wiring into the CLI (P1):** `mel/cli.py cmd_run` can call `mel.schedule.run_batch`
@@ -196,10 +211,11 @@ python -m mel.cli validate              # output is schema-valid
 python -m mel.cli parity                # repo config still matches the pack
 ```
 
-## Test status (this branch)
-- Full suite: **524 passed**
-- P3 group (frequency + schedule + simulator + broadcast + season): **all passing**
-- `mel.cli validate`: 47 files checked, 0 invalid
+## Test status (this branch, 5 Nov)
+- Full suite: **673 passed**; P3 test files: all passing (completion tests:
+  `tests/test_p3_completion.py`)
+- `python -m mel.simulator.reference_check`: 183/183 field-for-field, nothing ignored
+- `mel.cli run --simulate` + `validate`: 0 invalid (mock 105 files, full pack 14,847)
 - `mel.cli parity`: 0 differences
 
 ## Files (P3-owned)
@@ -220,4 +236,9 @@ python -m mel.cli parity                # repo config still matches the pack
   for the monitor.
 - **P2:** optionally a direct "stage for crop+date" helper for `SeasonStageContext` to delegate
   to; currently it reads the calendar read-only.
-- **P4:** none — the quality gate reads the `self_eval` block P4 already writes.
+- **P4:** publish the relevance threshold (one named value). P3 requires it explicitly and uses
+  0.5 only as a labelled stand-in; at 0.5, 552 of 2,616 full-pack surveys are rejected, so the
+  number matters. The gate also calls P4's `check_survey()`.
+- **P1:** wire `run_batch` into `cmd_run` (`docs/p3_batch_wiring_request.md`); decide the `late`
+  field (`docs/h4_schema_change_request_late.md`); add the weekly-limit policy to `README.md`
+  (README is P1/P5-owned; the text to link is `docs/cap_policy.md`).
