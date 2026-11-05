@@ -68,6 +68,8 @@ def test_demo_pick_shows_the_bedrock_written_questions(app):
     caps = [c.value for c in app.caption]
     assert any(c.startswith("Questions written by Bedrock") and "recorded" in c for c in caps), caps
     assert any("Template vs Bedrock questions" in e.label for e in app.expander)
+    text = " ".join(m.value for m in app.markdown)
+    assert "11/28/2026 7:00 AM IST" in text              # the farmer's send time, in India time (team decision 5 Nov)
 
 
 def test_own_insight_is_written_by_bedrock(tmp_path, monkeypatch):

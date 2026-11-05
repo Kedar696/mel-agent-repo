@@ -65,7 +65,10 @@ sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
 from app import custom_context as cc
 from app import tts
-from app.display_time import ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text
+from app.display_time import (ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text,
+                              use as use_zone, zone_label)
+
+use_zone(None)   # the numbers in Eastern Time; one farmer's screen switches to India time below (Survey demo, queue)
 from app import dashboard
 from app.channel_preview import render_channel_preview
 from app.theme import LOCKUP, MASCOT, PALETTE, apply_theme
@@ -495,7 +498,7 @@ def own_insight_editor(draft: dict) -> bool:
             e[2].selectbox("Farmer's usual channel", CHANNELS, key="cc_channel", format_func=CH_NAME.get)
             e[3].selectbox("Farmer's language", list(cc.LANGUAGES), key="cc_language", format_func=cc.LANGUAGES.get)
             e[4].text_input("District (Bihar)", key="cc_district")
-            st.caption(f"Dates show in {ZONE_LABEL}. The conversation is stamped with the real current time; the rules "
+            st.caption(f"Dates show in {zone_label()}. The conversation is stamped with the real current time; the rules "
                        "use Digital Green's rabi 2026-27 calendar for India, so send windows must fall before 03/31/2027, "
                        "between 7:00 AM and 7:00 PM India time.")
         fields = _sync_draft()  # the widgets exist now: read them back into the draft
@@ -732,6 +735,7 @@ def agentcore_stream(arn, ins):
     yield from invoke(arn, {"insight": ins})
 
 
+use_zone("india")   # one farmer's screen: the phone, the send time and the dates are in India time
 with tab_studio:
     by_id = {i.get("insight_id"): (i, o) for i, o in rows}
     picks = {k: v for k, v in DEMO_PICKS.items() if k in by_id}
@@ -1027,7 +1031,7 @@ def ticket_card(t):
 <div class="mel-k">Next step</div><div class="mel-lead">{escape(FU_ACTION[t["reason"]])}</div>
 <div class="mel-note">Farmer {escape(t["farmer_id"])}, {escape(what)}. Survey <span class="mel-id">{t["survey_id"]}</span>
 on {CH_NAME.get(t["channel"], t["channel"])}.</div></div>''')
-    st.markdown(f"**Conversation log** ({ZONE_LABEL})")
+    st.markdown(f"**Conversation log** ({zone_label()})")
     got = {e["item_id"]: e["value"] for e in rec["items"] if e["result"] == "answered"}
     with st.chat_message("user"):
         st.caption(f"{short(ins['created_at'])}. The farmer asked (summary):")
@@ -1048,6 +1052,7 @@ on {CH_NAME.get(t["channel"], t["channel"])}.</div></div>''')
         st.json(rec)
 
 
+use_zone("india")   # the conversation log of one farmer, as above
 with tab_follow:
     # Rising-activity farmers first (activity attention), then a normal queue: oldest answer first.
     tickets = sorted(_follow_queue(), key=lambda t: (-t["weight"], t["recorded_at"]))
@@ -1151,6 +1156,7 @@ def _season_advance(state: dict, days: int, send: bool) -> None:
         _season_send(state)
 
 
+use_zone(None)      # the Season tab shows India time first by itself, with Eastern alongside
 with tab_season:
     st.subheader("The season, on a simulated clock")
     st.caption("One shared clock drives the scheduler (weekly limit, opt-outs) and the broadcaster (send window, "
