@@ -22,7 +22,7 @@ import streamlit as st
 
 from mel.channels.render import UI, choices, render
 from mel.timing import parse_ist
-from app.display_time import ZONE_LABEL, format_clock, format_date, zone_abbreviation
+from app.display_time import format_clock, format_date
 from app.preview_state import (PreviewState, SHEET, build_record, chat_log, label_for, open_time, send_time,
                                tap_time)
 
@@ -30,10 +30,12 @@ from app.preview_state import (PreviewState, SHEET, build_record, chat_log, labe
 # Clocks and dates on the phone are US style in Eastern Time (app/display_time.py); the state machine's
 # IST instants are unchanged underneath.
 CHROME = {
-    "hi-IN": dict(message="संदेश", business="बिज़नेस अकाउंट", bot="बॉट", edited="संपादित", call="इनकमिंग कॉल",
+    "hi-IN": dict(message="संदेश", business="बिज़नेस अकाउंट", bot="बॉट", edited="संपादित", call="इनकमिंग कॉल…",
+                  answer="उठाएँ", declinecall="काटें", missed="कॉल नहीं उठाई",
                   key="दबाएँ", listen="सुनते रहें", nomore="और कॉल नहीं", hang="कॉल काटें", noask="दोबारा न पूछें",
                   notice="🔒 यह बिज़नेस इस चैट को मैनेज करने के लिए Meta की सुरक्षित सेवा का उपयोग करता है।"),
-    "en-IN": dict(message="Message", business="Business account", bot="bot", edited="edited", call="Incoming call",
+    "en-IN": dict(message="Message", business="Business account", bot="bot", edited="edited", call="Incoming call…",
+                  answer="Answer", declinecall="Decline", missed="No answer",
                   key="Press", listen="Keep listening", nomore="No more calls", hang="End call",
                   noask="Do not ask me again",
                   notice="🔒 This business uses a secure service from Meta to manage this chat."),
@@ -46,7 +48,23 @@ FOOT = {  # what the preview says under the phone once the attempt ends (the rec
     "opted_out": "Opted out: no more surveys for this farmer.",
     "free_text": "Typed instead of tapping: the question goes out again with its buttons.",
     "dropped": "Call cut off; answers before the cut are kept and FarmerChat calls back.",
+    "missed": "The call rang out; the scheduler moves on to the next channel.",
 }
+# The call timer ticks in real time between taps and re-syncs to the simulated clock at every tap, so what is
+# on screen never contradicts the record. Installed once per page through the same JavaScript hook the
+# dashboard's count-up uses.
+_TIMER_JS = """<script>
+(() => {
+  if (window.__melPvTimer) return;
+  window.__melPvTimer = true;
+  const pad = n => String(n).padStart(2, '0');
+  setInterval(() => document.querySelectorAll('.mel-pv-timer[data-live]').forEach(el => {
+    if (!el.dataset.t0) el.dataset.t0 = Date.now();
+    const s = (+el.dataset.start) + Math.floor((Date.now() - +el.dataset.t0) / 1000);
+    el.textContent = pad(Math.floor(s / 60)) + ':' + pad(s % 60);
+  }), 1000);
+})();
+</script>"""
 KIND = {"whatsapp": "mel-pv-wa", "telegram": "mel-pv-tg", "app": "mel-pv-app", "web": "mel-pv-app mel-pv-web",
         "voice": "mel-pv-voice"}
 
@@ -130,6 +148,9 @@ _CSS = """
 .mel-pv-web .mel-pv-url{background:#fff;border-radius:16px;padding:4px 12px;font-size:12.5px;color:#55665c;margin:0 12px 8px}
 .mel-pv-call{color:#eaf3ec;padding:8px 18px 14px;text-align:center}
 .mel-pv-call .mel-pv-av{width:72px;height:72px;font-size:30px;margin:14px auto 10px;background:#2f6b4a;color:#fff}
+.mel-pv-call.ringing .mel-pv-av{animation:mel-pv-ring 1.4s ease-out infinite}
+@keyframes mel-pv-ring{from{box-shadow:0 0 0 0 rgba(255,255,255,.35)}to{box-shadow:0 0 0 22px rgba(255,255,255,0)}}
+@media (prefers-reduced-motion:reduce){.mel-pv-call.ringing .mel-pv-av{animation:none}}
 .mel-pv-call .mel-pv-name{font-size:22px;font-weight:600}.mel-pv-call .mel-pv-sub{font-size:13.5px;opacity:.75;margin-top:2px}
 .mel-pv-callid{flex:0 0 auto}
 .mel-pv-cap{text-align:left;background:rgba(255,255,255,.07);border-radius:14px;padding:10px 12px;margin-top:16px;min-height:150px;flex:1 0 auto;font-size:14.5px;line-height:1.45}
@@ -194,10 +215,19 @@ _WIDGETS = {
 .st-key-__S__-act button{background:rgba(255,255,255,.13);color:#fff;border-radius:14px;min-height:3.2rem;white-space:normal}
 .st-key-__S__-act button:hover{background:rgba(255,255,255,.24);color:#fff}
 .st-key-__S__-act button [data-testid="stMarkdownContainer"],.st-key-__S__-act button p{color:#fff;font-size:14.5px;white-space:normal;overflow:visible;text-overflow:clip}
+.st-key-__S__-act [data-testid="stHorizontalBlock"] button p{font-size:24px;font-weight:500}
 .st-key-__S__-hang{padding:0 18px 18px}
 .st-key-__S__-hang button{width:100%;background:#d4423a;color:#fff;border:0;border-radius:28px;min-height:2.9rem}
 .st-key-__S__-hang button:hover{background:#b9352e;color:#fff}
 .st-key-__S__-hang button p{color:#fff}
+.st-key-__S__-ring{padding:4px 18px 18px}
+.st-key-__S__-ring [data-testid="stHorizontalBlock"]{gap:14px}
+.st-key-__S__-ring button{width:100%;border:0;border-radius:30px;min-height:3.4rem;color:#fff}
+.st-key-__S__-ring button p{color:#fff;font-size:15.5px;font-weight:600}
+.st-key-__S__-ring [data-testid="stHorizontalBlock"]>div:first-child button{background:#d4423a}
+.st-key-__S__-ring [data-testid="stHorizontalBlock"]>div:first-child button:hover{background:#b9352e;color:#fff}
+.st-key-__S__-ring [data-testid="stHorizontalBlock"]>div:last-child button{background:#2f9e5a}
+.st-key-__S__-ring [data-testid="stHorizontalBlock"]>div:last-child button:hover{background:#27874c;color:#fff}
 """,
 }
 _WIDGETS["web"] = _WIDGETS["app"]
@@ -375,7 +405,8 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
 def _voice(survey, channel, state, key, slug, t0, rec, fresh):
     lang, u, c, kind = survey["language"], UI[survey["language"]], CHROME[survey["language"]], KIND[channel]
     vo, items = render(survey, "voice"), survey["items"]
-    lines = [("bot", vo["opening"], state.stage == "invite")]
+    ringing = state.stage == "ringing"
+    lines = [] if ringing or state.ending == "missed" else [("bot", vo["opening"], state.stage == "invite")]
     for k, it in enumerate(items):
         if k < state.step:
             v = state.taps[it["item_id"]]
@@ -386,40 +417,54 @@ def _voice(survey, channel, state, key, slug, t0, rec, fresh):
     if state.done:
         said = {"finished": vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"],
                 "declined": f'{c["key"]} 2: {u["later"]}', "opted_out": f'{c["key"]} 9: {c["nomore"]}',
-                "dropped": f'📵 {c["hang"]}'}[state.ending]
+                "dropped": f'📵 {c["hang"]}', "missed": f'📵 {c["missed"]}'}[state.ending]
         lines.append(("bot" if state.ending == "finished" else "me", said, True))
-    # The phone's clock: the call comes in at the send time, is picked up at `opened`, and the timer
-    # runs from there to the last key pressed, or to the record's recorded_at once the call is over.
+    # The phone's clock: the call rings at the send time, is picked up at `opened`, and the timer runs from
+    # there: live between taps (the script re-syncs it at every tap) and frozen at recorded_at once it is over.
     opened = open_time(t0)
-    if state.stage == "invite":
+    if ringing:
         now = t0
     elif state.done:
         now = parse_ist(rec["recorded_at"])
     else:
         now = tap_time(t0, len(state.taps), state.n) if state.taps else opened
     secs = max(0, int((now - opened).total_seconds()))
-    sub = c["call"] if state.stage == "invite" else f"{secs // 60:02d}:{secs % 60:02d}"
+    live = not ringing and not state.done
+    if ringing or state.ending == "missed":
+        sub = escape(c["call"] if ringing else c["missed"])
+    else:
+        sub = (f'<span class="mel-pv-timer" data-start="{secs}"{" data-live=\"1\"" if live else ""}>'
+               f'{secs // 60:02d}:{secs % 60:02d}</span>')
     cap = "".join(f'<p class="{w}{" now" if now else ""}{" mel-pv-new" if now and fresh else ""}">'
                   f'{"🔈 " if w == "bot" else ""}{escape(t)}</p>' for w, t, now in lines)
     _html(kind, _status_bar(now), "mel-pv-head")
     _html(kind, f'<div class="mel-pv-cap">{cap}</div><div class="mel-pv-callid"><div class="mel-pv-av">F</div>'
-                f'<div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{escape(sub)}</div></div>',
-          "mel-pv-body mel-pv-call")
+                f'<div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{sub}</div></div>',
+          f"mel-pv-body mel-pv-call{' ringing' if ringing else ''}")
+    if live:
+        st.html(_TIMER_JS, unsafe_allow_javascript=True)
     if state.done:
+        return
+    if ringing:  # a real incoming-call screen: Decline (the call rings out) or Answer (the greeting plays)
+        with st.container(key=f"{slug}-ring"):
+            b1, b2 = st.columns(2)
+            b1.button(f'📵 {c["declinecall"]}', key=f"{key}|miss", on_click=_do, args=(state, "miss"), width="stretch")
+            b2.button(f'📞 {c["answer"]}', key=f"{key}|pickup", on_click=_do, args=(state, "pick_up"), width="stretch")
         return
     with st.container(key=f"{slug}-act"):
         if state.stage == "invite":
             st.button(f'▶ {c["listen"]}', key=f"{key}|start", on_click=_do, args=(state, "start"), width="stretch")
             b1, b2 = st.columns(2)
-            b1.button(f'2 · {u["later"]}', key=f"{key}|later", on_click=_do, args=(state, "decline"), width="stretch")
-            b2.button(f'9 · {c["nomore"]}', key=f"{key}|opt", on_click=_do, args=(state, "opt_out"), width="stretch")
+            b1.button("2", key=f"{key}|later", on_click=_do, args=(state, "decline"), width="stretch", help=u["later"])
+            b2.button("9", key=f"{key}|opt", on_click=_do, args=(state, "opt_out"), width="stretch", help=c["nomore"])
         else:
+            # A dial pad: digits only, as on a phone; the spoken line says which digit means what.
             it, keys = items[state.step], vo["items"][state.step]["keypad"]
             cols = st.columns(min(len(keys), 3))
             for i, (kp, value) in enumerate(keys.items()):
-                lab = kp if it["type"] == "survey-scale" else f"{kp} · {label_for(it, value)}"
-                cols[i % len(cols)].button(lab, key=f"{key}|{it['item_id']}|{value}", on_click=_do,
-                                           args=(state, "answer", it["item_id"], value), width="stretch")
+                cols[i % len(cols)].button(kp, key=f"{key}|{it['item_id']}|{value}", on_click=_do,
+                                           args=(state, "answer", it["item_id"], value), width="stretch",
+                                           help=label_for(it, value))
     with st.container(key=f"{slug}-hang"):
         st.button(f'📵 {c["hang"]}', key=f"{key}|hang", on_click=_do, args=(state, "hang_up"), width="stretch")
 
@@ -447,11 +492,8 @@ def render_channel_preview(survey: dict, channel: str, *, key: str, send_at: str
         draw = _chat if channel in ("whatsapp", "telegram") else _sheet if channel in SHEET else _voice
         draw(survey, channel, state, key, slug, t0, rec, fresh)
     with st.container(key=f"{slug}-foot"):
-        st.markdown(f"<p>Phone clock: {ZONE_LABEL} ({zone_abbreviation(t0)}).</p>", unsafe_allow_html=True)
         if state.done:
             st.markdown(f"<p>{escape(FOOT[state.ending])}</p>", unsafe_allow_html=True)
-        elif not state.started:
-            st.markdown("<p>Live preview: tap as the farmer would. Nothing is sent.</p>", unsafe_allow_html=True)
         if state.started and show_restart:
             st.button("Start over", key=f"{key}|reset", on_click=_do, args=(state, "reset"))
     return rec

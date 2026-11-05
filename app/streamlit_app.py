@@ -1,6 +1,6 @@
 """Fasal Pulse - MEL Survey Agent: the team demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
 P4's standalone survey demo (demo/p4_standalone) is folded in: Survey demo shows what the agent remembers
-about the farmer and how history rules H1-H4 adapt the survey (on in the app, off for scoring).
+about the farmer and how history rules H1-H5 adapt the survey (on in the app, off for scoring).
 Tabs: Dashboard (default: overview + evaluation), Survey demo (insight | interactive channel preview | hand-off),
 Follow-up queue. Look and feel: app/theme.py. Interactive preview: app/channel_preview.py.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
@@ -139,15 +139,20 @@ def batch():
     hs = sorted((copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o),
                 key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]))
     led = CapLedger()
-    admits = {}
+    admits, upcoming = {}, {}  # upcoming: farmer -> [(send start, insight id)] of surveys that go out
     for h in hs:
         a = led.admit(h)
         admits[h["handoff_id"]] = (a.decision, a.reason)
+        if a.decision in ("sent", "moved"):
+            upcoming.setdefault(h["survey"]["farmer_id"], []).append(
+                (a.handoff["send_window"]["not_before"], h["survey"]["source_insight_ids"][0]))
+    for v in upcoming.values():
+        v.sort()
     surveyed = [o for _, o in rows if o["decision"].survey]
     files = [clean(s) for o in surveyed for s in o["surveys"].values()] + [o["handoff"] for o in surveyed]
     kinds = ["survey"] * (len(files) - len(surveyed)) + ["schedule_handoff"] * len(surveyed)
     valid = sum(not errors(k, f) for k, f in zip(kinds, files))
-    return rows, admits, valid, len(files)
+    return rows, admits, upcoming, valid, len(files)
 
 
 @st.cache_resource(show_spinner=False)
@@ -157,8 +162,10 @@ def memory():
                         load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None))
 
 
-rows, admits, n_valid, n_files = batch()
-html('<div class="mel-mast"><div class="mel-brand">Fasal Pulse <span>MEL Survey Agent</span></div></div>')
+rows, admits, upcoming, n_valid, n_files = batch()
+INSIGHT_BY_ID = {i.get("insight_id"): i for i, _ in rows}
+html('<div class="mel-mast"><div class="mel-brand"><i class="mel-mark">✻</i>FarmerChat <span>Fasal Pulse</span></div>'
+     '<div class="mel-tag">MEL Survey Agent</div></div>')
 tab_over, tab_studio, tab_season, tab_follow = st.tabs(["Dashboard", "Survey demo", "Season", "Follow-up queue"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
@@ -257,34 +264,30 @@ def guard_ticks(surveys):
 
 
 def handoff_card(h, send_time):
-    """The scheduler hand-off, stacked for the narrow right column of Survey demo."""
-    nb, na = (datetime.fromisoformat(h["send_window"][k]) for k in ("not_before", "not_after"))
-    ex = datetime.fromisoformat(h["expires_at"])
-    span = (ex - nb).total_seconds() or 1
-    w = (na - nb).total_seconds() / span * 100
-    tone = {"high": "red", "normal": "slate", "low": "slate"}[h["priority"]]
-    chans = "".join(f'<div><b>{i}</b>{CH_NAME[c["channel"]]}'
-                    + (f'<small>then wait {c["wait_hours"]} h</small>' if c.get("wait_hours") else "") + "</div>"
-                    for i, c in enumerate(h["channel_order"], 1))
-    cap = h["frequency_cap"]
+    """The scheduler in plain words: when it sends, which channel it tries next if there is no answer, when it
+    stops, and this farmer's next survey. The full hand-off stays in Developer details (JSON)."""
     decision, reason = admits.get(h["handoff_id"], ("sent", ""))
-    cap_state = ("Exempt (high priority)" if cap["exempt"] else {
-        "sent": "✓ Within the limit", "moved": f"↷ Moved: {reason}", "merged": f"⊕ Merged: {reason}",
-        "skipped": "⚠ Skipped: this farmer already has a survey that week", "opted_out": "Farmer opted out"}[decision])
     status = {"sent": badge("Ready to send"), "moved": badge("Moved by weekly limit", "amber"),
               "merged": badge("Merged by weekly limit", "amber"), "skipped": badge("Skipped by weekly limit", "red"),
               "opted_out": badge("Opted out", "red")}[decision]
-    html(f'''<div class="mel-card"><div><b>Scheduler hand-off</b> {status}</div><br><div class="mel-strip">
-<div><div class="mel-k">Recommended send</div><b>{long(send_time["send_at"])}</b>
+    limit = "" if decision == "sent" else f'<div class="mel-note">{escape(us_text(reason))}</div>'
+    route = "".join(f'<span>{CH_NAME[c["channel"]]}</span>'
+                    + (f'<small>{c["wait_hours"]} h →</small>' if c.get("wait_hours") else "") for c in h["channel_order"])
+    me, start = h["survey"]["source_insight_ids"][0], h["send_window"]["not_before"]
+    nxt = next((iid for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
+    if nxt:
+        t = next(t for t, iid in upcoming[h["survey"]["farmer_id"]] if iid == nxt)
+        a = INSIGHT_BY_ID[nxt]
+        nxt_html = (f'<b>{format_date(t)}</b><div class="mel-note">{escape(str((a.get("asset") or {}).get("name") or "").title())}, '
+                    f'{escape(str(a.get("concern") or "").replace("_", " "))}</div>')
+    else:
+        nxt_html = '<b>None planned</b>'
+    html(f'''<div class="mel-card"><div><b>Scheduler</b> {status}</div>{limit}<br><div class="mel-strip">
+<div><div class="mel-k">Sends</div><b>{long(send_time["send_at"])}</b>
 <div class="mel-note">{escape(us_text(send_time["reason"]))}</div></div>
-<div><div class="mel-k">Send window ({ZONE_LABEL})</div><b>{short(h["send_window"]["not_before"])} → {short(h["send_window"]["not_after"])}</b>
-<div class="mel-tl"><i class="w" style="left:0;width:{w:.0f}%"></i><i class="x" style="left:{w:.0f}%;width:{100 - w:.0f}%;opacity:.45"></i></div>
-<div class="mel-tlab"><span>Opens</span><span>Closes</span><span>Expires {short(h["expires_at"])}</span></div></div>
-<div class="mel-ch"><div class="mel-k">Channel order</div>{chans}</div>
-<div><div class="mel-k">Priority</div>{badge(h["priority"].title(), tone)}</div>
-<div><div class="mel-k">Weekly limit</div><b>{cap["max_surveys"]} per farmer in {cap["window_days"]} days</b>
-<div class="mel-note">{escape(cap_state)}</div></div>
-<div><div class="mel-k">Hand-off ID</div><span class="mel-id">{h["handoff_id"]}</span></div></div></div>''')
+<div><div class="mel-k">No answer? Next channel</div><div class="mel-route">{route}</div>
+<div class="mel-note">Stops trying {short(h["send_window"]["not_after"])}</div></div>
+<div><div class="mel-k">Next survey for this farmer</div>{nxt_html}</div></div></div>''')
 
 
 SOURCE_NAME = {"template": "Template", "llm": "Claude"}
@@ -306,9 +309,11 @@ def record_card(rec):
         st.warning(f"Failure: {rec['failure_code']}")
 
 
-# One pick per insight severity (high / medium / low) plus the no-survey edge case; first one is the default.
+# One pick per insight severity (high / medium / low) plus two edge cases; first one is the default.
+# I-001996: F-000208 reported wheat drying in patches on 12/08 (low); four days later it is high (history rule H5).
 DEMO_PICKS = {"I-001253": "High — Goat veterinary follow-up", "I-001645": "Medium — Lentil nutrient care",
-              "I-005625": "Low — Stored mustard monitoring", "I-000291": "Edge case — No survey (critical cow)"}
+              "I-005625": "Low — Stored mustard monitoring", "I-001996": "Edge case — Low turned high (wheat)",
+              "I-000291": "Edge case — No survey (critical cow)"}
 BROWSE = "Browse all conversations"
 PRETEND = ["none", "said the input was not available nearby", "said it was too costly", "ignored the last 3 surveys"]
 
@@ -408,21 +413,37 @@ def _tts(text: str) -> bytes | None:
     return tts.speak(text)
 
 
+def _flip_sound():
+    st.session_state["tts_on"] = not st.session_state.get("tts_on", True)
+
+
+def sound_button(where):
+    """Apple-style speaker beside Restart, one pill with two taps: the speaker turns the read-aloud on or off,
+    the chevron opens the volume. On by default (user's choice, 4 Nov): the call is read aloud as soon as it is
+    answered, so ElevenLabs is called for each line the first time it is heard."""
+    on = st.session_state.get("tts_on", True)
+    pill = where.container(horizontal=True, gap=None, wrap=False, width="content", key="tts_pill")
+    pill.button("Mute the call" if on else "Read the call aloud", key="tts_toggle", on_click=_flip_sound,
+                icon=":material/volume_up:" if on else ":material/volume_off:", width="content",
+                help="Mute" if on else "Read the call aloud (ElevenLabs, Hindi and English)")
+    with pill.popover("Volume", key="tts_pop", help="Volume"):
+        st.slider("Volume", 0, 100, 80, key="tts_volume", format="%d%%")
+
+
 def voice_readout(sv: dict, preview_key: str, rec):
     """Read aloud what the farmer hears on the call: the greeting, then each question as it comes up, then the
-    closing line. ElevenLabs text to speech, multilingual; nothing is sent to a farmer. Mute and Volume act on the
-    player directly (a tiny script), so changing them never restarts the line."""
-    c = st.columns([1.3, 0.7, 1.6], vertical_alignment="bottom")
-    if not c[0].toggle("Read the call aloud", key="tts_on", help="ElevenLabs text to speech (Hindi and English). "
-                                                                    "Needs ELEVENLABS_API_KEY; see .env.example."):
+    closing line. ElevenLabs text to speech, multilingual; nothing is sent to a farmer. The speaker in the settings
+    bar (sound_button) turns it on; Volume acts on the player directly (a tiny script), so it never restarts the line."""
+    if not st.session_state.get("tts_on", True):
         return
     if not tts.api_key():
-        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) and rerun to hear the call.")
+        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) or, on Streamlit Cloud, to the app's secrets, then rerun to hear the call.")
         return
-    mute = c[1].toggle("Mute", key="tts_mute")
-    volume = c[2].slider("Volume", 0, 100, 80, key="tts_volume", format="%d%%")
+    volume = st.session_state.get("tts_volume", 80)
     state, vo = st.session_state.get(f"mel_preview|{preview_key}"), render(sv, "voice")
-    if state is None or state.stage == "invite":
+    if state is None or state.stage == "ringing":
+        return  # the phone is still ringing: nothing is spoken until the farmer answers
+    if state.stage == "invite":
         line = vo["opening"]
     elif state.done:
         line = (vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"]) if state.ending == "finished" else ""
@@ -438,8 +459,8 @@ def voice_readout(sv: dict, preview_key: str, rec):
     if audio:
         st.audio(audio, format="audio/mpeg", autoplay=True)
         components.html(f"""<script>
-const vol = {volume / 100:.2f}, muted = {str(mute).lower()};
-const apply = () => window.parent.document.querySelectorAll('audio').forEach(a => {{ a.volume = vol; a.muted = muted; }});
+const vol = {volume / 100:.2f};
+const apply = () => window.parent.document.querySelectorAll('audio').forEach(a => {{ a.volume = vol; }});
 apply(); [150, 500, 1200, 2500].forEach(t => setTimeout(apply, t));
 </script>""", height=0)
 
@@ -522,9 +543,10 @@ with tab_studio:
         if d.survey:
             # One settings bar for everything that changes what the farmer sees in the preview. History rules
             # H1-H4 are always on here (team decision 4 Nov); scoring and the CLI keep them off.
-            bar = st.columns([2.3, 1, 0.5, 2.7], vertical_alignment="bottom")
+            bar = st.columns([2.3, 1, 0.9, 2.3], vertical_alignment="bottom")
+            tools = bar[2].container(horizontal=True, wrap=False, vertical_alignment="bottom")  # Restart, then the speaker
             # Icon-only: the label is the accessible name, hidden visually by app/theme.py (.st-key-studio_restart).
-            restart = bar[2].button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
+            restart = tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
                                     width="content", help="Restart survey")
             pretend = bar[3].selectbox("Pretend this farmer's survey history (demo)", PRETEND)
             mem = copy.copy(memory())
@@ -552,23 +574,23 @@ with tab_studio:
             langs = list(out["surveys"])
             lang = bar[1].segmented_control("Language", langs, default="en-IN" if "en-IN" in langs else langs[0],
                                             required=True, format_func=lambda l: LANG_NAME.get(l, l))
+            if ch == "voice":
+                sound_button(tools)
         sev_tone = {"critical": "red", "high": "red", "medium": "amber"}.get(ins.get("severity"), "slate")
-        why = us_text(out["surveys"][ins["conversation_language"]]["rationale"] if d.survey
+        why = us_text(out["surveys"][ins["conversation_language"]]["rationale"].split(" Personalised:")[0] if d.survey
                       else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
         col_i, col_p, col_m = st.columns([1, 1.6, 0.8], gap="medium")
         col_i.markdown('<div class="mel-sec">Conversation</div>', unsafe_allow_html=True)
         col_p.markdown('<div class="mel-sec">What the farmer sees</div>', unsafe_allow_html=True)
         col_m.markdown('<div class="mel-sec">Plan and checks</div>', unsafe_allow_html=True)
         with col_i:
-            html(f'''<div class="mel-insight"><div class="mel-eyebrow">{"Your insight" if kicker == "Your insight" else "Selected insight"}
+            # Context only: what was asked, what was advised, what the survey checks. IDs and fields are in the JSON.
+            html(f'''<div class="mel-insight"><div class="mel-eyebrow">
     {badge((ins.get("severity") or "n/a").title() + " severity", sev_tone)}</div>
     <h3>{escape(str(a.get("name") or "—").title())} · {escape(str(ins.get("concern") or "").replace("_", " "))}</h3>
     <div class="f"><span>Farmer asked</span>“{escape(ins.get("query_summary") or "—")}”</div>
     <div class="f"><span>Advice given</span>“{escape(ins.get("advice_summary") or "—")}”</div>
-    <div class="mel-meta"><div><span>Farmer</span>{ins.get("farmer_id")}</div><div><span>Insight</span>{ins.get("insight_id")}</div>
-    <div><span>Growth stage</span>{escape(str(a.get("growth_stage") or "—").replace("_", " "))}</div>
-    <div><span>Resolution</span>{escape(str(ins.get("resolution_type") or "—").replace("_", " "))}</div></div>
-    <div class="mel-why">{"Why this survey?" if d.survey else f"Why no survey? ({d.rule})"}<p>{escape(why)}</p></div></div>''')
+    <div class="mel-why">{"What the survey checks" if d.survey else f"Why no survey ({d.rule})"}<p>{escape(why)}</p></div></div>''')
             if mem is not None:
                 notes = [(r, us_text(w)) for r, w in history_notes(ins, mem)]
                 lines = [us_text(x) for x in summary_lines(build_context(ins, mem))]
