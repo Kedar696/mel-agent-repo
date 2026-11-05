@@ -58,7 +58,8 @@ from mel.schedule.handoff import CapLedger
 from mel.schedule import SeasonScheduler
 from mel.simulator import simulate
 from mel.writer import (check_survey, write_surveys, FarmerMemory, build_context, summary_lines,
-                        history_notes)
+                        history_notes, llm)
+from mel.writer.templates import template_items
 
 sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
@@ -72,6 +73,11 @@ from app.theme import LOCKUP, MASCOT, PALETTE, apply_theme
 sys.modules["app"]._code_stamp = _APP_STAMP  # see _reload_mel_if_changed
 
 APP_NAME = "Fasal Pulse - MEL Survey Agent"
+# Bedrock writes only where the demo shows a survey being written (bedrock_surveys, own_insight_run, the agent
+# panel). The batch at start-up, the scoring numbers and every other survey stay templates, whatever MEL_USE_LLM
+# says: they never spend tokens, and 2,616 surveys would take 30 minutes before the first screen.
+BEDROCK_ON = llm.enabled()
+llm.override(False)
 st.set_page_config(page_title=APP_NAME, layout="wide")
 apply_theme()
 
@@ -380,9 +386,13 @@ def _sync_draft() -> dict:
     """Editor widgets -> draft. Streamlit drops a widget's key once it is not rendered (editor hidden, demo shown),
     so the draft in session state is what survives; the widgets are re-seeded from it when the editor reopens."""
     draft = st.session_state.setdefault("custom_draft", dict(cc.DEFAULTS))
-    for field, wkey in EDITOR_KEYS.items():
-        if wkey in st.session_state:
-            draft[field] = st.session_state[wkey]
+    reseed = st.session_state.get("custom_reseed")   # Bedrock read the last submission: its Details win over the
+    if reseed:                                        # widget values still around from the run that submitted
+        draft.update(reseed)
+    else:
+        for field, wkey in EDITOR_KEYS.items():
+            if wkey in st.session_state:
+                draft[field] = st.session_state[wkey]
     return draft
 
 
@@ -402,22 +412,77 @@ def _back_to_demos():
     st.session_state.update(studio_source="demo", editor_open=False)
 
 
+def _agent_key(ins, attention, mem_present: bool) -> str:
+    """Where the agent panel keeps a run's events (one per conversation, attention tier and memory setting)."""
+    return f"agent_events|{ins['insight_id']}|{attention is not None and attention.get('tier')}|{mem_present}"
+
+
+def own_insight_run(fields: dict, n: int) -> dict:
+    """The user's conversation through the pipeline. With Bedrock on (and the box ticked), the model first reads the
+    conversation and fills in the Details: crop or animal, problem, severity, advice type, days to act, when to check
+    back and how many questions. P2's rules then decide survey or not and the send window from those fields, and the
+    agent writes and checks the questions with Bedrock (English, then a Hindi translation). Without Bedrock: the
+    Details as typed and the checked templates."""
+    from mel.agent import run_agent
+    from mel.decision import decide
+    with llm.writer(BEDROCK_ON):
+        read = (llm.read_conversation(fields["question"], fields["advice"])
+                if BEDROCK_ON and st.session_state.get("cc_read", True) else None)
+        if read:
+            fields.update(cc.apply_reading(fields, read))  # the draft is this dict: the Details now show what the model read
+            st.session_state["custom_reseed"] = {f: fields[f] for f in EDITOR_KEYS}
+        sub = cc.submission(fields, n)
+        sub["read"], sub["fields"] = read, dict(fields)
+        ins = sub["insight"]
+        if not BEDROCK_ON:
+            sub["out"] = run_insight(ins, memory=memory())
+            sub["bedrock_note"] = "from the checked template (Bedrock is off on this machine)"
+            return sub
+        evs = list(run_agent(ins, memory=None, n_items=sub.get("questions")))   # one agent run, no second writer call
+    res = evs[-1] if evs and evs[-1].get("step") == "result" else {}
+    d = decide(ins)                                                           # the same call the agent made
+    out = {"decision": d, "no_survey": None if d.survey else d.no_survey_record(ins)}
+    sub["bedrock_note"] = None
+    if d.survey and res.get("surveys"):
+        out.update(surveys=res["surveys"], handoff=res["handoff"])
+        m = res.get("metrics") or {}
+        src = res["surveys"].get(ins["conversation_language"], {}).get("_source")
+        sub["bedrock_note"] = (f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
+                               f"${m.get('cost_usd') or 0:.4f}" if src == "bedrock" else
+                               "from the checked template: the Bedrock draft failed the checks twice")
+        st.session_state[_agent_key(ins, d.attention, True)] = evs            # the agent panel shows this run
+    elif d.survey:                                                            # the agent run broke: the templates
+        out, sub["bedrock_note"] = run_insight(ins, memory=memory()), "from the checked template (the agent run failed)"
+    sub["out"] = out
+    return sub
+
+
 def own_insight_editor(draft: dict) -> bool:
     """The editor for the user's own insight (app/custom_context.py does the mapping). Drawn only while open.
     Returns True right after a valid submission; the pipeline runs only then, never on reopen or rerender."""
+    reseed = st.session_state.pop("custom_reseed", None)  # the widgets are not drawn yet, so their keys may be set
     for field, wkey in EDITOR_KEYS.items():
-        st.session_state.setdefault(wkey, draft[field])  # re-seed from the draft (keys are gone after hiding)
+        if reseed:
+            st.session_state[wkey] = draft[field]            # show what Bedrock read (apply_reading)
+        else:
+            st.session_state.setdefault(wkey, draft[field])  # re-seed from the draft (keys are gone after hiding)
     with st.container(border=True, key="own_editor"):
-        st.caption("Type a FarmerChat conversation, then check the Details: those values decide the survey, not the "
-                   "text. The same rules, writer and checks run on it, and nothing you type joins the numbers.")
+        st.caption("Type a FarmerChat conversation. With Bedrock on, the model reads it and fills in the Details; "
+                   "otherwise the Details decide the survey, not the text. The same rules, writer and checks run on "
+                   "it, and nothing you type joins the numbers.")
         t = st.columns(2)
         t[0].text_area("What the farmer asked", key="cc_question", height=96,
                        placeholder="Small green insects on the mustard flowers, what should I do?",
                        help="Shown on the green card as typed.")
         t[1].text_area("Advice FarmerChat gave", key="cc_advice", height=96,
                        placeholder="Spray neem oil in the evening and check the plants after three days.",
-                       help="Leave empty if no advice was given yet: there is nothing to check, so no survey. No model "
-                            "reads the text in this demo; the questions follow the Details, plus a few keywords in the advice.")
+                       help="Leave empty if no advice was given yet: there is nothing to check, so no survey. Without "
+                            "Bedrock no model reads the text: the questions follow the Details, plus a few keywords in the advice.")
+        st.checkbox("Let Bedrock read the conversation and fill in the Details: crop, problem, severity, advice type, "
+                    "days to act, when to check back, how many questions", key="cc_read", value=True,
+                    disabled=not BEDROCK_ON,
+                    help="Needs MEL_USE_LLM=1 and AWS keys on this machine. The model's reading replaces the Details "
+                         "below; untick it to use the Details as you set them.")
         with st.expander("Details: crop, problem, severity, advice type, timing, channel, language, district"):
             d = st.columns([1.1, 1.3, 1, 1.7])
             d[0].selectbox("Crop or animal", list(cc.ASSETS), key="cc_asset", format_func=str.title)
@@ -452,8 +517,8 @@ def own_insight_editor(draft: dict) -> bool:
         return False
     n = st.session_state.get("custom_count", 0) + 1  # new ids (so the phone starts fresh), the time frozen now,
     st.session_state["custom_count"] = n  # and the pipeline run once
-    sub = cc.submission(fields, n)
-    sub["out"] = run_insight(sub["insight"], memory=memory())
+    with st.spinner("Bedrock is reading the conversation and writing the survey…" if BEDROCK_ON else "Building the survey…"):
+        sub = own_insight_run(fields, n)
     st.session_state["custom_submission"] = sub
     st.session_state["editor_open"] = False
     return True
@@ -552,6 +617,36 @@ def _recorded_run(insight_id):
         return None
 
 
+def bedrock_surveys(ins, out, attention):
+    """-> (out, note): the Bedrock-written surveys for a pack conversation in place of the batch's template. First
+    the run recorded from AgentCore (docs/results/agent_runs/), else a live run of the agent when Bedrock is on
+    (its answers are cached on disk and in docs/results/bedrock_cache.jsonl, so a repeat costs $0), else the batch's
+    checked template as it was. The note says which, for the caption above the phone."""
+    from mel.agent import run_agent
+    rec = _recorded_run(ins["insight_id"])
+    res = rec["events"][-1] if rec and rec.get("events") and rec["events"][-1].get("step") == "result" else None
+    note = "from the checked template (Bedrock is off on this machine)"
+    if res and res.get("surveys"):
+        note = (f"written by Bedrock ({rec.get('writer') or 'model'}), recorded from "
+                f"{'Amazon Bedrock AgentCore' if rec.get('where') == 'agentcore' else 'a Bedrock run'} on {rec.get('recorded', '?')}")
+    elif BEDROCK_ON:
+        key = _agent_key(ins, attention, True)
+        with llm.writer(True):
+            evs = st.session_state.get(key) or list(run_agent(ins, memory=None, attention=attention, **_agent_inputs(ins)))
+        st.session_state[key] = evs                       # the agent panel shows the same run, no second call
+        res = evs[-1] if evs and evs[-1].get("step") == "result" else None
+        m = (res or {}).get("metrics") or {}
+        note = (f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
+                f"${m.get('cost_usd') or 0:.4f}" + (" (answered from the cache)" if m.get("cached") else ""))
+    if not res or not res.get("surveys"):
+        return out, note
+    surveys = res["surveys"]
+    if not any(s.get("_source") == "bedrock" for s in surveys.values()):
+        return out, "from the checked template: the Bedrock draft failed the checks twice"
+    farmer_copy = clean(surveys.get(ins["conversation_language"]) or next(iter(surveys.values())))
+    return {**out, "surveys": surveys, "handoff": build_handoff(ins, farmer_copy, attention)}, note
+
+
 def _show_event(e, where):
     ok = e["status"] == "ok"
     head = f"{'✓' if ok else '✗'} **{e['title']}**" + (f" · {e['ms']:.0f} ms" if e.get("ms") is not None else "")
@@ -577,18 +672,18 @@ def agent_panel(ins, attention, mem):
     arn = os.environ.get("MEL_AGENTCORE_ARN", "").strip()
     rec = _recorded_run(ins["insight_id"])
     where = ("Amazon Bedrock AgentCore" if arn else
-             "this machine, writing with Bedrock" if llm.enabled() else "this machine, templates only (no AWS keys here)")
+             "this machine, writing with Bedrock" if BEDROCK_ON else "this machine, templates only (no AWS keys here)")
     st.caption("Four steps, as in our AWS design: the **Evidence Extractor** gathers what we know, the **Analyst** "
                "decides and drafts, the **Verifier** checks (safety, relevance, short questions, Guardrails), and a "
                "rejected draft goes back to the Analyst at most twice before the safe template is used. The "
                f"**Synthesizer** builds the files. Runs on: {where}.")
-    key = f"agent_events|{ins['insight_id']}|{attention is not None and attention.get('tier')}|{mem is not None}"
+    key = _agent_key(ins, attention, mem is not None)
     c = st.columns([1, 2.4], vertical_alignment="center")
     if c[0].button("Run the agent", key=f"run_{key}", icon=":material/play_arrow:"):
         events = []
         from mel.evaluation.costs import CostMeter, record_cost, row_from_results
         meter = CostMeter()
-        with st.status("The agent is working…", expanded=True) as box:
+        with st.status("The agent is working…", expanded=True) as box, llm.writer(BEDROCK_ON):
             stream = (agentcore_stream(arn, ins) if arn else
                       run_agent(ins, memory=mem, attention=attention, **_agent_inputs(ins)))
             for e in stream:
@@ -604,7 +699,7 @@ def agent_panel(ins, attention, mem):
         if not arn and meter.summary()["calls"]:       # a local run that paid for model calls: track its cost
             record_cost(row_from_results("single", f"app: {ins['insight_id']}", meter,
                                          [e for e in events if e.get("step") == "result"],
-                                         writer=llm.write_model() if llm.enabled() else None,
+                                         writer=llm.write_model() if BEDROCK_ON else None,
                                          checker=llm.check_model() or None))
     shown = st.session_state.get(key)
     if not shown and rec:
@@ -679,7 +774,8 @@ with tab_studio:
         if sub:
             a0 = sub["insight"].get("asset") or {}
             kicker, title = "Your insight", f"{str(a0.get('name') or '').title()}: {str(sub['insight'].get('concern') or '').replace('_', ' ')}"
-            note = f"Submitted {long(sub['insight']['created_at'])}." + (f" {sub['note']}" if sub["note"] else "")
+            note = (f"Submitted {long(sub['insight']['created_at'])}." + (f" {sub['note']}" if sub["note"] else "")
+                    + (f" {cc.reading_note(sub['fields'])}" if sub.get("read") and sub.get("fields") else ""))
         elif not st.session_state["editor_open"]:  # hidden before any report exists: say what to do next
             st.info("Your insight has no report yet. Press Edit insight to finish it, or pick a demo above.")
     elif pick != BROWSE:
@@ -756,10 +852,15 @@ with tab_studio:
                 for days in (6, 4, 2):
                     mem.record_response(fake("expired", {}, days))
             # The batch was built with history on, no answers yet, and the data-computed attention.
+            bedrock_note = None
             if pretend != "none" or attention is not getattr(d, "attention", None):
                 surveys_now = write_surveys(ins, d.send_window, memory=mem, attention=attention)
                 farmer_copy = clean(surveys_now.get(ins["conversation_language"]) or surveys_now["hi-IN"])
                 out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy, attention)}
+            elif own:
+                bedrock_note = (sub or {}).get("bedrock_note")   # own_insight_run already wrote it with Bedrock
+            else:
+                out, bedrock_note = bedrock_surveys(ins, out, attention)   # the questions Bedrock wrote, not the template
             h = out["handoff"]
             first_ch = h["channel_order"][0]["channel"]  # P2's recommended send time is for this channel
             ch = bar[1].selectbox("Channel", CHANNELS, index=CHANNELS.index(first_ch), format_func=CH_NAME.get,
@@ -781,6 +882,8 @@ with tab_studio:
             surveys = out["surveys"]
             sv = clean(surveys[lang])
             with col_f:
+                if bedrock_note:
+                    st.caption(f"Questions {bedrock_note}")
                 if lang == "hi-IN":  # label Hindi until every line in P4's sheet has a reviewer's Y/N
                     sheet = pd.read_csv(HINDI_SHEET, dtype=str, keep_default_na=False)
                     done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
@@ -799,13 +902,22 @@ with tab_studio:
                 else:
                     record_card(rec)
             if surveys[lang].get("_history"):
-                generic = write_surveys(ins, d.send_window)[lang]["items"]
+                generic = template_items(ins, lang)      # never a model call: the comparison is with the plain template
                 with st.expander(f"Generic vs adapted questions ({LANG_NAME.get(lang, lang)})"):
                     n_rows = max(len(generic), len(sv["items"]))
                     table(pd.DataFrame([{
                         "#": k + 1,
                         "Generic (no history)": generic[k]["prompt"] if k < len(generic) else "(none)",
                         "Adapted to this farmer": sv["items"][k]["prompt"] if k < len(sv["items"]) else "(none)"}
+                        for k in range(n_rows)]), hide_index=True, width="stretch")
+            if surveys[lang].get("_source") == "bedrock":
+                tmpl = template_items(ins, lang)
+                with st.expander(f"Template vs Bedrock questions ({LANG_NAME.get(lang, lang)})"):
+                    n_rows = max(len(tmpl), len(sv["items"]))
+                    table(pd.DataFrame([{
+                        "#": k + 1,
+                        "Checked template": tmpl[k]["prompt"] if k < len(tmpl) else "(none)",
+                        "Written by Bedrock": sv["items"][k]["prompt"] if k < len(sv["items"]) else "(none)"}
                         for k in range(n_rows)]), hide_index=True, width="stretch")
             with st.expander("How the agent wrote this survey: Evidence → Analyst → Verifier → Synthesizer",
                              icon=":material/smart_toy:"):

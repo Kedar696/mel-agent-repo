@@ -4,7 +4,9 @@ Read this first in every new session. Update the **Status** and **Open items** s
 (and the date below), so the next session starts from the truth.
 
 _Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions;
-willF-team-open-items: P2 weather note, Hindi "pending review" label, CODEOWNERS P3 = @Semdon31)_
+willF-team-open-items: P2 weather note, Hindi "pending review" label, CODEOWNERS P3 = @Semdon31;
+willF-bedrock-writer: compact Bedrock writer, Hindi by translation, replay file, Bedrock questions in the Survey demo
+and in Create your own insight)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -191,6 +193,29 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   `MEL_AGENTCORE_ARN`). CLI `python -m mel.agent [--record] [--remote ARN] ids`. Without Bedrock it matches the
   pipeline exactly (test).
 - **Full Bedrock run DONE + AgentCore LIVE (P5, 5 Nov, us-west-2):** `python -m mel.agent.batch --max-usd 40 --judge`: 6,999 insights → 2,616 surveys (5,232 survey files + hand-offs, 0 schema-invalid), **$11.06 spent**, $0.00433 per survey (both languages; $4.33 per 1,000), 30 min with 8 workers, 0 failed calls. Bedrock wrote en 2,498/2,616 (95%), hi 2,292/2,616 (88%); 442 template fallbacks after 2 revisions; 1,776 revisions on 728 surveys; judge (Gemma 3 12B) 4.91 (plan_created 4.66 lowest). Hindi fallbacks: few first drafts fail local checks in a cache replay, so most are rejected by P4's check model or the guardrail (not yet broken down). Summary `docs/results/full_bedrock_run.json`, ledger run 2. AgentCore runtime `fasal_pulse-ixRznG8rYr` (us-west-2; `python -m mel.agent --remote <ARN> I-001253`): one survey both languages ~4 s, ~$0.004. Five demo picks recorded from AgentCore (`docs/results/agent_runs/`). Licence: Apache-2.0 (P1, on main). `infra/README.md` explains the two templates (ours deployed, P1's API design only). Verifier now states the 20-char answer-label limit.
+- **Bedrock writer with fewer tokens + Bedrock questions on screen (Will for the team, 5 Nov, `willF-bedrock-writer`;
+  P4 and P5 to review):** `mel/writer/llm.py`: the model writes one compact line per question
+  (`TYPE | QUESTION | ANSWER*f`) and `parse_lines` builds the schema items (ids, types, values, scale fields: no
+  output tokens on JSON); Hindi is a **translation of the approved English survey** (`source_items`, used by
+  `run_agent` and `write_surveys`); the hard limits are in the system prompt; `max_tokens` 400; the old JSON answers
+  still parse (replayed caches, tests). Expected: output tokens per draft about a third, far fewer Hindi rejections.
+  **Not yet measured on Bedrock** (no AWS keys on Will's Mac): run `python -m mel.agent.batch --sample 40 --judge
+  --label "pilot 3: compact lines"` and compare with pilot 2 ($0.0039 per survey), then the full set and
+  `python -m mel.writer.llm export-cache`. **Replay file** `docs/results/bedrock_cache.jsonl` (committed; `ModelClient`
+  reads it after the disk cache): the same questions for $0 on any laptop and on the hosted app. **App:** the Survey
+  demo phone now carries the Bedrock-written survey (the recorded AgentCore run for the demo picks; a live, cached
+  agent run for Browse picks when Bedrock is on; else the template), a caption above the phone says which, and a
+  "Template vs Bedrock questions" expander compares them. The app forces the writer off at start
+  (`llm.override(False)`; `BEDROCK_ON` remembers the setting) and turns it on only inside `llm.writer(BEDROCK_ON)`
+  blocks (bedrock_surveys, own_insight_run, the agent panel), so the batch, the scoring numbers and the golden
+  surveys never spend tokens. `ModelClient` now serialises identical in-flight requests (two farmers with the same
+  advice paid twice with 8 workers; the second now finds the first one's answer in the cache), and `write_surveys`
+  writes English first whatever the language order.
+  **Create your own insight:** with Bedrock on, `llm.read_conversation` reads the typed conversation and fills the
+  Details (crop or animal, problem, severity, advice type, days to act, check-back timing, 1-3 questions:
+  `app/custom_context.apply_reading`), P2's rules set the window from those fields, and the agent writes and
+  translates the questions (`run_agent(n_items=)`); the report says what the model read; a checkbox turns the
+  reading off. Tests in test_writer / test_agent / test_custom_context / test_season_tab.
 - **Cost tracking + full run (P5, 5 Nov, `p5-agent-orchestrator`):** `mel/evaluation/costs.py` (CostMeter reads
   `out/bedrock_calls.jsonl` from its start offset; ledger `docs/results/cost_history.jsonl`; projection x 2,616 surveys).
   `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,

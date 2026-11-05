@@ -177,7 +177,9 @@ Amazon Connect are marked **not built**. Don't open any console on stage; use th
 - **Does it use AI to write the questions?** Yes, on Amazon Bedrock: Claude Haiku 4.5 wrote 92% of the
   2,616 surveys in both languages for $11. Every draft goes through the same safety checks as the templates, a
   rejected draft is sent back with the reasons (up to twice), and if it still fails the farmer gets the
-  checked template. Without Bedrock it runs on templates alone: safe, free and repeatable.
+  checked template. Without Bedrock it runs on templates alone: safe, free and repeatable. The phone shows the questions Bedrock wrote (recorded from AgentCore for the demo
+  picks); with AWS keys on the laptop, any browsed conversation and your own insight are written live, and
+  "Template vs Bedrock questions" shows the two side by side.
 - **Why are more Hindi surveys on the template?** Hindi drafts fail a check more often (88% model-written vs
   95% English); the template is the safe fallback. A native-speaker review of the Hindi is still pending (P4).
 - **Is it really running on AWS?** Yes: the same agent runs on Bedrock AgentCore in the event account (one

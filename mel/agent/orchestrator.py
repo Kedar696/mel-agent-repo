@@ -125,10 +125,13 @@ def bedrock_guardrail(guardrail_id: str, version: str = "DRAFT", runtime=None):
 
 
 # ---------------------------------------------------------------- Analyst + Verifier loop, one language
-def _write_one(insight, decision, lang, memory, attention, guardrail, judge, max_revisions, events):
+def _write_one(insight, decision, lang, memory, attention, guardrail, judge, max_revisions, events, n_items=None,
+               source_items=None):
+    """`n_items` overrides P4's question count (the own-insight editor lets the model choose 1-3). `source_items`
+    (the approved English survey) makes the draft a translation: cheaper, and the two languages ask the same."""
     lang = norm_lang(lang)
     base = _base(insight, lang, decision.send_window)
-    n = question_count(insight, attention)
+    n = n_items or question_count(insight, attention)
     template = base | {"items": template_items(insight, lang, memory=memory, attention=attention)}
     notes = history_notes(insight, memory, attention)
     use_model = llm.enabled() and not notes        # a personalised survey always uses the template (P4's rule)
@@ -137,8 +140,9 @@ def _write_one(insight, decision, lang, memory, attention, guardrail, judge, max
     attempt, feedback, previous = 0, None, None
     while use_model and attempt <= max_revisions:
         t0 = time.perf_counter()
-        items = llm.llm_items(insight, lang, n_items=n, feedback=feedback, previous=previous)
-        label = "Analyst drafts" if attempt == 0 else f"Analyst revises (round {attempt} of {max_revisions})"
+        items = llm.llm_items(insight, lang, n_items=n, feedback=feedback, previous=previous, source_items=source_items)
+        first = "Analyst translates the English survey" if source_items else "Analyst drafts"
+        label = first if attempt == 0 else f"Analyst revises (round {attempt} of {max_revisions})"
         if not items:
             events.append(_event("analyst", "fail", f"{label} [{lang}]", "Bedrock gave no usable draft", t0,
                                  lang=lang, model=llm.write_model()))
@@ -184,9 +188,10 @@ def _final(s, insight, source, revisions, notes, v, fallback=""):
 
 # ---------------------------------------------------------------- the whole run
 def run_agent(insight: dict, farmer: dict | None = None, history_hours=(), memory=None, attention=None,
-              langs=LANGS, guardrail=None, judge=None, max_revisions: int = MAX_REVISIONS):
+              langs=LANGS, guardrail=None, judge=None, max_revisions: int = MAX_REVISIONS, n_items: int | None = None):
     """Yield the run's events, step by step. The last one is {"step": "result", ...} with the decision, both surveys,
-    the hand-off, the renders and the metrics. Same input and the same model answers give the same events."""
+    the hand-off, the renders and the metrics. Same input and the same model answers give the same events.
+    `n_items` (1-3) overrides P4's question count for every language (the own-insight editor lets the model choose)."""
     start = time.perf_counter()
     before = llm.usage_summary()
 
@@ -222,12 +227,16 @@ def run_agent(insight: dict, farmer: dict | None = None, history_hours=(), memor
                  f"{RATIONALE.get(insight.get('resolution_type'), '')} Window {sw.get('not_before', '?')} to "
                  f"{sw.get('not_after', '?')}.", t0, decision=_decision_dict(d))
 
-    # Analyst <-> Verifier, per language
-    surveys = {}
+    # Analyst <-> Verifier, per language. English first; a Bedrock-written English survey is then translated into
+    # Hindi rather than written again (fewer tokens, and the farmer's two files ask the same questions).
+    surveys, source = {}, None
     for lang in langs:
         events: list = []
-        surveys[norm_lang(lang)] = _write_one(insight, d, lang, memory, attention, guardrail, judge, max_revisions,
-                                              events)
+        s = _write_one(insight, d, lang, memory, attention, guardrail, judge, max_revisions, events, n_items=n_items,
+                       source_items=source)
+        surveys[norm_lang(lang)] = s
+        if source is None and norm_lang(lang) == "en-IN" and s.get("_source") == "bedrock":
+            source = s["items"]
         yield from events
 
     # Synthesizer

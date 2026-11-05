@@ -190,3 +190,36 @@ def test_template_comparison_is_english_only(one):
         assert v["relevance"] < min(RELEVANCE_THRESHOLD, verify(tmpl, one, n)["relevance"])
         assert any("less relevant" in p for p in v["problems"]) == (lang == "en-IN")
         assert any("send bar" in p for p in v["problems"])
+
+
+# ---------------------------------------------------------------- compact lines + Hindi by translation (5 Nov)
+def _lines(insight, lang="en-IN"):
+    from mel.writer.llm import lines_from
+    return lines_from(template_items(insight, lang))
+
+
+def test_hindi_is_translated_from_the_approved_english_survey(bedrock, one):
+    rt = bedrock([_lines(one, "en-IN"), _lines(one, "hi-IN")])
+    evs, res = run_agent_to_end(one)
+    en, hi = res["surveys"]["en-IN"], res["surveys"]["hi-IN"]
+    assert en["_source"] == "bedrock" and hi["_source"] == "bedrock"
+    assert [q["prompt"] for q in hi["items"]] == [q["prompt"] for q in template_items(one, "hi-IN")]
+    shape = lambda s: [(q["type"], [(o["value"], o.get("follow_up")) for o in q.get("options", [])]) for q in s["items"]]
+    assert shape(hi) == shape(en)                                               # values and follow-ups from the English
+    second = rt.calls[1]
+    assert "Translate" in second["system"][0]["text"] and _lines(one, "en-IN") in second["messages"][0]["content"][0]["text"]
+    assert "Insight:" not in second["messages"][0]["content"][0]["text"]       # a translation carries no context
+    assert any("translates" in e["title"] for e in evs) and res["metrics"]["calls"] == 2
+
+
+def test_translation_with_a_different_shape_is_not_used(bedrock, one):
+    bedrock([_lines(one, "en-IN"), "\n".join(_lines(one, "hi-IN").splitlines()[:-1])])   # a line short
+    evs, res = run_agent_to_end(one)
+    assert res["surveys"]["en-IN"]["_source"] == "bedrock" and res["surveys"]["hi-IN"]["_source"] == "template"
+    assert res["surveys"]["hi-IN"]["_fallback_reason"] == "Bedrock gave no usable draft"
+
+
+def test_n_items_override_is_asked_for(bedrock, one):
+    rt = bedrock([_lines(one, "en-IN").splitlines()[0]])
+    evs, res = run_agent_to_end(one, langs=("en-IN",), n_items=1)
+    assert "Questions: 1\n" in rt.calls[0]["messages"][0]["content"][0]["text"] and not any(e.get("exception") for e in evs)
