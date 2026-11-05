@@ -78,6 +78,46 @@ which should be 0).
 
 The full policy, with the exact move/merge/skip rules, is in [docs/cap_policy.md](docs/cap_policy.md).
 
+## REST API
+A thin FastAPI front over the same pipeline and scheduler, in `mel/api/`. It reuses the decision,
+cap and quality logic unchanged; it adds no new rules. Install the API deps and run it:
+```bash
+pip install -r requirements-api.txt
+uvicorn mel.api.app:app
+```
+It listens on `http://127.0.0.1:8000`. The interactive API reference is at `http://127.0.0.1:8000/docs`.
+
+**State is in memory.** One scheduler (the weekly-cap ledger, the opt-out list and the queue of
+hand-offs) lives in the process and is **lost when it restarts**. There is no database, no real
+messaging and no AWS calls; delivery stays simulated. For more than one copy, keep it to a single
+replica (see `infra/`).
+
+| Method & path | What it does |
+|---|---|
+| `GET /healthz` | liveness check for the container |
+| `POST /surveys` | run one insight. A survey returns `201` and is admitted to the scheduler (cap + opt-outs + quality gate); no survey returns `200`; junk input returns the R1 no-survey result (not an error); a body that is not a JSON object returns `422`. |
+| `GET /surveys/due` | read-only list of the hand-offs the scheduler would send at an instant. Optional `at` (ISO 8601 with a timezone offset; default: the scheduler's simulated clock) and `limit`. It never sends, dequeues or advances anything. |
+
+> **Windows PowerShell users:** `curl` is an alias for `Invoke-WebRequest` there, which takes
+> different arguments. Type `curl.exe` instead to use the real curl shown below.
+
+Health:
+```bash
+curl http://127.0.0.1:8000/healthz
+```
+Submit an insight (here, the first mock insight; swap in your own JSON object):
+```bash
+curl -X POST http://127.0.0.1:8000/surveys \
+  -H 'content-type: application/json' \
+  -d "$(head -n 1 data/mock/insights.jsonl)"
+```
+List what is due at a given instant. A literal `+` in the offset works, as does the
+percent-encoded `%2B`:
+```bash
+curl "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00+05:30"
+curl "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00%2B05:30&limit=5"
+```
+
 ## Command reference
 | Command | What it does |
 |---|---|
