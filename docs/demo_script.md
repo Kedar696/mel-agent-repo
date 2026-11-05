@@ -85,7 +85,7 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > **[optional, if time: Channel → WhatsApp]** The same survey on WhatsApp opens with an approved
 > invitation: she taps Start, then answers with buttons.
 
-## Part 2. The MEL team checks quality (80 seconds)
+## Part 2. The MEL team checks quality (95 seconds)
 
 **Screen:** Dashboard, scrolled down to **Evaluation**, with Send-time rule "Brief rules
 (default)" selected.
@@ -97,6 +97,13 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > **[Every survey we write]** Then we ran all **6,999** conversations: about 2,600 surveys, over 5,000 files
 > in two languages. **100%** are in the right format, **100%** pass the safety checks, **100%** go out at
 > a sensible time, and it takes under 4 milliseconds per survey: about 10 seconds for the whole season.
+>
+> **[Can we trust the AI judge?]** Digital Green asked for an AI to judge relevance. Before trusting it, five of
+> us scored 20 surveys by hand. The AI lands within one point of a person **97%** of the time; we agree with
+> each other only **83%** of the time. **[Which model makes the best judge?]** We tried every model on Amazon
+> Bedrock, 70 of them, and picked the cheapest one that's as accurate as the best: about **5 cents per 1,000
+> surveys**. **[What it costs]** Every run is costed: writing every survey in the dataset with Bedrock, in both
+> languages, costs *(read the "Full run, actual" tile)*.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
@@ -110,12 +117,15 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 
 **Rules we changed on purpose** (contract: every one shown with its numbers, one slide each).
 Generated from the run history; the same table is in the README and in the Evaluation section (Run
-history → Rules we changed). As of 4 Nov:
+history → Rules we changed). As of 5 Nov:
 
 | Run | Change (owner) | Decision | Window match | Timeliness | Misses |
 |---|---|---|---|---|---|
 | 2 | R7 storage exception: stored crops still get a survey (P2) | 96.0% → 99.3% | 0% | 100% | 6 → 1 |
 | 3 | Answer-key send-time setting, off by default (P2) | 99.3% → 100% | 0% → 100% | 100% → 26.5% | 1 → 0 |
+| 8 | Plan questions name the first step and crop; send bar 0.3; AI judge = Gemma 3 12B (P4 + P5) | 99.3% (same) | 0% | 100% | 1 |
+
+Run 8 changed relevance, not the decision: P4's relevance 0.69 → 0.81; surveys below the send bar 80 → 0.
 
 The last miss under the brief rules is G-0145: the answer key accepts a one-day window on 31 March; the
 brief needs two days. Record each new change with

@@ -44,6 +44,7 @@ _ICONS = {
     "message": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     "filter": '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
     "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+    "dollar": '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
 }
 
 
@@ -111,6 +112,14 @@ def _pct(v) -> str:
     return "—" if v is None else f"{v:.1%}".replace(".0%", "%")
 
 
+def _tile(ic: str, v: str, label: str, note: str, share=None) -> str:
+    """One stat tile: icon, value (smaller type when it is long), label, note, and an optional share meter."""
+    return (f'<div class="mel-d-tile">{icon(ic)}<div class="v{" sm" if len(v) > 9 else ""}"><span class="mel-count">'
+            f'{escape(v)}</span></div><div class="l">{escape(label)}</div><div class="n">{escape(note)}</div>'
+            + (f'<div class="mel-d-meter"><i style="width:{share * 100:.1f}%"></i></div>' if share is not None else "")
+            + "</div>")
+
+
 # ------------------------------------------------------------------------------------------------ sections
 def _headline(n, surveyed, card, src, adapted, jrun):
     secs, ms = card["batch_seconds"], card["s_per_survey"] * 1000
@@ -130,11 +139,7 @@ def _headline(n, surveyed, card, src, adapted, jrun):
         ("users", f"{adapted:,}", "personalized", "by the farmer's own history", adapted / max(len(surveyed), 1)),
         ("award", f"{card['failed_but_scheduled']}", "failing surveys scheduled", "a survey that fails a check is held back", None),
     ]
-    tile_html = "".join(
-        f'<div class="mel-d-tile">{icon(ic)}<div class="v{" sm" if len(v) > 9 else ""}"><span class="mel-count">{escape(v)}</span></div>'
-        f'<div class="l">{escape(label)}</div><div class="n">{escape(note)}</div>'
-        + (f'<div class="mel-d-meter"><i style="width:{share * 100:.1f}%"></i></div>' if share is not None else "")
-        + "</div>" for ic, v, label, note, share in tiles)
+    tile_html = "".join(_tile(*t) for t in tiles)
     _html(f'<div class="mel-d-top"><div class="mel-d-hero">{icon("zap")}'
           f'<div><div class="mel-d-fig"><span class="mel-count">{secs:.0f}</span><small>s</small></div>'
           f'<div class="mel-d-cap">to read {n:,} conversations and write {len(surveyed):,} surveys</div>'
@@ -252,6 +257,46 @@ def _models(sweep) -> tuple[alt.Chart | None, dict | None]:
     label = base.transform_filter("datum.pick").mark_text(align="left", dx=12, fontSize=13, fontWeight=700, color=INK).encode(
         text="model:N")
     return others + pick + label, next((m for m in ok if m["model_id"] == pick_id), None)
+
+
+def _costs(ledger: list, full: dict | None):
+    """What writing with Bedrock costs (P5's ledger, mel.evaluation.costs): the latest priced run as tiles, the
+    full-dataset run if one was recorded, and cost per survey run by run. Nothing shows until a paid run is logged."""
+    from mel.evaluation.costs import FULL_SET_SURVEYS
+    if not ledger:
+        return
+    priced = [r for r in ledger if r.get("usd_per_survey") is not None]
+    latest = next((r for r in reversed(priced) if r.get("kind") in ("batch", "pilot", "partial")), priced[-1] if priced else None)
+    tiles = []
+    if latest:
+        tiles += [("dollar", f"${latest['usd_per_survey']:.4f}", "cost per survey",
+                   f"{latest.get('writer') or 'templates'}, {latest['kind']} run {latest['run']}"),
+                  ("send", f"${latest['usd_per_1000_surveys']:.2f}", "per 1,000 surveys", "Hindi and English, checks included"),
+                  ("target", f"${latest['projected_full_usd']:.2f}", "projected, full dataset", f"{FULL_SET_SURVEYS:,} surveys")]
+    if full:
+        spent = (full.get("cost") or {}).get("spent_usd") or 0
+        tiles.append(("clock", f"${spent:.2f}", "full run, actual",
+                      f"{full['surveys']:,} surveys in {full['seconds'] / 60:.0f} min"
+                      + (", stopped at the cap" if full.get("stopped_at_cap") else "")))
+    else:
+        tiles.append(("clock", "Not run yet", "full run, actual", "python -m mel.agent.batch"))
+    _html(f'<div class="mel-d-tiles four">{"".join(_tile(*t) for t in tiles)}</div>')
+    if len(priced) >= 2:
+        df = pd.DataFrame([{"run": f"Run {r['run']}", "what": r.get("label") or r.get("kind"), "v": r["usd_per_1000_surveys"],
+                            "per": r["usd_per_survey"], "writer": r.get("writer") or "templates"} for r in priced])
+        base = alt.Chart(df).encode(
+            x=alt.X("run:N", sort=list(df["run"]), title=None, axis=alt.Axis(labelAngle=0, domain=False, ticks=False)),
+            y=alt.Y("v:Q", title=None, axis=alt.Axis(format="$,.2f", tickCount=4, domain=False, ticks=False)))
+        tip = [alt.Tooltip("run:N", title="Run"), alt.Tooltip("what:N", title="What"), alt.Tooltip("writer:N", title="Writer"),
+               alt.Tooltip("v:Q", title="Per 1,000 surveys", format="$,.2f"), alt.Tooltip("per:Q", title="Per survey", format="$,.5f")]
+        c = _card("cost", "Cost per 1,000 surveys, run by run", "Real Bedrock spend: writing, checking and judging; cached answers cost nothing")
+        _show(c, base.mark_line(strokeWidth=2.5, color=DEEP)
+              + base.mark_circle(size=110, color=DEEP, stroke="#FFFFFF", strokeWidth=2, opacity=1).encode(tooltip=tip), 220)
+    if full:
+        _html(f'<div class="mel-d-note">Full run: {full.get("revisions")} revisions on {full.get("surveys_revised")} surveys, '
+              f'{sum((full.get("fallbacks") or {}).values())} template fallbacks, {full.get("schema_invalid_files", 0)} '
+              'schema-invalid files' + (f', AI judge relevance {full["judge_relevance"]}' if full.get("judge_relevance") else "")
+              + '.</div>')
 
 
 def _surges(rows):
@@ -379,6 +424,15 @@ def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label,
         c = _card("models", title, "Up is closer to the team's own scores, left is cheaper")
         _show(c, chart, 300)
 
+    from mel.evaluation.costs import load_costs
+    ledger = load_costs()     # docs/results/cost_history.jsonl: one row per run that wrote surveys with Bedrock
+    try:
+        full = json.loads((Path(__file__).resolve().parents[1] / "docs" / "results" / "full_bedrock_run.json")
+                          .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        full = None
+    _costs(ledger, full)
+
     # 4. The numbers behind the charts
     st.header("Details")
     with st.expander(f"Highlighted farmers ({len(surges):,})"):
@@ -423,6 +477,18 @@ def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label,
                                  "Average gap": m.get("mean_abs_diff"), "USD per 1,000 surveys": m.get("usd_per_1000_surveys"),
                                  "Seconds per survey": m.get("seconds_per_call"), "Result": m.get("status")} for m in sweep["models"]]),
                   width="stretch", hide_index=True)
+    if ledger:
+        with st.expander(f"All {len(ledger)} cost runs"):
+            table(pd.DataFrame([{
+                "Run": r["run"], "When": r["at"], "What": r.get("label"), "Writer": r.get("writer") or "templates",
+                "Surveys": r.get("surveys"), "Model calls": r.get("calls"), "From cache": r.get("cached_calls"),
+                "Spent": f"${r.get('spent_usd') or 0:.4f}",
+                "Write / check / judge": " / ".join(f"${(r.get('by_purpose') or {}).get(p, {}).get('usd', 0):.4f}"
+                                                    for p in ("write", "check", "judge")),
+                "Per survey": f"${r['usd_per_survey']:.5f}" if r.get("usd_per_survey") is not None else "—",
+                "Projected full set": f"${r['projected_full_usd']:.2f}" if r.get("projected_full_usd") is not None else "—",
+                "Revisions": r.get("revisions"), "Fallbacks": sum((r.get("fallbacks") or {}).values())}
+                for r in reversed(ledger)]), width="stretch", hide_index=True)
     if cal:
         with st.expander("How to read the AI judge numbers"):
             st.markdown(

@@ -1,0 +1,339 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Fasal Pulse (MEL Survey Agent): the AWS resources around the AgentCore agent. A private, encrypted S3 bucket for
+  input and results, the AgentCore execution role (least privilege), a Bedrock Guardrail for survey questions, a
+  CloudWatch dashboard for the agent's metrics, and an optional budget alert. Nothing here runs or costs money
+  when idle. The AgentCore runtime itself is built with `agentcore launch` (docs/agentcore.md), using this stack's
+  outputs. Region: us-east-1 or us-west-2 (the hackathon's two regions).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fasal-pulse
+    AllowedPattern: "^[a-z][a-z0-9-]{2,30}$"
+    Description: Lowercase prefix for resource names.
+  MetricsNamespace:
+    Type: String
+    Default: FasalPulse/Agent
+    Description: CloudWatch namespace the agent writes to (MEL_METRICS_NAMESPACE).
+  ResultsRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: Days to keep saved results in S3 before they are deleted.
+  BudgetEmail:
+    Type: String
+    Default: ""
+    Description: Email for a monthly budget alert. Leave empty to skip the budget (some event accounts block it).
+  BudgetLimitUSD:
+    Type: Number
+    Default: 40
+    MinValue: 1
+    Description: Budget alert threshold in US dollars (alerts at 80% actual and 100% forecast).
+
+Conditions:
+  CreateBudget: !Not [!Equals [!Ref BudgetEmail, ""]]
+
+Rules:
+  HackathonRegions:
+    Assertions:
+      - Assert: !Or [!Equals [!Ref "AWS::Region", us-east-1], !Equals [!Ref "AWS::Region", us-west-2]]
+        AssertDescription: The hackathon account supports only us-east-1 and us-west-2.
+
+Resources:
+  # ------------------------------------------------------------------ S3: input + results (private, encrypted)
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireResults
+            Status: Enabled
+            Prefix: results/
+            ExpirationInDays: !Ref ResultsRetentionDays
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ------------------------------------------------------------------ Bedrock Guardrail (Verifier check)
+  # Applied to the survey text with source=OUTPUT (mel/agent/orchestrator.py bedrock_guardrail). The denied topic is
+  # narrow on purpose: a survey may name the advice the farmer already got ("Did you spray neem oil?"), but must not
+  # give new advice. Violence is left out so pest words ("kill the aphids") are not blocked.
+  SurveyGuardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub "${ProjectName}-survey-guardrail"
+      Description: Blocks new farming advice, requests for personal information, and harmful content in survey questions.
+      BlockedInputMessaging: This survey request was blocked by the Fasal Pulse guardrail.
+      BlockedOutputsMessaging: This survey question was blocked by the Fasal Pulse guardrail.
+      TopicPolicyConfig:
+        TopicsConfig:
+          - Name: New agronomic advice
+            Type: DENY
+            Definition: >-
+              Telling the farmer to take a new farming action, product, dose or treatment, instead of asking about
+              advice they were already given.
+            Examples:
+              - You should also apply 50 kg of urea per acre this week.
+              - Spray imidacloprid twice before the rain to be safe.
+              - Switch to a hybrid seed variety next season.
+          - Name: Personal information request
+            Type: DENY
+            Definition: >-
+              Asking the farmer for identity, contact, financial or government identity details such as phone,
+              address, bank account or Aadhaar number.
+            Examples:
+              - What is your Aadhaar number?
+              - Please share your bank account details.
+              - What is your home address?
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Type: PHONE
+            Action: BLOCK
+          - Type: EMAIL
+            Action: BLOCK
+          - Type: ADDRESS
+            Action: BLOCK
+          - Type: CREDIT_DEBIT_CARD_NUMBER
+            Action: BLOCK
+          - Type: INTERNATIONAL_BANK_ACCOUNT_NUMBER
+            Action: BLOCK
+      ContentPolicyConfig:
+        FiltersConfig:
+          - Type: HATE
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+          - Type: INSULTS
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+          - Type: SEXUAL
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+          - Type: MISCONDUCT
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+
+  SurveyGuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt SurveyGuardrail.GuardrailId
+      Description: Version used by the agent (MEL_GUARDRAIL_VERSION).
+
+  # ------------------------------------------------------------------ AgentCore execution role (least privilege)
+  AgentExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-agentcore-${AWS::Region}"
+      Description: Execution role for the Fasal Pulse agent on Bedrock AgentCore Runtime.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*"
+      Policies:
+        - PolicyName: fasal-pulse-agent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BedrockModels
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  # The us.* inference profiles route to models in several US regions, hence the * region.
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/google.gemma-*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+              - Sid: BedrockGuardrail
+                Effect: Allow
+                Action: bedrock:ApplyGuardrail
+                Resource: !GetAtt SurveyGuardrail.GuardrailArn
+              - Sid: DataBucketList
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Sid: DataBucketObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${DataBucket.Arn}/*"
+              - Sid: AgentMetrics
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"   # PutMetricData has no resource ARN; the namespace condition limits it.
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace:
+                      - !Ref MetricsNamespace
+                      - bedrock-agentcore
+              - Sid: RuntimeLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+              - Sid: RuntimeLogGroups
+                Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+              - Sid: ContainerImagePull
+                Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/bedrock-agentcore-*"
+              - Sid: ContainerRegistryToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"   # this action has no resource ARN
+              - Sid: Tracing
+                Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"   # X-Ray tracing actions have no resource ARN
+              - Sid: WorkloadIdentity
+                Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetWorkloadAccessTokenForJWT
+                  - bedrock-agentcore:GetWorkloadAccessTokenForUserId
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default"
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*"
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+
+  # ------------------------------------------------------------------ CloudWatch dashboard
+  # SEARCH picks up every Writer dimension the agent sends (one line per model, plus "templates").
+  AgentDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${ProjectName}-agent"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "text", "x": 0, "y": 0, "width": 24, "height": 2,
+             "properties": {"markdown": "## Fasal Pulse agent\nEvery AgentCore run sends these (namespace `${MetricsNamespace}`). Cost is the model spend the agent measured, in US dollars."}},
+            {"type": "metric", "x": 0, "y": 2, "width": 8, "height": 6,
+             "properties": {"title": "Runs: surveys vs no survey", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+              "metrics": [[{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"Surveys\"', 'Sum', 300)", "id": "s", "label": "Surveys"}],
+                          [{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"NoSurvey\"', 'Sum', 300)", "id": "n", "label": "No survey"}]]}},
+            {"type": "metric", "x": 8, "y": 2, "width": 8, "height": 6,
+             "properties": {"title": "Model spend (USD)", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+              "metrics": [[{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"CostUSD\"', 'Sum', 300)", "id": "c", "label": "Cost"}]]}},
+            {"type": "metric", "x": 16, "y": 2, "width": 8, "height": 6,
+             "properties": {"title": "Seconds per run (average)", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+              "metrics": [[{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"Seconds\"', 'Average', 300)", "id": "t", "label": "Seconds"}]]}},
+            {"type": "metric", "x": 0, "y": 8, "width": 12, "height": 6,
+             "properties": {"title": "Verifier: revisions and template fallbacks", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+              "metrics": [[{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"Revisions\"', 'Sum', 300)", "id": "r", "label": "Revisions"}],
+                          [{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"TemplateFallbacks\"', 'Sum', 300)", "id": "f", "label": "Fallbacks"}]]}},
+            {"type": "metric", "x": 12, "y": 8, "width": 12, "height": 6,
+             "properties": {"title": "Tokens", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+              "metrics": [[{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"InputTokens\"', 'Sum', 300)", "id": "i", "label": "Input"}],
+                          [{"expression": "SEARCH('{${MetricsNamespace},Writer} MetricName=\"OutputTokens\"', 'Sum', 300)", "id": "o", "label": "Output"}]]}}
+          ]
+        }
+
+  # ------------------------------------------------------------------ Optional budget alert
+  SpendBudget:
+    Type: AWS::Budgets::Budget
+    Condition: CreateBudget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${ProjectName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref BudgetLimitUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+
+Outputs:
+  BucketName:
+    Value: !Ref DataBucket
+  S3InputUrl:
+    Description: Upload the pack's insights.jsonl here (MEL_S3_INPUT). Optional; the image also carries the pack.
+    Value: !Sub "s3://${DataBucket}/input/insights.jsonl"
+  S3ResultsUrl:
+    Description: MEL_S3_RESULTS. Results under it expire after ResultsRetentionDays.
+    Value: !Sub "s3://${DataBucket}/results"
+  GuardrailId:
+    Value: !GetAtt SurveyGuardrail.GuardrailId
+  GuardrailVersion:
+    Value: !GetAtt SurveyGuardrailVersion.Version
+  ExecutionRoleArn:
+    Description: Pass to `agentcore configure --execution-role`.
+    Value: !GetAtt AgentExecutionRole.Arn
+  DashboardUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${ProjectName}-agent"
+  AgentcoreLaunchEnv:
+    Description: Paste after `agentcore launch` (add the model settings from docs/agentcore.md).
+    Value: !Sub "--env MEL_S3_INPUT=s3://${DataBucket}/input/insights.jsonl --env MEL_S3_RESULTS=s3://${DataBucket}/results --env MEL_GUARDRAIL_ID=${SurveyGuardrail.GuardrailId} --env MEL_GUARDRAIL_VERSION=${SurveyGuardrailVersion.Version} --env MEL_METRICS_NAMESPACE=${MetricsNamespace}"

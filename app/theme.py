@@ -358,6 +358,7 @@ a{color:var(--mel-green)}
 .mel-d-cap{font-size:19px;font-weight:600;line-height:1.3;margin-top:12px;max-width:22ch}
 .mel-d-sub{font-size:14px;color:rgba(255,255,255,.72);margin-top:8px}
 .mel-d-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.mel-d-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr));margin:4px 0 14px}
 .mel-d-tile,.mel-d-step{background:var(--mel-paper);border-radius:20px;box-shadow:0 4px 13px rgba(0,130,54,.08);animation:mel-rise .4s var(--mel-ease) both}
 .mel-d-tile{padding:16px 18px}
 .mel-d-tile .mel-ico{width:22px;height:22px;color:var(--mel-green)}
@@ -388,9 +389,9 @@ a{color:var(--mel-green)}
 .mel-d-big span{font-size:40px;font-weight:700;letter-spacing:-.035em;color:var(--mel-ink);line-height:1}
 .mel-d-big small{font-size:14px;color:var(--mel-muted);line-height:1.35}
 @media (max-width:900px){
-  .mel-d-top{grid-template-columns:1fr}.mel-d-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mel-d-top{grid-template-columns:1fr}.mel-d-tiles,.mel-d-tiles.four{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mel-d-flow{grid-template-columns:1fr}.mel-d-arrow{transform:rotate(90deg);justify-self:center;line-height:1}
-  .mel-d-fig{font-size:64px}.mel-d-tile .v.sm{font-size:20px;line-height:1.9}
+  .mel-d-fig{font-size:64px}.mel-d-tile .v{font-size:30px;line-height:1.26}.mel-d-tile .v.sm{font-size:20px;line-height:1.9}
 }
 @media (prefers-reduced-motion:reduce){.mel-d-hero,.mel-d-tile,.mel-d-step{animation:none}}
 
