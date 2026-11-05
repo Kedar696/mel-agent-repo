@@ -236,13 +236,20 @@ def _json_from(text: str):
 
 
 # ------------------------------------------------------------------ the two calls
-def llm_items(insight: dict, lang: str, n_items: int | None = None, model_id: str | None = None) -> list[dict] | None:
+def llm_items(insight: dict, lang: str, n_items: int | None = None, model_id: str | None = None,
+              feedback: list[str] | None = None, previous: list[dict] | None = None) -> list[dict] | None:
     """Items written by a Bedrock model (the configured writing model unless `model_id` is given), or None (off, unreachable,
-    or unreadable answer). Nothing is checked here: compose.py runs the guards, relevance and (optionally) model_check."""
+    or unreadable answer). Nothing is checked here: compose.py runs the guards, relevance and (optionally) model_check.
+    `feedback` + `previous` (P5's agent orchestrator, bounded revision): the reasons a checker rejected the previous draft;
+    the model is asked to fix exactly those. Without them the request is unchanged (same cache key as before)."""
     if not enabled():
         return None
     ask = f"Number of questions: {n_items}\n" if n_items else ""
     user = f"Language: {lang} = {LANG_NAME.get(lang, lang)}\n{ask}Insight: {json.dumps(_context(insight), ensure_ascii=False)}\nReturn only JSON."
+    if feedback:
+        draft = [{"prompt": q.get("prompt"), "options": [o.get("label") for o in q.get("options", [])]} for q in previous or []]
+        user += ("\nYour previous draft was rejected by the checker" + (f": {json.dumps(draft, ensure_ascii=False)}" if draft else "")
+                 + "\nFix these problems and return a new draft:\n- " + "\n- ".join(feedback))
     try:
         text = client().converse(model_id or write_model(), SYSTEM_WRITE, user, purpose="write", tag=str(insight.get("insight_id", "")))
     except ModelUnavailable:
