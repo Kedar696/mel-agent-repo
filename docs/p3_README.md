@@ -70,6 +70,25 @@ Delivery is simulated: a step calls `mel.simulator.simulate()` at the clock's in
 demo UI (P5's Streamlit app) drives this via the API documented in
 `docs/p3_season_screen_api.md`.
 
+**Attempt timing** (shared by `step()` and `simulate_handoff`, rules in
+`mel.simulator.next_step` / `earliest_send`):
+- No answer (`window_expired`, or `push_not_opened` on app) on a channel that is not the last:
+  try the next channel after that channel's `wait_hours` (6 h high, 24 h normal, 48 h low).
+- Delivery failure (`fall_back_to_next_channel`): next channel after `retry_after_minutes`.
+- `retry_same_channel`: same channel again after `retry_after_minutes`, at most two tries;
+  each try is its own record (`delivery_attempt`, and `response_key` gets `-a<n>` from try 2,
+  so first attempts keep the reference keys).
+- The next attempt is moved into send hours. If it would land after the send window's
+  `not_after`, the hand-off ends there. The broadcaster also drops any hand-off whose send
+  window has closed (counted as `expired`, reason "send window closed"), so nothing is sent
+  between `not_after` and `expires_at`.
+- Until the wait has passed, `step()` returns "nothing" for that hand-off, however often it
+  is triggered. `next_attempt_at(handoff_id)` shows when it becomes due.
+
+**Quality gate:** besides `self_eval` and the P4 relevance threshold, the gate runs P4's
+`check_survey()` and rejects any guard failure (for example `label_too_long` or
+`duplicate_option_value`), which `self_eval` does not report.
+
 Tests: `tests/test_season.py`.
 
 ---

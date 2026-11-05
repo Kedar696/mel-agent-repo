@@ -36,6 +36,12 @@ def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
 
     A survey with no `self_eval` at all is treated as not-yet-evaluated and rejected: the
     broadcaster will not send something the writer never cleared.
+
+    Guard failures: `self_eval` only summarises three of P4's guards (schema, new advice,
+    personal info). Other guard failures -- label_too_long, bad_option_count,
+    duplicate_option_value, confirm_needs_two and the rest -- leave `self_eval` looking clean.
+    So the gate also runs P4's public `mel.writer.check_survey()` on the survey and rejects on
+    any failure it reports. P3 calls P4's function; it does not re-implement or change it.
     """
     if not isinstance(relevance_threshold, (int, float)) or isinstance(relevance_threshold, bool):
         raise TypeError("relevance_threshold must be a number supplied by the caller")
@@ -61,6 +67,10 @@ def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
         out.append(f"relevance_score {score} is outside 0..1")
     elif float(score) < float(relevance_threshold):
         out.append(f"relevance_score {score} is below threshold {relevance_threshold}")
+
+    # Every P4 guard, not just the three self_eval summarises.
+    from mel.writer import check_survey
+    out += [f"guard: {g}" for g in check_survey(survey)]
     return out
 
 
@@ -228,14 +238,18 @@ class Broadcaster:
             elif b.action == "expired":
                 self.expired_count += 1
 
-    def next_due(self, clock=None, *, relevance_threshold: float):
+    def next_due(self, clock=None, *, relevance_threshold: float, ready=None):
         """The single next hand-off that would be sent right now (earliest window first), as
         a Broadcast with action 'sent', or None if nothing is sendable at this instant.
 
         This is the per-step read the manual trigger builds on: it looks only at what is due,
-        quality-clear and inside send hours now, without touching the queue."""
+        quality-clear and inside send hours now, without touching the queue. `ready` is an
+        optional predicate(handoff) -> bool; a hand-off it rejects is skipped (the scheduler
+        uses it to hold a hand-off until its wait interval has passed)."""
         now = self._resolve_clock(clock).now()
         for h in self._queue:
+            if ready is not None and not ready(h):
+                continue
             b = self._decide_one(h, now, relevance_threshold)
             if b.action == "sent":
                 return b
@@ -266,11 +280,19 @@ class Broadcaster:
     @staticmethod
     def _decide_one(handoff: dict, now: datetime, relevance_threshold: float) -> Broadcast:
         not_before = parse_ist(handoff["send_window"]["not_before"])
+        not_after = parse_ist(handoff["send_window"]["not_after"])
         expires = parse_ist(handoff["expires_at"])
 
         # Expired work is dropped before anything else: never send a stale survey.
         if now > expires:
             return Broadcast("expired", handoff, reason=f"past expiry {handoff['expires_at']}")
+        # The send window has closed: schedule_handoff.schema.json says the scheduler must not
+        # send outside it. Nothing can go out any more, so it is dropped like expired work.
+        # (Answers to an earlier send are still accepted until expires_at; that is the
+        # simulator's job, not a new send.)
+        if now > not_after:
+            return Broadcast("expired", handoff,
+                             reason=f"send window closed {handoff['send_window']['not_after']}")
 
         # Window not open yet: hold.
         if now < not_before:

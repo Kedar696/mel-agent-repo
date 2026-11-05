@@ -92,10 +92,14 @@ def test_clock_accepts_tzaware_datetime_and_normalises_to_ist():
 
 # ============================================================ quality gate (P4 threshold)
 def _survey_with(**self_eval):
+    """A real, guard-clean survey with the given self_eval. (The gate also runs P4's
+    check_survey, so a bare {"self_eval": ...} dict with no items is correctly rejected.)"""
+    s = copy.deepcopy(load_scenario("1-mustard-aphid-spray")["surveys"]["hi-IN"])
     base = {"schema_valid": True, "relevance_score": 0.8,
             "gives_new_advice": False, "asks_personal_info": False}
     base.update(self_eval)
-    return {"self_eval": base}
+    s["self_eval"] = base
+    return s
 
 
 def test_quality_gate_passes_a_clean_survey():

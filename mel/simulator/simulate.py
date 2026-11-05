@@ -29,9 +29,9 @@ flag is computed internally and only attached when MEL_RESPONSE_LATE_FIELD=1, so
 record this module emits by default stays schema-valid.
 """
 import os
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
-from mel.config import outcome_codes
+from mel.config import IST, outcome_codes
 from mel.channels.render import choices, SPEECH_YES_NO
 from mel.timing import parse_ist, fmt_ist, expires_at
 
@@ -335,7 +335,9 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
     late = stored and ts["answered"] is not None and parse_ist(ts["answered"]) > parse_ist(exp)
 
     rec = {
-        "response_key": f"rk-{sid}-{channel}-{case}",
+        # A retry on the same channel gets its own key (suffix -a<attempt>), so attempt 2 never
+        # overwrites attempt 1. First attempts keep the plain key the 183 reference records use.
+        "response_key": f"rk-{sid}-{channel}-{case}" + (f"-a{attempt}" if attempt > 1 else ""),
         "survey_id": sid, "farmer_id": survey["farmer_id"],
         "source_insight_ids": survey["source_insight_ids"],
         "channel": channel, "language": lang,
@@ -451,8 +453,12 @@ PERSONAS: dict[str, dict] = {
     # App push address is dead -> fall back; then completes on the next channel.
     "app_push_dead": {"per_channel": {"app": "push_token_invalid"},
                       "fallback_case": "completed", "unreachable": set()},
-    # Never answers anywhere: every channel reports window_expired, so the walk runs to the end.
-    "never_answers": {"per_channel": {}, "fallback_case": "window_expired", "unreachable": set()},
+    # Never answers anywhere: each channel is delivered but unanswered. The scheduler waits that
+    # channel's wait_hours, then falls back to the next one, until the last channel or the send
+    # window runs out. App's no-answer code is push_not_opened (window_expired is not an app
+    # code in outcome_codes.json); every other channel reports window_expired.
+    "never_answers": {"per_channel": {"app": "push_not_opened"}, "fallback_case": "window_expired",
+                      "unreachable": set()},
     # Opts out on the first channel -> the whole hand-off stops immediately.
     "opts_out_first": {"per_channel": {}, "fallback_case": "farmer_opted_out", "unreachable": set()},
     # Cannot be reached on voice at all (no phone): that channel is skipped.
@@ -488,6 +494,69 @@ def case_for_channel(persona_name: str, channel: str) -> str | None:
 STOP_DECISIONS = frozenset({"none", "give_up"})
 CONTINUE_DECISIONS = frozenset({"fall_back_to_next_channel"})
 
+# ------------------------------------------------------------ attempt timing (shared rules)
+# Outcomes that mean "delivered, but no answer came". Per schedule_handoff.schema.json
+# channel_order: "If no answer comes within wait_hours, try the next." So on a channel that
+# is not the last, these fall back after that channel's wait_hours instead of giving up.
+NO_ANSWER_CODES = frozenset({"window_expired", "push_not_opened"})
+# One try plus one retry on the same channel, then fall back (as simulate_handoff always did).
+MAX_ATTEMPTS_PER_CHANNEL = 2
+
+
+def next_step(handoff: dict, channel: str, attempt: int, record: dict):
+    """What the broadcaster does after `record`, and how long it waits first.
+
+    Returns (action, delay): action is "stop", "retry" (same channel) or "fallback" (next
+    channel); delay is a timedelta, or None for "stop".
+      * opt-out, or a none/give_up outcome that is not a no-answer -> stop.
+      * retry_same_channel -> retry after retry_after_minutes, at most
+        MAX_ATTEMPTS_PER_CHANNEL tries on one channel; then fall back.
+      * fall_back_to_next_channel -> fall back after retry_after_minutes (these are delivery
+        failures: the farmer never got the survey, so there is no answer to wait for).
+      * a no-answer outcome (NO_ANSWER_CODES) -> fall back after the channel's wait_hours. The
+        last channel has wait_hours null, so there it stops.
+    """
+    if record.get("failure_code") == "farmer_opted_out":
+        return "stop", None
+    decision = record["retry_decision"]
+    after = timedelta(minutes=record.get("retry_after_minutes") or 0)
+    if decision == "retry_same_channel":
+        return ("retry", after) if attempt < MAX_ATTEMPTS_PER_CHANNEL else ("fallback", after)
+    if decision in CONTINUE_DECISIONS:
+        return "fallback", after
+    if record.get("failure_code") in NO_ANSWER_CODES:
+        wait = next((s.get("wait_hours") for s in handoff["channel_order"] if s["channel"] == channel), None)
+        return ("fallback", timedelta(hours=wait)) if wait else ("stop", None)
+    return "stop", None
+
+
+def _hm(s: str) -> time:
+    h, m = s.split(":")
+    return time(int(h), int(m))
+
+
+def earliest_send(handoff: dict, when: datetime):
+    """The first instant at or after `when` that a send is allowed, or None if there is none.
+
+    A send must be inside the day's send_hours and inside the send window
+    [not_before, not_after] (schedule_handoff.schema.json: "The scheduler must not send
+    outside it"). A time after send hours moves to the next day's opening hour. If that lands
+    after not_after (or after expires_at), no further send is possible: None."""
+    sh = handoff["send_hours"]
+    start, end = _hm(sh["from"]), _hm(sh["to"])
+    when = when.astimezone(IST)
+    nb = parse_ist(handoff["send_window"]["not_before"])
+    if when < nb:
+        when = nb
+    t = when.time().replace(tzinfo=None)
+    if t < start:
+        when = datetime.combine(when.date(), start, IST)
+    elif t > end:
+        when = datetime.combine(when.date() + timedelta(days=1), start, IST)
+    if when > parse_ist(handoff["send_window"]["not_after"]) or when > parse_ist(handoff["expires_at"]):
+        return None
+    return when
+
 
 def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> list[dict]:
     """Walk a hand-off's channel_order the way the broadcaster would and return the answer
@@ -511,29 +580,31 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0) -> 
     if p is None:
         raise ValueError(f"unknown persona {persona!r}; known: {sorted(PERSONAS)}")
     survey = handoff["survey"]
+    # Channels in channel_order the persona can be reached on; order preserved.
+    reachable = [s["channel"] for s in handoff["channel_order"] if _case_for_channel(p, s["channel"]) is not None]
     records: list[dict] = []
-    for step in handoff["channel_order"]:
-        channel = step["channel"]
+    send_at = None  # first attempt: the window opening plus the channel's usual offset
+    for i, channel in enumerate(reachable):
         case = _case_for_channel(p, channel)
-        if case is None:
-            continue  # broadcaster skips an unreachable channel
-        attempts_left = 2  # one try, plus one retry_same_channel at most
-        while attempts_left:
-            rec = simulate(survey, channel, case, seed=seed, persona=persona)
+        attempt = 1
+        while True:
+            rec = simulate(survey, channel, case, seed=seed, persona=persona, attempt=attempt,
+                           send_at=fmt_ist(send_at) if send_at else None)
             records.append(rec)
-            decision = rec["retry_decision"]
-            if rec["failure_code"] == "farmer_opted_out":
-                return records  # stop everything, for good
-            if decision in _STOP:
-                # Finished on this channel, for good or ill (answered, declined, expired,
-                # or a terminal invalid): the broadcaster does not try further channels.
-                return records
-            if decision == "retry_same_channel":
-                attempts_left -= 1
-                continue  # same channel again
-            if decision in _CONTINUE:
-                break  # move to the next channel in the order
-            break
+            action, delay = next_step(handoff, channel, attempt, rec)
+            if action == "stop":
+                return records  # answered, declined, opted out, or nothing left to try
+            if action == "fallback" and i == len(reachable) - 1:
+                return records  # no reachable channel left to fall back to
+            # The next attempt waits `delay`, then must fit send hours and the send window.
+            nxt = earliest_send(handoff, parse_ist(rec["timestamps"]["sent"]) + delay)
+            if nxt is None:
+                return records  # the send window closes before the next attempt
+            send_at = nxt
+            if action == "retry":
+                attempt += 1
+                continue
+            break  # fall back to the next reachable channel
     return records
 
 

@@ -162,3 +162,51 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 
 ## Environment notes
 - macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. The full pack is committed in the repo (see the pack location above).
+
+## Blockers for teammates (from P3, 2026-11-04)
+Checked against `Semdon-P3` and `origin/main` (9239abe) on 4 Nov; none of these is fixed on either. Each is the
+owner's call; P3 has not edited their files. The "P3:" line under Open items above is out of date: SimClock,
+`broadcast_due`, the self_eval gate and the 183-record match are done on `Semdon-P3` (see `docs/p3_README.md`).
+
+**P1 (Data, Contracts & Integration)**
+- **`mel.cli run` ignores the weekly limit and opt-outs.** `cmd_run` writes and simulates every hand-off.
+  On the full pack that is 2,616 hand-offs; with the limit applied it would be 1,614 sent, 452 moved, 442 merged,
+  108 skipped, so 1,002 go out against the 1-per-7-days rule. The app already applies it; the CLI does not.
+  Fix: call `mel.schedule.run_batch(handoffs, relevance_threshold=..., simulate=...)` from `cmd_run` and write its
+  `counts` into `run_summary.json` (`docs/p3_batch_wiring_request.md`). Rule counts R1-R8 do not change; the number
+  of hand-off and response files does, so explain it in the PR (`docs/TEAM.md` asks for that).
+- **No `late` field in `config/schemas/response.schema.json`.** Answers after expiry cannot be marked late in a
+  valid record. Adding it breaks `mel.cli parity`, because `config/schemas/` must match the organisers' pack, so
+  it needs a decision: Digital Green ships the field, or P1 documents a parity exception
+  (`docs/h4_schema_change_request_late.md`). P3 then turns on `MEL_RESPONSE_LATE_FIELD` (one line).
+- **`farmers.csv` has no channel-reachability data** (only `preferred_channel`). P3's `FarmerReachability`
+  treats every channel as reachable, so it skips nothing on real data. Ask: add a `reachable_channels` column
+  (pipe-separated, like `crops`), or confirm the all-reachable fallback is fine.
+- `.github/CODEOWNERS` still uses `@p1`..`@p5`, so GitHub requests no reviewer on PRs.
+- `boto3` is still missing from `requirements.txt` (needed by P4's Bedrock client and P5's judge).
+- OK needed (P1 + P5): a short weekly-limit policy section in `README.md`, and a thin
+  `scripts/compare_outcomes.py` that calls `mel.simulator.reference_check` (both folders are yours).
+- Unknown whether the questions to Digital Green were sent (`docs/questions_for_digital_green.md`).
+
+**P2 (Decision & Timing)**
+- `mel/timing/` still has no simulated clock. The FINAL contract says `compute_window()` must read P3's clock.
+  P3's `SeasonScheduler.clock` (a `SimClock`, `now()` / `advance(days)`) is ready to pass in as `now`.
+- Still open from above: G-0145 (one-day 31 March window), cauliflower G-0129 (needs Digital Green), confirm R2.
+
+**P4 (Survey Writing & Safety)**
+- **No relevance threshold is published** (nothing in `mel/writer/` or `config/`). P3's gate needs it and must not
+  invent one; tests and the demo use 0.5 as a stand-in. Ask: one named value P3 can import, agreed with P5.
+- Heads-up, not a blocker: `self_eval` only reflects 3 of your guards (schema, advice, personal info). P3's gate
+  now also calls your `check_survey()` and rejects any failure (0 of 2,616 full-pack surveys affected).
+
+**P5 (Evaluation & Demo)**
+- The Season screen is not built (no `SeasonScheduler` in `app/`). API and a sketch: `docs/p3_season_screen_api.md`.
+- Heads-up on P3 changes that touch your numbers (on `Semdon-P3`, not yet in `main`):
+  `Broadcaster.counts()["expired"]` now also counts hand-offs dropped because their send window closed (nothing
+  is sent between `not_after` and `expires_at`); a retry on the same channel gets its own record and a
+  `response_key` ending `-a2`; fallback waits each channel's `wait_hours` (6/24/48 h); the `never_answers`
+  persona reports `push_not_opened` on app. New P5 counts: `run_batch(...).counts`, `SeasonScheduler.metrics()`,
+  `Broadcaster.counts()`.
+
+**Before P3's next PR:** `Semdon-P3` is 9 commits behind `main`; merge `origin/main` first and rerun
+`pytest -q`, `run --simulate`, `validate`, `parity`.
