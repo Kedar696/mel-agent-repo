@@ -14,36 +14,43 @@ done directly; cross-owner tasks (marked ⇒owner) are the exact changes written
 - [ ] 4. Poisson tail helper and the six-tier first-match cascade with reasons and the one-sentence
       explanation; `weight` 1.5 / 1.0 / 0.5 (R-3, R-4.2, R-4.3).
 - [ ] 5. `run_pipeline(..., attention=False)` builds one `ActivityHistory` from the **unfiltered** insights and
-      passes `attention_for(insight)` into `run_insight`; `run_insight(..., attention=None)` attaches it to the
-      Decision (R-7.1, R-8). Default path byte-for-byte unchanged (R-7.2).
-- [ ] 6. CLI `run --attention` (default off) → `run_pipeline(attention=...)`; `run_summary.json` gains
-      `by_tier` and `by_reason` (always present, zero when off) (R-7.1, R-9.4).
-- [ ] 7. The once-per-7-days `activity_jump→high` budget (`HighPromotionBudget`) applied in send order where the
-      cap is admitted, downgrading a second `activity_jump→high` within 7 days to `normal`; `quiet_then_high_weight`
-      and brief-high are exempt (R-6.2).
+      passes `attention_for(insight)` (possibly budget-clamped, task 7) into `run_insight`;
+      `run_insight(..., attention=None)` passes it to `decide()` and the effects (R-7.1, R-8). Default path
+      byte-for-byte unchanged (R-7.2).
+- [ ] 6. CLI `run --attention` (default off, read via `getattr(a, "attention", False)`) →
+      `run_pipeline(attention=...)`; `run_summary.json` gains `by_tier` and `by_reason` **only when attention is
+      on** (R-7.1, R-7.2, R-9.4).
+- [ ] 7. The once-per-7-days `activity_jump→high` budget decided **in `run_pipeline`** over the unfiltered,
+      `created_at`-ordered insight set, **before** `build_handoff`: a second `activity_jump→high` within 7 days
+      for a farmer is marked `high_budget="spent"` so `adjust_priority` stops at `normal`;
+      `quiet_then_high_weight` and brief-high are exempt; result independent of input order / `--farmer` /
+      `--limit` (R-6.2, R-8). No `HighPromotionBudget` class.
 - [ ] 8. `scripts/activity_report.py`: full-pack run off vs on + scorecard + golden, writing
       `docs/results/activity_attention.md` and a JSON for the Evaluation tab (R-10).
 
-## P2 — Decision & timing ⇒P2 (request doc)
-- [ ] 9. Add `attention: dict | None = None` to the `Decision` dataclass (R-4.1). (Interim: P1 sets it
-      dynamically; this makes it first-class.)
+## P2 — Decision & timing ⇒P2 (request doc, agreed)
+- [ ] 9. Add a real `attention: dict | None = None` field to the `Decision` dataclass (no `setattr`); thread it
+      through `decide(insight, farmer, history_hours, attention=None)` to `pick_send_time`, and store it on the
+      returned Decision (R-4.1, correction 7).
 - [ ] 10. `pick_send_time(..., attention=None)`: `surge` ⇒ window opening, rule `attention_surge`, above
-      `advice_evening`/`usual_time`, never before `not_before`; others unchanged (R-5.2, R-5.3).
+      `high_severity`/`advice_evening`/`usual_time`, never before `not_before`; others unchanged (R-5.2, R-5.3).
 
-## P3 — scheduler ⇒P3 (request doc)
-- [ ] 11. `build_handoff(insight, survey, attention=None)` + `adjust_priority(brief_prio, insight, attention)`:
-      surge one step up, steady_high `normal→low` only (never demote brief-high), neutral unchanged; `exempt`,
-      waits and channel order follow the final priority (R-5.1, R-6.1).
+## P3 — scheduler ⇒P3 (request doc, agreed)
+- [ ] 11. `build_handoff(insight, survey, attention=None)` + a pure `adjust_priority(brief_prio, insight,
+      attention)`: surge one step up (but stop at `normal` when `attention["high_budget"]=="spent"`),
+      steady_high `normal→low` only (never demote brief-high), neutral unchanged; `exempt`, waits and channel
+      order follow the final priority (R-5.1, R-6.1, R-6.2). No rolling-window state in this file.
 
-## P4 — survey writing ⇒P4 (request doc)
-- [ ] 12. Thread `attention` (tier) into `write_surveys → compose_survey → template_items/_try_model` and
-      `history.personalize`: surge skips the H4 light-user clamp (up to 3); steady_high clamps to ≤2;
-      `question_count(..., attention)` applies the steady_high cap on the LLM path too; the 1–3 schema cap and
-      real item count still bound "up to 3" (R-5, R-6.4, R-6.5, R-6.6).
+## P4 — survey writing ⇒P4 (request doc, agreed)
+- [ ] 12. Thread `attention` (tier) into `write_surveys → compose_survey → template_items/_try_model`,
+      `history.personalize` **and `history_notes`**: steady_high cap of 2 lives in `question_count` so it holds
+      with history **off** and on both paths; surge skips the H4 light-user clamp and `personalize` emits no H4
+      note when it skipped H4; the 1–3 schema cap and real item count still bound "up to 3" (R-5, R-6.4, R-6.5,
+      R-6.6, correction 2).
 
-## P5 — app & evaluation ⇒P5 (request doc)
-- [ ] 13. App runs `run_pipeline(attention=True)`; "Highlighted farmers" list sorted by weight then recency
-      with the explanation sentence (R-9.1).
+## P5 — app & evaluation ⇒P5 (request doc, agreed)
+- [ ] 13. App runs `run_pipeline(attention=True)`; "Highlighted farmers" list of **surge only** (never
+      steady_high) sorted by weight then recency with the explanation sentence (R-9.1, correction 3).
 - [ ] 14. Survey Studio shows tier + reason; add a made-up-history attention demo beside the "pretend survey
       history" demo (R-9.2, R-9.5).
 - [ ] 15. Follow-up queue sorted by weight first (R-9.3); Evaluation tab shows the before/after block naming the
@@ -51,7 +58,9 @@ done directly; cross-owner tasks (marked ⇒owner) are the exact changes written
 
 ## Tests & proof
 - [ ] 16. `tests/test_activity.py` (hand-built farmers) covering every case in R-12, including the once-in-7-days
-      high budget, opted-out/fatigued surge still blocked/shortened, and filtered-vs-full agreement.
+      high budget, opted-out/fatigued surge still blocked/shortened, filtered-vs-full agreement, and robustness
+      to rows with missing/broken `created_at` or missing `farmer_id` (R-1.5). Existing tests SHALL pass
+      **unedited** (correction 8).
 - [ ] 17. Full-pack proof: decision & rule identical on/off for all 6,999 (R-11.3); outputs identical with
       attention off (R-7.2); all hand-offs schema-valid with attention on (R-11.2).
 - [ ] 18. Run and record: `pytest -q`, `python -m mel.cli run --simulate --clean`, `validate`, `eval`, `parity`

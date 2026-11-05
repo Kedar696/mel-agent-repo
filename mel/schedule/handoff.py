@@ -31,9 +31,37 @@ def channel_order(insight: dict, prio: str) -> list[dict]:
     return [{"channel": c, "wait_hours": wait if i < len(order) - 1 else None} for i, c in enumerate(order)]
 
 
-def build_handoff(insight: dict, survey: dict) -> dict:
+STEP_UP = {"low": "normal", "normal": "high", "high": "high"}
+STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}   # never demote a brief-high survey
+
+
+def adjust_priority(brief_prio: str, insight: dict, attention: dict | None) -> str:
+    """Nudge the brief's priority by the activity-attention tier. Pure per-insight (no rolling-window state).
+
+      surge       one step up (low->normal, normal->high), BUT stop at normal when attention["high_budget"]
+                  == "spent" (the once-per-7-days high-promotion budget, decided upstream in run_pipeline).
+      steady_high one step down, only normal->low: a survey the brief makes high stays high (safety: an urgent
+                  question from a steady heavy user is never demoted).
+      neutral     unchanged.
+    """
+    if not attention:
+        return brief_prio
+    tier = attention.get("tier")
+    if tier == "surge":
+        up = STEP_UP[brief_prio]
+        if up == "high" and attention.get("high_budget") == "spent":
+            return "normal"
+        return up
+    if tier == "steady_high":
+        return STEP_DOWN[brief_prio]
+    return brief_prio
+
+
+def build_handoff(insight: dict, survey: dict, attention: dict | None = None) -> dict:
     r = rules()
     prio = priority(insight)
+    if attention is not None:
+        prio = adjust_priority(prio, insight, attention)
     sid = survey["survey_id"]
     flow_key = r["farmerchat_flow"]["flow_key"].format(survey_id_lower=sid.lower().replace("-", "_"))
     created = parse_ist(insight["created_at"]).replace(hour=23, minute=0, second=0)

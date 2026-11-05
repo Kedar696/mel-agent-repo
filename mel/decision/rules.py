@@ -43,6 +43,7 @@ class Decision:
     send_window: dict | None = None
     notes: list[str] = field(default_factory=list)
     send_time: dict | None = None  # {send_at, slot, rule, assumption, reason}; surveys only
+    attention: dict | None = None  # {tier, reason, baseline_per_week, recent_count, weight, explanation}; None = off
 
     def no_survey_record(self, insight: dict) -> dict:
         def record_id(key):
@@ -62,8 +63,11 @@ def _no(rule, code):
     return Decision(False, rule, code)
 
 
-def decide(insight: dict, farmer: dict | None = None, history_hours=()) -> Decision:
-    """`farmer` (farmers.csv row) and `history_hours` only refine the send time, never the decision."""
+def decide(insight: dict, farmer: dict | None = None, history_hours=(), attention: dict | None = None) -> Decision:
+    """`farmer`, `history_hours` and `attention` only refine the send time (and ride on the Decision for the
+    scheduler/writer to read); none of them ever change survey vs no-survey, the rule, or the send window.
+    `attention` is the activity-attention result (mel.data.activity). pick_send_time runs inside decide(), so
+    it must be passed here; a surge sends as soon as the window opens (still inside the window)."""
     if insight.get("quality_flag") == "junk" or not is_valid("insight", insight):
         return _no("R1", "junk_insight")
     # The shared schema validator checks patterns but does not enable date-time
@@ -86,4 +90,6 @@ def decide(insight: dict, farmer: dict | None = None, history_hours=()) -> Decis
     post_harvest = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
     if asset.get("category") == "crop" and not post_harvest and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
         return _no("R7", "crop_already_harvested")
-    return Decision(True, "R8", None, win, send_time=pick_send_time(insight, win, farmer, history_hours))
+    return Decision(True, "R8", None, win,
+                    send_time=pick_send_time(insight, win, farmer, history_hours, attention),
+                    attention=attention)

@@ -27,6 +27,8 @@ python -m mel.cli eval
 python -m mel.cli parity
 streamlit run app/streamlit_app.py
 ```
+Activity attention (off by default): `python -m mel.cli run --simulate --clean --attention`; before/after numbers:
+`MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python scripts/activity_report.py`.
 Full pack: `MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python -m mel.cli eval`.
 Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DIR=...`.
 `run` also writes `run_summary.json` and `junk_report.csv` into the output folder (described in `docs/TEAM.md`).
@@ -72,6 +74,25 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
   score history on: item sim 0.99 → 0.93, P4 relevance 0.69 → 0.73, format/safety/timeliness still 100%.
   Tests: `tests/test_history.py`. Our app can be hosted next to P4's on Streamlit Cloud as a backup link.
+
+- **Activity attention (4 Nov, new):** focuses survey attention on positive *change* in a farmer's activity, at
+  the beneficiary's representative's request (named in the demo per the "show deliberate changes with numbers"
+  rule). New P1 module `mel/data/activity.py` labels each insight `surge` / `steady_high` / `neutral` from the
+  farmer's own history (distinct conversations, no leakage, junk-excluded, Poisson jump test vs a per-farmer
+  baseline — not a plain "doubled" ratio). The tier rides on `Decision.attention` (schemas forbid extra fields,
+  so it goes on the Decision like `send_time`) and adjusts priority (P3), question count (P4) and send time
+  (P2) only — never the survey/no-survey decision, the rule or the window. **Off by default** in scoring and
+  the CLI (`run --attention` turns it on), **on in the app** (matching the H1–H4 decision). With it off, output
+  is byte-for-byte today's (verified against a clean checkout). Full pack with it on: surge 130, steady_high
+  173, neutral 2313 (502 insufficient_history); golden decision/rule/channel and scorecard
+  format/safety/timeliness unchanged (99.3% / 99.3% / 100% and 100/100/100), but golden **item similarity dips
+  0.991 → 0.977** with attention on, because steady_high surveys trim to 2 questions so one expected golden item
+  loses its match (scored with each golden row's real history from the full pack). The app runs history + attention
+  together: avg questions/survey heavy 2.56, regular 2.69, light 2.09. Settings in
+  `config/activity_attention.json` (outside the parity-checked folders, so `parity` still passes). Report:
+  `docs/results/activity_attention.{md,json}` + Evaluation tab. Tests: `tests/test_activity.py` (23). Spec:
+  `.kiro/specs/activity-attention/`; cross-owner changes (P2/P3/P4/P5) agreed, written in
+  `docs/activity_attention_request.md`. **Uncommitted** on `lucas-p1` pending review.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·

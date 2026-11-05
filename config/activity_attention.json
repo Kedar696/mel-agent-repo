@@ -1,0 +1,14 @@
+{
+  "_comment": "Activity-attention settings. Owner: P1. Deliberately OUTSIDE config/rules and config/schemas so `mel.cli parity` does not check it. Thresholds are starting values tuned with pipeline evidence (see docs/results/activity_attention.md). Feature is off by default; the representative's request is the reason for the change.",
+  "baseline_window": {"from_days": 70, "to_days": 14},
+  "recent_days": 14,
+  "min_dataset_age_days": 28,
+  "quiet_baseline_max": 0.5,
+  "jump_min_recent": 3,
+  "jump_poisson_factor": 2.0,
+  "jump_poisson_p": 0.001,
+  "declining_ratio": 0.5,
+  "steady_high_baseline": 1.5,
+  "weights": {"surge": 1.5, "neutral": 1.0, "steady_high": 0.5},
+  "high_promotion_window_days": 7
+}

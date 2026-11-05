@@ -10,7 +10,7 @@ old P5+P6 → P4, old P8 → P5). All commitments kept.
 ## Who owns what
 | Person | Role | Owns (files) | Buddy / backup |
 |---|---|---|---|
-| **P1** | Data, Contracts & Integration | `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/`, `scripts/`, `data/mock/`, `.github/`, `.kiro/`, `tests/test_data.py`, `tests/test_cli.py`, `tests/test_parity.py` | P5 |
+| **P1** | Data, Contracts & Integration | `mel/config.py`, `mel/data/` (incl. `activity.py`), `mel/pipeline.py`, `mel/cli.py`, `config/` (incl. `activity_attention.json`), `scripts/` (incl. `activity_report.py`), `data/mock/`, `.github/`, `.kiro/`, `tests/test_data.py`, `tests/test_cli.py`, `tests/test_parity.py`, `tests/test_activity.py` | P5 |
 | **P2** | Decision & Timing | `mel/decision/`, `mel/timing/`, `tests/test_decision.py`, `tests/test_timing.py` | P3 |
 | **P3** | Scheduler, Channels & Simulator | `mel/schedule/`, `mel/channels/`, `mel/simulator/`, `tests/test_schedule.py`, `tests/test_simulator.py` | P2 (also backs up P4) |
 | **P4** | Survey Writing & Safety | `mel/writer/` (templates, i18n, compose, llm, guards), `tests/test_writer.py` | P3 |
@@ -44,7 +44,11 @@ mel.data.errors(kind, obj) -> list[str]; validate(kind, obj); failed_fields(kind
 mel.data.why_junk(insight) -> list[str]; junk_row(insight) -> (category, detail) | None                              # P1
 mel.data.check_all_parity(pack=None) -> list[str]   (empty = workbooks, rules, schemas, scenarios, outcomes all agree) # P1
 mel.pipeline.run_insight(insight, farmer=None, history_hours=()) -> {"decision", "surveys", "handoff"} | {"decision", "no_survey"}  # P1
-mel.pipeline.run_pipeline(insights, limit=None, farmer=None, farmers=None) -> PipelineResult         # P1: filter + loop, writes nothing
+mel.pipeline.run_pipeline(insights, limit=None, farmer=None, farmers=None, history=False, attention=False) -> PipelineResult  # P1: filter + loop, writes nothing
+mel.data.ActivityHistory(insights).attention_for(insight) -> Attention   # P1: activity attention (off by default)
+#   attention=True: surge/steady_high/neutral tier rides on Decision.attention (like send_time); adjusts priority,
+#   question count and send time only. Never changes survey/no-survey, the rule or the window. CLI: `run --attention`.
+#   Report: scripts/activity_report.py -> docs/results/activity_attention.{md,json}. Settings: config/activity_attention.json.
 #   farmers = load_farmers(); each farmer's chat history is taken from `insights` (feeds P2's send time)
 #   PipelineResult.insights / .outputs (same order as the input) / .rows_processed / .counts()
 mel.pipeline.select_insights(insights, limit=None, farmer=None) -> list                              # P1: the shared --limit / --farmer filter

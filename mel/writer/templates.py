@@ -224,12 +224,17 @@ def watch_question(insight):
     return None
 
 
-def question_count(insight):
-    """2-vs-3 rule (from the answer key): direct_action gets 3 questions unless severity is low; every other type gets 2."""
-    return 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+def question_count(insight, attention=None):
+    """2-vs-3 rule (from the answer key): direct_action gets 3 questions unless severity is low; every other
+    type gets 2. Activity attention (optional, off by default): a `steady_high` farmer is capped at 2. The cap
+    lives here (not only in personalize) so it holds with history OFF and on both the template and model paths."""
+    n = 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+    if attention and attention.get('tier') == 'steady_high':
+        n = min(n, 2)
+    return n
 
 
-def build_items(insight, style='golden'):
+def build_items(insight, style='golden', attention=None):
     """-> list of (type, prompt_en, prompt_hi, options). Options are dicts with value, en, hi and optional follow_up."""
     i = insight; rt = i['resolution_type']; cn = i.get('concern') or 'growth_issue'
     S = i18n.slots(i['asset'].get('name')); live = i['asset'].get('category') == 'livestock'
@@ -241,7 +246,7 @@ def build_items(insight, style='golden'):
     if rt == 'direct_action':
         en, hi = action_question(i)
         items = [_q('survey-single-select', en, hi, YNN()), outcome]
-        if question_count(i) == 3:
+        if question_count(i, attention) == 3:
             en, hi = T('barrier'); items.append(_q('survey-single-select', en, hi, BARRIER()))
         return items
     if rt == 'do_not_act':
@@ -275,13 +280,17 @@ FOLLOW_UP_MAP = {'problem_growing': 'crop_or_animal_damaged', 'needs_more_help':
                  'input_not_available': 'could_not_get_input', 'cost_barrier': 'could_not_get_input'}
 
 
-def template_items(insight, lang, style=None, memory=None):
+def template_items(insight, lang, style=None, memory=None, attention=None):
     """Survey `items` (survey.schema.json) for one insight in one language. Same call the shared compose.py used before.
-    With `memory` (history.FarmerMemory) the history rules H1-H4 adapt the questions to what we know about the farmer."""
-    raw = build_items(insight, style or STYLE)
+    With `memory` (history.FarmerMemory) the history rules H1-H4 adapt the questions to what we know about the farmer.
+    `attention` (activity-attention, off by default): `steady_high` caps at 2 questions (via question_count,
+    applied on the no-memory path too); `surge` lets the H4 light-user cap be skipped inside personalize."""
+    raw = build_items(insight, style or STYLE, attention)
     if memory is not None:
         from .history import personalize
-        raw, _ = personalize(raw, insight, memory)
+        raw, _ = personalize(raw, insight, memory, attention)
+    elif attention and attention.get('tier') == 'steady_high' and len(raw) > 2:
+        raw = raw[:2]   # history off: enforce the steady_high cap here too
     k = 'hi' if str(lang).startswith('hi') else 'en'
     items = []
     for n, (typ, pen, phi, opts) in enumerate(raw, 1):

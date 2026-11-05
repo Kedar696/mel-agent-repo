@@ -86,9 +86,12 @@ def summary_lines(ctx):
     return L
 
 
-def personalize(items, i, mem):
+def personalize(items, i, mem, attention=None):
     """items: list of (type, prompt_en, prompt_hi, options[dict]) from the generic template.
-    Returns (items, notes). notes = [(rule, why)]."""
+    Returns (items, notes). notes = [(rule, why)].
+    `attention` (activity-attention, off by default): a `surge` farmer skips the H4 light-user cap (and the H4
+    note is NOT emitted, so we never claim a rule we did not apply); a `steady_high` farmer is capped at 2."""
+    tier = (attention or {}).get('tier')
     ctx = build_context(i, mem)
     items = list(items); notes = []
     rt = i['resolution_type']
@@ -118,9 +121,17 @@ def personalize(items, i, mem):
     if ctx['last_surveys_seen'] >= 2 and ctx['non_responses_in_last3'] >= 2:
         limit = 1 if ctx['non_responses_in_last3'] >= 3 else 2
         notes.append(('H3', f"{ctx['non_responses_in_last3']} of last {ctx['last_surveys_seen']} surveys not answered"))
-    if ctx['activity_level'] == 'light':
+    if ctx['activity_level'] == 'light' and tier != 'surge':   # surge: H4 does not apply, and no H4 note
         if limit > 2: notes.append(('H4', 'light user'))
+        limit = min(limit, 2)
+    if tier == 'steady_high':
         limit = min(limit, 2)
     if len(items) > limit:
         items = items[:limit]          # action question first, outcome second; the personalised extra is last and goes first
+    # If the steady_high trim dropped the personalised H1/H2 question, drop its note too, so the rationale
+    # never claims a question the survey does not ask. Gated on steady_high so that with attention off the
+    # output is byte-for-byte identical to today (steady_high only ever applies when attention is on).
+    if tier == 'steady_high' and extra is not None and extra not in items:
+        dropped = {rule for rule, _ in notes if rule in ('H1', 'H2')}
+        notes = [(rule, why) for rule, why in notes if rule not in dropped]
     return items, notes

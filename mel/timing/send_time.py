@@ -100,17 +100,24 @@ def _at(window: dict, slot: str | None, rule: str, reason: str, assumption: bool
     return {"send_at": fmt_ist(at), "slot": slot, "rule": rule, "assumption": assumption, "reason": reason}
 
 
-def pick_send_time(insight: dict, window: dict, farmer: dict | None = None, history_hours=()) -> dict:
+def pick_send_time(insight: dict, window: dict, farmer: dict | None = None, history_hours=(),
+                   attention: dict | None = None) -> dict:
     """One send time inside `window`, with the rule and reason behind it.
 
     `farmer` is the farmers.csv row (optional). `history_hours` are the farmer's earlier
     chat hours (see chat_hours). Without them, rules 3 and livestock_chores never fire.
+    `attention` is the activity-attention result (optional, off by default): a `surge` farmer
+    is sent as soon as the window opens. This is still inside the window (`_at(window, None, ...)`
+    clamps to not_before), so advice always has the full action window first.
     """
     farmer = farmer or {}
     channel = insight.get("preferred_channel")
     method = (insight.get("verification") or {}).get("method")
     is_call = channel in CALL_CHANNELS or method in CALL_METHODS
 
+    if attention and attention.get("tier") == "surge":
+        return _at(window, None, "attention_surge",
+                   "Rising activity: send as soon as the window opens.")
     if insight.get("severity") in ("high", "critical"):
         return _at(window, None, "high_severity", "High severity: send as soon as the window opens.")
     if "evening" in (insight.get("advice_summary") or "").lower():

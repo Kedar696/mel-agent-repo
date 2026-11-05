@@ -99,7 +99,9 @@ def badge(text, tone="green"):
 
 
 def short(ts: str) -> str:
-    return datetime.fromisoformat(ts).strftime("%-d %b, %H:%M")
+    # Build the day number without a platform-specific strftime flag (%-d is glibc-only, %#d is Windows-only).
+    dt = datetime.fromisoformat(ts)
+    return f"{dt.day} {dt:%b}, {dt:%H:%M}"
 
 
 # The full participant pack (6,999 conversations) when it is in the repo; the 57-row mock sample otherwise.
@@ -113,7 +115,8 @@ def batch():
     schema-valid files once, so later clicks stay fast even on the full dataset."""
     res = run_pipeline(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
                        farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # farmers feed send time
-                       history=True)  # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
+                       history=True,     # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
+                       attention=True)   # activity attention: on in the app, off for scoring (same decision)
     rows = list(zip(res.insights, res.outputs))
     # Contract order: send-window start, then created time, then farmer. Copies, because admit() edits the
     # hand-off it merges into, and Survey Studio must keep showing the original survey.
@@ -191,6 +194,39 @@ Out of scope: real delivery and real farmers. Everything here is simulated.""")
     st.caption(f"Weekly limit (P3): {limit['sent']:,} sent as planned · {limit['moved']:,} moved to a later date · "
                f"{limit['merged']:,} merged into the farmer's other survey · {limit['skipped']:,} skipped. "
                f"High-priority surveys are exempt.")
+
+    # Highlighted farmers: SURGE only (quiet, then a jump or an urgent question). steady_high is deliberately
+    # not highlighted — the representative asked us to attend to positive CHANGE, not to constant high activity.
+    st.subheader("Highlighted farmers")
+    st.caption("Farmers whose activity is rising — quiet, then a jump or a sudden urgent question. The "
+               "beneficiary's representative asked us to focus attention on this positive change, not on "
+               "constantly-busy farmers. Sorted by weight, then most recent.")
+    surges = [(i, o) for i, o in rows
+              if (getattr(o["decision"], "attention", None) or {}).get("tier") == "surge"]
+    if not surges:
+        st.info("No surge farmers in this run.")
+    else:
+        # One row per farmer: keep that farmer's most recent surge insight.
+        latest_by_farmer: dict[str, tuple] = {}
+        for i, o in surges:
+            fid = i.get("farmer_id")
+            prev = latest_by_farmer.get(fid)
+            if prev is None or (i.get("created_at") or "") > (prev[0].get("created_at") or ""):
+                latest_by_farmer[fid] = (i, o)
+        highlighted = sorted(latest_by_farmer.values(),
+                             key=lambda io: (io[1]["decision"].attention["weight"], io[0].get("created_at", "")),
+                             reverse=True)
+        REASON_LABEL = {"quiet_then_high_weight": "Quiet, then urgent", "activity_jump": "Activity jump"}
+        st.dataframe(pd.DataFrame([{
+            "Farmer": i.get("farmer_id"),
+            "Crop / animal": (i.get("asset") or {}).get("name"),
+            "Why": REASON_LABEL.get(o["decision"].attention["reason"], o["decision"].attention["reason"]),
+            "Weight": o["decision"].attention["weight"],
+            "What we noticed": o["decision"].attention["explanation"],
+            "When": short(i["created_at"]) if i.get("created_at") else "—",
+        } for i, o in highlighted[:50]]), width="stretch", hide_index=True, height=260)
+        st.caption(f"{len(highlighted):,} farmers highlighted (from {len(surges):,} surge insights; "
+                   f"most recent surge per farmer, showing up to 50).")
 
 # ---------------------------------------------------------------- Survey Studio
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
@@ -424,6 +460,21 @@ with tab_studio:
     d = out["decision"]
     a = ins.get("asset") or {}
     mem, pretend = None, "none"
+    # The attention the batch computed for this insight (the app runs with attention on). The demo picker below
+    # can override it with a made-up tier, because the pack's activity is flat and has no designed surges.
+    attention = getattr(d, "attention", None)
+    PRETEND_ATT = {
+        "as computed from the real data": None,
+        "quiet, then urgent (surge)": {"tier": "surge", "reason": "quiet_then_high_weight", "weight": 1.5,
+                                       "baseline_per_week": 0.0, "recent_count": 1,
+                                       "explanation": "This farmer was quiet, then raised an urgent question: worth extra attention."},
+        "steady heavy user (steady_high)": {"tier": "steady_high", "reason": "none", "weight": 0.5,
+                                            "baseline_per_week": 2.5, "recent_count": 3,
+                                            "explanation": "This farmer is consistently busy, so no extra priority by default."},
+        "went quiet (neutral)": {"tier": "neutral", "reason": "declining", "weight": 1.0,
+                                 "baseline_per_week": 2.0, "recent_count": 1,
+                                 "explanation": "This farmer's activity has dropped below their usual rate: treated normally."},
+    }
     if d.survey:
         hc = st.columns([1, 2])
         use_history = hc[0].toggle("Use the farmer's past conversations", value=True,
@@ -431,6 +482,11 @@ with tab_studio:
         with hc[1].expander("Pretend this farmer's survey history (demo)"):
             pretend = st.selectbox("Earlier survey answers", ["none", "said the input was not available nearby",
                                                               "said it was too costly", "ignored the last 3 surveys"])
+            pretend_att = st.selectbox("Pretend activity pattern (attention demo)", list(PRETEND_ATT),
+                                       help="The pack's activity is flat with no designed surges, so this made-up "
+                                            "pattern shows how a surge or steady-high farmer is treated differently.")
+            if PRETEND_ATT[pretend_att] is not None:
+                attention = PRETEND_ATT[pretend_att]
         if use_history:
             mem = copy.copy(memory())
             mem.responses = __import__("collections").defaultdict(list)
@@ -444,10 +500,12 @@ with tab_studio:
             elif pretend.startswith("ignored"):
                 for days in (6, 4, 2):
                     mem.record_response(fake("expired", {}, days))
-        if not use_history or pretend != "none":  # the batch was built with history on and no answers yet
-            surveys_now = write_surveys(ins, d.send_window, memory=mem)
+        # Re-run when history is toggled off, a pretend answer history is chosen, or the attention tier is
+        # overridden (the batch built surveys with history on and the data-computed attention).
+        if not use_history or pretend != "none" or attention is not getattr(d, "attention", None):
+            surveys_now = write_surveys(ins, d.send_window, memory=mem, attention=attention)
             farmer_copy = clean(surveys_now.get(ins["conversation_language"]) or surveys_now["hi-IN"])
-            out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy)}
+            out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy, attention)}
     sev_tone = {"critical": "red", "high": "red", "medium": "amber"}.get(ins.get("severity"), "slate")
     why = (out["surveys"][ins["conversation_language"]]["rationale"] if d.survey
            else out["no_survey"]["reason"])
@@ -461,8 +519,17 @@ Selected insight {badge((ins.get("severity") or "n/a").title() + " severity", se
 <div class="mel-meta"><div><span>Farmer</span>{ins.get("farmer_id")}</div><div><span>Insight</span>{ins.get("insight_id")}</div>
 <div><span>Growth stage</span>{escape(str(a.get("growth_stage") or "—"))}</div><div><span>Resolution</span>{escape(str(ins.get("resolution_type") or "—"))}</div></div>
 <div class="mel-why">{"Why this survey?" if d.survey else f"Why no survey? ({d.rule})"}<p>{escape(why)}</p></div></div>''')
+        if attention and d.survey:
+            TIER_TONE = {"surge": "green", "steady_high": "slate", "neutral": "slate"}
+            html(f'<div class="mel-card"><div class="mel-k">Activity attention</div>'
+                 f'{badge(attention["tier"].replace("_", " ").title(), TIER_TONE.get(attention["tier"], "slate"))}'
+                 f'{badge(attention["reason"].replace("_", " "), "slate")}'
+                 f'<div style="margin-top:6px;font-size:13px;color:#4f5c53">{escape(attention["explanation"])}</div>'
+                 f'<div style="margin-top:4px;font-size:11px;color:#8a958d">baseline/wk '
+                 f'{attention["baseline_per_week"]} · recent {attention["recent_count"]} · weight '
+                 f'{attention["weight"]}</div></div>')
         if mem is not None:
-            notes = history_notes(ins, mem)
+            notes = history_notes(ins, mem, attention)
             lines = summary_lines(build_context(ins, mem))
             html('<div class="mel-card"><b>What the agent remembers</b><ul style="margin:6px 0 0 16px;font-size:13px">'
                  + "".join(f"<li>{escape(x)}</li>" for x in lines) + "</ul>"
@@ -601,13 +668,17 @@ def _follow_queue():
             continue
         t_def = next(it for it in survey["items"] if it["item_id"] == t_item)
         a = ins.get("asset") or {}
+        att = getattr(out["decision"], "attention", None) or {}
         tickets.append({
             "response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
             "asset": a.get("name"), "concern": ins.get("concern"),
             "survey_id": rec["survey_id"], "channel": ch, "recorded_at": rec["recorded_at"],
             "reason": t_reason, "item_id": t_item, "prompt": t_def.get("prompt", ""),
             "answer": _answer_label(t_def, t_val), "rec": rec, "insight": ins,
+            "weight": att.get("weight", 1.0), "tier": att.get("tier", "neutral"),
         })
+    # Sort by activity-attention weight first (rising-activity farmers rise to the top), then most recent.
+    tickets.sort(key=lambda t: (t["weight"], t["recorded_at"]), reverse=True)
     return tickets
 
 
@@ -637,6 +708,7 @@ with tab_follow:
             st.warning("No tickets match these filters.")
         else:
             st.dataframe(pd.DataFrame([{
+                "Weight": t["weight"],
                 "Farmer": t["farmer_id"],
                 "Crop / animal": t["asset"],
                 "Survey": t["survey_id"],
@@ -645,6 +717,7 @@ with tab_follow:
                 "Why": FU_REASON.get(t["reason"], t["reason"]),
                 "Answered": t["recorded_at"],
             } for t in view]), width="stretch", hide_index=True, height=280)
+            st.caption("Sorted by activity-attention weight first (rising-activity farmers at the top), then most recent.")
 
             st.subheader("Open a ticket")
             opts = {t["response_key"]: f"{t['farmer_id']} · {t['asset']} · {FU_REASON[t['reason']]}"
@@ -731,6 +804,60 @@ with tab_eval:
         if rows:
             with st.expander(title):
                 st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+    # Activity attention: the deliberate change, shown with numbers (CLAUDE.md). Reads the report JSON written
+    # by scripts/activity_report.py; the app itself runs with attention on.
+    _att_json = Path(__file__).resolve().parents[1] / "docs" / "results" / "activity_attention.json"
+    if _att_json.exists():
+        am = __import__("json").loads(_att_json.read_text(encoding="utf-8"))
+        st.subheader("Activity attention (deliberate change)")
+        st.caption("Why: " + am["reason"] + ". We attend to rising activity (surge), step constantly-busy "
+                   "farmers down by default (steady_high), and leave everyone else unchanged. Decision, rule and "
+                   "send window are identical with attention off vs on — only priority, question count and the "
+                   "send moment change. Full pack: " + f"{am['n_insights']:,} insights.")
+        tt = am["tier_totals"]
+        ac = st.columns(4)
+        ac[0].metric("Surge", tt.get("surge", 0), "quiet, then a jump / urgent", delta_color="off")
+        ac[1].metric("Steady-high", tt.get("steady_high", 0), "stepped down by default", delta_color="off")
+        ac[2].metric("Neutral", tt.get("neutral", 0), "unchanged", delta_color="off")
+        sc_on = am["scorecard_on"]
+        ac[3].metric("Format / safety / timeliness",
+                     f"{sc_on['format_pass']:.0%} / {sc_on['safety_pass']:.0%} / {sc_on['timeliness_pass']:.0%}",
+                     "held at 100%", delta_color="off")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.markdown("**Priority, off vs on**")
+            st.dataframe(pd.DataFrame([{"Priority": k, "off": am["priority_off"].get(k, 0),
+                                        "on": am["priority_on"].get(k, 0)} for k in ("high", "normal", "low")],
+                                      ), hide_index=True, width="stretch")
+            st.markdown("**Golden set, off vs on**")
+            g_off, g_on = am["golden_off"], am["golden_on"]
+            # Every value in the off/on columns is a string, so item similarity (a 0-1 ratio) renders the same
+            # way as the percentage rows instead of pandas mixing numbers and text in one column.
+            _sim = lambda v: f"{v:.3f}"
+            st.dataframe(pd.DataFrame([
+                {"Metric": "Decision", "off": _pct(g_off["decision_acc"]), "on": _pct(g_on["decision_acc"])},
+                {"Metric": "Rule", "off": _pct(g_off["rule_acc"]), "on": _pct(g_on["rule_acc"])},
+                {"Metric": "Channel", "off": _pct(g_off["channel_acc"]), "on": _pct(g_on["channel_acc"])},
+                {"Metric": "Item similarity", "off": _sim(g_off["item_similarity_avg"]), "on": _sim(g_on["item_similarity_avg"])},
+            ]), hide_index=True, width="stretch")
+        with cc2:
+            st.markdown("**Tier by activity level (on)**")
+            st.dataframe(pd.DataFrame([{"Activity": al, "surge": c.get("surge", 0), "neutral": c.get("neutral", 0),
+                                        "steady_high": c.get("steady_high", 0)}
+                                       for al, c in sorted(am["tier_by_activity"].items())]),
+                         hide_index=True, width="stretch")
+            st.markdown("**Avg questions / survey, off vs on**")
+            st.dataframe(pd.DataFrame([{"Activity": al, "off": am["avg_questions_off"].get(al, "—"),
+                                        "on": am["avg_questions_on"].get(al, "—")}
+                                       for al in sorted(am["avg_questions_on"])]), hide_index=True, width="stretch")
+        st.caption("Surge is concentrated in light and regular farmers (rising change), not in heavy users — a "
+                   "plain 'activity doubled' ratio over-flagged heavy/regular users, so we use a Poisson jump "
+                   "test against each farmer's own baseline instead. Thresholds live in "
+                   "`config/activity_attention.json` (starting values, tuned with this evidence).")
+    else:
+        st.subheader("Activity attention (deliberate change)")
+        st.info("Run `python scripts/activity_report.py` to generate the before/after numbers for this section.")
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "

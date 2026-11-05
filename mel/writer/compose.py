@@ -64,21 +64,23 @@ def _finish(s: dict, insight: dict, source: str, model: str = "", fallback: str 
     return s
 
 
-def _try_model(base: dict, insight: dict, lang: str) -> tuple[dict | None, str]:
+def _try_model(base: dict, insight: dict, lang: str, attention=None) -> tuple[dict | None, str]:
     """-> (survey or None, reason it was not used). The model survey is used only if it passes ALL of:
-    guards, relevance at least as good as the template for this insight, and the small-model check (when one is configured)."""
+    guards, relevance at least as good as the template for this insight, and the small-model check (when one is configured).
+    `attention` (off by default) feeds question_count so the 2-vs-3 rule and the steady_high cap hold here too."""
     if not llm.enabled():
         return None, "model_off"
-    items = llm.llm_items(insight, lang, n_items=question_count(insight))
+    n = question_count(insight, attention)
+    items = llm.llm_items(insight, lang, n_items=n)
     if not items:
         return None, "model_unavailable_or_unreadable"
-    if len(items) != question_count(insight):        # the 2-vs-3 rule holds on the model path too
+    if len(items) != n:        # the 2-vs-3 rule (and steady_high cap) holds on the model path too
         return None, "wrong_question_count"
     cand = base | {"items": items}
     bad = check_survey(cand)
     if bad:
         return None, "guard:" + ",".join(sorted({p.split(": ")[1].split(" ")[0] for p in bad}))
-    template = base | {"items": template_items(insight, lang)}
+    template = base | {"items": template_items(insight, lang, attention=attention)}
     if relevance(cand, insight) < relevance(template, insight):
         return None, "less_relevant_than_template"
     opinion = llm.model_check(cand, insight)
@@ -94,34 +96,37 @@ def write_survey_llm(decision, insight: dict, lang: str = BASELINE_LANG) -> dict
     return _finish(cand, insight, "llm", llm.write_model()) if cand else None
 
 
-def history_notes(insight: dict, memory) -> list[tuple[str, str]]:
-    """Which history rules (H1-H4) change this farmer's survey, and why. Empty without memory."""
+def history_notes(insight: dict, memory, attention=None) -> list[tuple[str, str]]:
+    """Which history rules (H1-H4) change this farmer's survey, and why. Empty without memory.
+    `attention` is passed through so a `surge` survey (which skips H4) does not report an H4 note it did not use."""
     if memory is None:
         return []
     from .history import personalize
-    return personalize(build_items(insight, STYLE), insight, memory)[1]
+    return personalize(build_items(insight, STYLE, attention), insight, memory, attention)[1]
 
 
-def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None) -> dict:
+def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None, attention=None) -> dict:
     """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem.
-    With `memory` (history.FarmerMemory), the history rules adapt the template; a personalised survey always uses the template."""
+    With `memory` (history.FarmerMemory), the history rules adapt the template; a personalised survey always uses the template.
+    `attention` (activity-attention, off by default): `surge` keeps up to 3 questions (H4 skipped), `steady_high` caps at 2."""
     lang = norm_lang(lang)
     base = _base(insight, lang, _window(decision))
-    notes = history_notes(insight, memory)
+    notes = history_notes(insight, memory, attention)
     if not notes:
-        cand, why = _try_model(base, insight, lang)
+        cand, why = _try_model(base, insight, lang, attention)
         if cand:
             return _finish(cand, insight, "llm", llm.write_model())
     else:
         why = "model_off"
         base["rationale"] = (base["rationale"] + " Personalised: "
                              + "; ".join(f"{rule} {reason}" for rule, reason in notes))[:400]
-    s = _finish(base | {"items": template_items(insight, lang, memory=memory)}, insight, "template",
-                fallback="" if why == "model_off" else why)
+    s = _finish(base | {"items": template_items(insight, lang, memory=memory, attention=attention)}, insight,
+                "template", fallback="" if why == "model_off" else why)
     s["_history"] = notes
     return s
 
 
-def write_surveys(insight: dict, send_window: dict, langs=LANGS, memory=None) -> dict[str, dict]:
+def write_surveys(insight: dict, send_window: dict, langs=LANGS, memory=None, attention=None) -> dict[str, dict]:
     """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']]."""
-    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang, memory) for lang in langs}
+    return {norm_lang(lang): compose_survey({"send_window": send_window}, insight, lang, memory, attention)
+            for lang in langs}
