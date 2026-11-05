@@ -35,7 +35,7 @@ Most conversations get no survey, and each "no" has a written reason.
 | Format (valid, 1–3 tap questions, right language) | **100%** of 5,232 files |
 | Safety (no new advice, no personal info) | **100%** |
 | Timeliness (after the farmer could act, daytime, in season) | **100%** |
-| Relevance | P4 score 0.83 · AI judge: *fill in once run* |
+| Relevance | P4 score 0.81 · AI judge (Gemma 3 12B on Bedrock) 4.48 / 5; within 1 point of a person 97% (people with each other 83%) |
 | Speed | ~2 ms per survey · 6,999 conversations in ~6 s |
 
 *Speaker note:* everything here is checked on all 6,999 conversations, not a sample.
@@ -89,7 +89,7 @@ Evaluation tab live if time allows.
 
 ## Still to fill in before the deck is final
 - [ ] Team names, repo link (slide 1, 9)
-- [ ] AI judge score and agreement with the 20 hand-scored surveys (slide 4)
+- [x] AI judge score and agreement with the 20 hand-scored surveys (slide 4)
 - [ ] Bedrock / REST API status at freeze (slide 8)
 - [ ] Any new rule changes: one slide each, numbers from the "Rules we changed" table
 - [ ] Hindi review status (P4): say "pending native review" on slide 3 if not signed off
