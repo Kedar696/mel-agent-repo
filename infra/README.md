@@ -5,12 +5,13 @@ is deployed by this repo's build or CI, and no AWS command that creates or chang
 run as part of them. There are no account IDs, access keys or secrets in any file. Treat this as
 a design you can read and, if you choose, apply by hand later.
 
-## Three templates: two deployed, one a design
+## Three templates (two deployed, one a design) and Terraform
 | Template | What it is | Status |
 |---|---|---|
 | `fasal-pulse.yaml` (P5) | Everything around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget. | **Deployed** in the event account (us-west-2, stack `fasal-pulse`, 5 Nov). Steps: `docs/agentcore.md`. |
 | `cloudformation.yaml` (P1) | The **REST API** (`mel/api`) on App Runner, with its ECR repository and role. | Definition only (the rest of this README). |
 | `ui-express.yaml` (P2) | The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service. | **Live** in the event account (us-east-1, 5 Nov) at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the template holds the same settings). **Second copy, deployed from this template** in Michael's account (us-east-1, stack `fasal-pulse-ui`, image `13ef538`, 5 Nov) with `AgentCoreArn` set, so "Run the agent" runs live on AgentCore (~4 s, ~$0.004): https://fa-53ba052ceabd447d83bc7d8b64823279.ecs.us-east-1.on.aws/ . Use this one for the live demo; Will's copy is in another account and can't call the agent. |
+| `terraform/` (P2) | The two deployed templates above (`fasal-pulse.yaml` + `ui-express.yaml`) in **Terraform**: one `terraform apply` for both regions. | Definition, checked in CI (`terraform fmt -check`, `terraform validate`); not applied to a real account. Steps: "Terraform" below. |
 
 ## The Streamlit UI on ECS Express Mode (live since 5 Nov)
 `ui.Dockerfile` at the repo root packages `app/streamlit_app.py` with the participant pack and the
@@ -70,6 +71,39 @@ The first deploy makes the registry and the build project; the second, with an i
 the service and prints its URL as the `Url` output. To stop paying, delete the stack (empty the
 registry first) or, in the event account, `aws ecs delete-express-gateway-service --service-arn <arn>`.
 Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
+
+## Terraform (`infra/terraform/`)
+The same resources, names and permissions as `fasal-pulse.yaml` (agent side, us-west-2) and `ui-express.yaml`
+(UI, us-east-1), for teams that use Terraform instead of CloudFormation:
+- `agent.tf`: private S3 bucket, Bedrock Guardrail and version, AgentCore execution role, CloudWatch dashboard,
+  optional budget. Its outputs are the template's: `execution_role_arn` for `agentcore configure`,
+  `agentcore_launch_env` for `agentcore launch` (docs/agentcore.md).
+- `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service.
+- `main.tf`: the provider and the variables, with the template parameters' defaults. One AWS provider covers
+  both regions, because provider 6 lets each resource set its own `region`.
+
+The App Runner API (`cloudformation.yaml`) is not ported: App Runner takes no new customers. The AgentCore
+runtime itself is still made by `agentcore launch`, as with CloudFormation.
+
+**Fresh account:**
+```bash
+cd infra/terraform
+terraform init
+terraform apply
+aws codebuild start-build --project-name fasal-pulse-ui-build --region us-east-1
+terraform apply -var image_tag=<sha>
+```
+The first apply makes everything except the UI service. The build's log ends with `PUSHED ...:<sha>`; the
+second apply, with that SHA, creates the service, and `terraform output ui_url` prints its address. Add
+`-var agentcore_arn=<runtime arn>` to make "Run the agent" call the runtime live, and
+`-var budget_email=<address>` for the budget alert. To stop paying: empty the bucket and the registry, then
+`terraform destroy`.
+
+**Team accounts:** the default names are taken in both (Michael's: stacks `fasal-pulse` and
+`fasal-pulse-ui`; Will's: the hand-made UI), so apply there only with other ones
+(`-var project_name=fp-tf -var ui_name=fp-tf-ui`) or not at all.
+State stays in a local `terraform.tfstate` (git-ignored: it holds the account ID and ARNs); a team sharing
+one setup would add an S3 backend.
 
 ## What each file does
 
@@ -151,4 +185,9 @@ here:
   it as the optional demo link; the EKS path in `k8s/` is the alternative.
 - `k8s/*.yaml`: validated offline with **kubeconform** against the Kubernetes schemas — both
   valid.
-- No AWS account call was made. Nothing here has been deployed.
+- `terraform/`: `terraform fmt -check` and `terraform validate` pass (Terraform 1.17.1, AWS provider 6.72; CI
+  runs both). An offline apply against a mocked AWS provider ran clean, and its dashboard JSON was identical to
+  `fasal-pulse.yaml`'s. `tests/test_infra.py` checks the bucket, task-role and one-task settings. Never applied
+  to a real account.
+- No AWS account call was made for `cloudformation.yaml` or `terraform/`. `fasal-pulse.yaml` and the UI
+  were deployed in the event account as described above.

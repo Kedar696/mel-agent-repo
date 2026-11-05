@@ -54,3 +54,19 @@ jobs:
           docker logs mel-ui-ci
           docker rm -f mel-ui-ci
           test "${ok:-0}" = "1"
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+      - name: Format
+        run: terraform fmt -check -diff
+      - name: Init (no backend, no AWS)
+        run: terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform validate

@@ -13,7 +13,7 @@ documents that asks for something is below, with where the proof is. ✅ done an
 | 4 | Generation time per survey and per batch | ✅ | Templates ~3 ms/survey, ~8 s for all; Bedrock full run 14 min (8 workers), ~4 s per survey on AgentCore; Dashboard "What it costs" |
 | 5 | Invalid or low-scoring surveys verified not to be scheduled | ✅ | P3's gate rejects schema, guard, `check_survey()` and relevance < 0.3 failures before the weekly slot (`tests/test_p3_completion.py`: `test_batch_rejects_ineligible_survey_before_scheduling`, `test_rejected_survey_does_not_take_the_weekly_slot`); the agent's Verifier sends a failing draft back twice, then uses the checked template |
 | 6 | Survey JSON validates against the agreed schema | ✅ | `python -m mel.cli validate`: 0 invalid; full Bedrock run 0 schema-invalid files; `parity` keeps our schemas identical to the pack's |
-| 7 | Code, IaC, evaluation harness and README in the open-source repo | ✅ | Public repo, Apache-2.0; IaC `infra/fasal-pulse.yaml` (deployed), `infra/ui-express.yaml` (live), `infra/cloudformation.yaml` + `infra/k8s/` (design) |
+| 7 | Code, IaC, evaluation harness and README in the open-source repo | ✅ | Public repo, Apache-2.0; IaC `infra/fasal-pulse.yaml` (deployed), `infra/ui-express.yaml` (live), `infra/cloudformation.yaml` + `infra/k8s/` (design), `infra/terraform/` (Terraform version of the two deployed templates, validated in CI) |
 
 ## 2. MVP Success Criteria (Vision)
 | Criterion | | Proof / gap |
