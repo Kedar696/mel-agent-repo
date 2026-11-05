@@ -66,3 +66,17 @@ def test_generated_text_tokens_only():
         "survey S-20931, id I-004512, draft 2026-11-04T16:20:00, bad 2026-13-45, window 03/31/2027.")
     assert format_dates_in_text("Spray in the evening; check after 3 days.") == "Spray in the evening; check after 3 days."
     assert format_dates_in_text("at 2026-07-09T08:00:00Z") == "at 07/09/2026 4:00 AM EDT"
+
+
+def test_india_time_for_one_farmers_screen():
+    """use("india") switches the display zone for the rest of the run; use(None) is Eastern, the default."""
+    from app import display_time as dt
+    stamp = "2027-01-09T08:00:00+05:30"
+    assert format_clock(stamp) == "9:30 PM" and dt.zone_label() == "Eastern Time"
+    dt.use("india")
+    try:
+        assert format_clock(stamp, include_zone=True) == "8:00 AM IST" and format_datetime(stamp) == "01/09/2027 8:00 AM IST"
+        assert format_date(stamp) == "01/09/2027" and dt.zone_label() == "India time (IST)"
+    finally:
+        dt.use(None)
+    assert format_clock(stamp) == "9:30 PM" and dt.zone_label() == "Eastern Time"

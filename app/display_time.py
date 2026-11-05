@@ -4,13 +4,30 @@ timestamps, send windows and every JSON contract stay in IST ISO form.
 Every human-facing clock goes through here: Eastern Time (America/New_York, so EST or EDT by date),
 MM/DD/YYYY and 12-hour h:mm AM/PM. Aware datetimes and ISO timestamps (with an offset, or Z) are converted;
 a date-only value keeps its calendar date; a naive datetime is refused rather than guessed.
+
+Two zones (team decision 5 Nov): the numbers (Dashboard) stay in Eastern Time, the default; one farmer's screen
+(the Survey demo phone, the send time, the Follow-up queue's conversation log) shows India time, because that is
+where the farmer and Digital Green are. `use("india")` switches the rest of the script run; `use(None)` goes back.
 """
+import contextvars
 import re
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo("America/New_York")
 ZONE_LABEL = "Eastern Time"
+INDIA = ZoneInfo("Asia/Kolkata")
+INDIA_LABEL = "India time (IST)"
+_zone: contextvars.ContextVar = contextvars.ContextVar("mel_display_zone", default=None)   # None = ZONE
+
+
+def use(zone: str | None) -> None:
+    """Display zone for the rest of this script run: "india" or None (Eastern, the default)."""
+    _zone.set(INDIA if zone == "india" else None)
+
+
+def zone_label() -> str:
+    return INDIA_LABEL if _zone.get() is INDIA else ZONE_LABEL
 
 _DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
 _WITH_OFFSET = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})")
@@ -26,7 +43,7 @@ def _eastern(value) -> datetime:
         raise TypeError(f"expected a datetime or an ISO timestamp, got {type(value).__name__}")
     if value.utcoffset() is None:
         raise ValueError("naive datetime: say which zone it is in before displaying it")
-    return value.astimezone(ZONE)
+    return value.astimezone(_zone.get() or ZONE)
 
 
 def format_clock(value, *, include_zone: bool = False) -> str:
