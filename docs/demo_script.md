@@ -107,7 +107,8 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > surveys**. **[What it costs]** Every run is costed. We had Bedrock write every survey in the dataset, 2,616 of
 > them in Hindi and English: **$2.61 in total, a tenth of a cent per survey** (about $1 per 1,000; the first run cost $11 before the
 > compact writer). Bedrock wrote **97%** of the questions itself (English 97%, Hindi 96%); the rest failed a check twice and safely got the
-> template. 0 broken files, and the AI judge gives them **4.9 out of 5**.
+> template. 0 broken files, and the AI judge gives them **4.9 out of 5**. (Every draft in that run passed our own
+> safety checks; the Bedrock Guardrail, the extra AWS safety filter, runs in the live agent on AgentCore.)
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
@@ -173,6 +174,10 @@ Amazon Connect are marked **not built**. Don't open any console on stage; use th
 
 ## Likely questions (short answers)
 
+- **Was the Bedrock Guardrail on for the $2.61 run?** No. That run was on a teammate's sandbox account, where the
+  guardrail isn't set up. Every draft still passed P4's safety checks (no personal questions, no new advice,
+  schema, length) and P4's small-model check. The guardrail runs in the live AgentCore agent and ran in our first
+  full run ($11.06, guardrail on).
 - **Is this real farmer data?** No. It's synthetic data from Digital Green's pack. Nothing is actually sent.
 - **Does it use AI to write the questions?** Yes, on Amazon Bedrock: Claude Haiku 4.5 wrote 97% of the
   2,616 surveys in both languages for $2.61. Every draft goes through the same safety checks as the templates, a

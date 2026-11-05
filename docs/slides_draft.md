@@ -76,7 +76,7 @@ Evaluation tab live if time allows.
 | Piece | Status |
 |---|---|
 | Amazon Bedrock AgentCore: the agent (Evidence → Analyst → Verifier → Synthesizer) | **Live** in us-west-2 (`fasal_pulse`); 1 survey in 2 languages ≈ 4 s, $0.004 |
-| Amazon Bedrock: Claude Haiku 4.5 writes, Gemma 3 12B judges, Guardrails block personal questions | **Built**: full run 2,616 surveys, $2.61 with the compact writer (the first run cost $11.06), 97% model-written, judge 4.9/5, 0 broken files |
+| Amazon Bedrock: Claude Haiku 4.5 writes, Gemma 3 12B judges, Guardrails block personal questions | **Built**: full run 2,616 surveys, $2.61 with the compact writer (P4's safety checks on every draft, no guardrail on that account; the first run, guardrail on, cost $11.06), 97% model-written, judge 4.9/5, 0 broken files |
 | S3 (results) + CloudWatch (dashboard `fasal-pulse-agent`) | **Live**, from `infra/fasal-pulse.yaml` (CloudFormation, deployed) |
 | REST API in a container, so it can move to Digital Green's EKS (P1) | **Built**: `POST /surveys`, `GET /surveys/due`, `/healthz` (FastAPI); Dockerfile runs it, `infra/` defines ECR + App Runner + an EKS Deployment/Service (definition only, not deployed) |
 | App Runner: a web link to this demo | Optional |
