@@ -37,7 +37,7 @@ It creates, in us-east-1 or us-west-2 only (the template refuses other regions):
 - a **private, encrypted S3 bucket** for input and results (public access blocked, HTTPS only, results kept 30 days);
 - the **AgentCore execution role** with only what the agent needs: the Claude, Gemma and Nova models, this
   guardrail, this bucket, metrics in `FasalPulse/Agent`, its own logs and container image;
-- the **Bedrock Guardrail** for survey questions: no new farming advice, no requests for personal information, PII
+- the **Bedrock Guardrail** for survey questions: no requests for personal information, PII
   and harmful-content filters;
 - a **CloudWatch dashboard** `fasal-pulse-agent` (runs, spend, seconds, revisions, fallbacks, tokens);
 - an optional **budget alert** (only if you give `BudgetEmail`).
@@ -49,8 +49,8 @@ Nothing in it runs or costs money when idle. Deploy it either way:
 - **CloudShell** (the `>_` icon in the console top bar; it has the AWS CLI):
   ```
   git clone https://github.com/michvinh-7/mel-agent-repo.git && cd mel-agent-repo
-  aws cloudformation deploy --template-file infra/fasal-pulse.yaml --stack-name fasal-pulse --capabilities CAPABILITY_NAMED_IAM --region us-east-1
-  aws cloudformation describe-stacks --stack-name fasal-pulse --region us-east-1 --query "Stacks[0].Outputs" --output table
+  aws cloudformation deploy --template-file infra/fasal-pulse.yaml --stack-name fasal-pulse --capabilities CAPABILITY_NAMED_IAM --region us-west-2
+  aws cloudformation describe-stacks --stack-name fasal-pulse --region us-west-2 --query "Stacks[0].Outputs" --output table
   ```
 
 Optional: copy the insights to the bucket (the agent's image already carries the pack, so this only matters if you
@@ -69,13 +69,21 @@ If a flag differs in your version, check `agentcore configure --help`.
 ```
 source .venv/bin/activate
 pip install bedrock-agentcore bedrock-agentcore-starter-toolkit
-agentcore configure --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-east-1 --execution-role <ExecutionRoleArn>
-agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-east-1 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it <AgentcoreLaunchEnv>
+agentcore configure --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-west-2 --execution-role <ExecutionRoleArn>
+agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-west-2 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it --env 'MEL_BEDROCK_PRICES={"anthropic.claude-haiku-4-5-20251001-v1:0":{"in":0.001,"out":0.005},"google.gemma-3-12b-it":{"in":0.00009,"out":0.00029}}' <AgentcoreLaunchEnv>
 agentcore invoke '{"insight_id": "I-001253"}'
 ```
+- **Why the extra `--env` lines:** the toolkit builds the image with its own ignore list, not our `.dockerignore`. It
+  copies `out/` (so the laptop's model cache would answer every call: $0 and no real Bedrock call) and leaves out
+  `docs/` (so the price file is missing and costs show $0). `agentcore_app.py` therefore sets `MEL_OUT_DIR=/tmp/mel_out` in the
+  container (caches, call log, judge cache; the app folder is read-only there); `MEL_BEDROCK_PRICES` gives the two models' prices (USD per 1,000 tokens, from
+  `docs/results/bedrock_prices.json`). The build recipe is `.bedrock_agentcore/fasal_pulse/Dockerfile`.
 - `<ExecutionRoleArn>` and `<AgentcoreLaunchEnv>` come from the stack's Outputs. `AgentcoreLaunchEnv` is a ready-made
   set of `--env` flags (bucket, guardrail id and version, metrics namespace).
-- **`configure`** asks for an ECR repository (AWS's container registry). Accept the auto-created one.
+- **`configure`** asks for the agent name: type `fasal_pulse` (letters, numbers and underscores only; a `-` is
+  refused). Then it asks for an ECR repository (AWS's container registry): accept the auto-created one.
+- The toolkit prints that it is "no longer supported" in favour of the npm AgentCore CLI. It still deploys;
+  set `AGENTCORE_SUPPRESS_RECOMMENDATION=1` to hide the warning. We stay on it for this event.
 - **`launch`** builds the container in the cloud (CodeBuild) and prints the runtime's ARN.
 - **`invoke`** should stream the steps and end with the result. Its metrics show on the dashboard within a few minutes.
 - **The guardrail is new:** run the 40-survey pilot with `MEL_GUARDRAIL_ID` / `MEL_GUARDRAIL_VERSION` set once. If it
@@ -92,7 +100,7 @@ streamlit run app/streamlit_app.py
 ## Record runs for the hosted app (no AWS keys there)
 With the Bedrock settings in your terminal:
 ```
-MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-east-1 MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 MEL_AGENT_JUDGE=1 MEL_JUDGE_MODEL=google.gemma-3-12b-it python -m mel.agent --record
+MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-west-2 MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 MEL_AGENT_JUDGE=1 MEL_JUDGE_MODEL=google.gemma-3-12b-it python -m mel.agent --record
 ```
 This records the five Survey demo picks into `docs/results/agent_runs/`. Commit them. Add `--remote <ARN>` to record
 the runs from AgentCore instead.
@@ -113,7 +121,7 @@ Every run that writes surveys with Bedrock adds a row to `docs/results/cost_hist
 - **On the Dashboard,** the "What it costs" section shows them.
 
 ```
-export MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-east-1 MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+export MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-west-2 MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 export MEL_JUDGE_MODEL=google.gemma-3-12b-it
 python -m mel.agent.batch --sample 40 --judge --label "pilot: Haiku 4.5, hi+en"
 python -m mel.agent.batch --max-usd 40 --judge --label "full set: Haiku 4.5, hi+en"

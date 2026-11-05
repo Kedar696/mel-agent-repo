@@ -113,7 +113,8 @@ class ModelClient:
         if cached.exists():
             try:
                 hit = json.loads(cached.read_text(encoding="utf-8"))
-                self._log(model_id, purpose, tag, 0, 0, 0.0, cached=True, ok=True)
+                self._log(model_id, purpose, tag, 0, 0, 0.0, cached=True, ok=True, key=key,
+                          list_cost=cost_usd(model_id, int(hit.get("input_tokens", 0)), int(hit.get("output_tokens", 0))))
                 # what this answer took when it was made (nothing is spent now): lets callers price an answer
                 self.last_usage = {"input_tokens": int(hit.get("input_tokens", 0)),
                                    "output_tokens": int(hit.get("output_tokens", 0)), "cached": True}
@@ -144,7 +145,7 @@ class ModelClient:
             text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
             use = resp.get("usage") or {}
             tin, tout = int(use.get("inputTokens", 0)), int(use.get("outputTokens", 0))
-            self._log(model_id, purpose, tag, tin, tout, secs, ok=True)
+            self._log(model_id, purpose, tag, tin, tout, secs, ok=True, key=key)
             self.last_usage = {"input_tokens": tin, "output_tokens": tout}
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
@@ -154,10 +155,15 @@ class ModelClient:
             return text
         raise ModelUnavailable(str(last))
 
-    def _log(self, model_id, purpose, tag, tin, tout, secs, cached=False, ok=True, error=""):
+    def _log(self, model_id, purpose, tag, tin, tout, secs, cached=False, ok=True, error="", list_cost=None, key=""):
+        """One row per call. cost_usd is what was spent (a cache hit: $0); list_cost_usd is what the call costs when
+        made fresh (a cache hit: priced from the tokens it took when it was made), so cost per survey is right even
+        for a run answered mostly from the cache."""
+        cost = 0.0 if cached else cost_usd(model_id, tin, tout)
         row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "model": model_id, "purpose": purpose, "tag": tag,
-               "input_tokens": tin, "output_tokens": tout, "cost_usd": 0.0 if cached else cost_usd(model_id, tin, tout),
-               "seconds": round(secs, 3), "cached": cached, "ok": ok, "error": error}
+               "input_tokens": tin, "output_tokens": tout, "cost_usd": cost,
+               "list_cost_usd": list_cost if cached else cost,
+               "seconds": round(secs, 3), "cached": cached, "ok": ok, "error": error, "key": key}
         try:
             p = log_path(); p.parent.mkdir(parents=True, exist_ok=True)
             with p.open("a", encoding="utf-8") as f:

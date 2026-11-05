@@ -136,8 +136,11 @@ def judge_survey(survey: dict, insight: dict, client, cache_dir=CACHE) -> dict:
            "output_tokens": usage.get("output_tokens", 0), "cost_usd": _cost(usage),
            "seconds": round(time.perf_counter() - t0, 3)}
     if path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+        try:                                   # a cache must never break a run (e.g. a read-only container folder)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
     return {**row, "cached": False}
 
 

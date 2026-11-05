@@ -88,27 +88,19 @@ Resources:
                 aws:SecureTransport: "false"
 
   # ------------------------------------------------------------------ Bedrock Guardrail (Verifier check)
-  # Applied to the survey text with source=OUTPUT (mel/agent/orchestrator.py bedrock_guardrail). The denied topic is
-  # narrow on purpose: a survey may name the advice the farmer already got ("Did you spray neem oil?"), but must not
-  # give new advice. Violence is left out so pest words ("kill the aphids") are not blocked.
+  # Applied to the survey text with source=OUTPUT (mel/agent/orchestrator.py bedrock_guardrail).
+  # No "new agronomic advice" topic: in v1 it blocked "Did you follow the advice?" (every survey asks about advice the
+  # farmer already got). P4's guards (gives_new_advice) cover that case instead. Violence is left out so pest words
+  # ("kill the aphids") are not blocked.
   SurveyGuardrail:
     Type: AWS::Bedrock::Guardrail
     Properties:
       Name: !Sub "${ProjectName}-survey-guardrail"
-      Description: Blocks new farming advice, requests for personal information, and harmful content in survey questions.
+      Description: Blocks requests for personal information and harmful content in survey questions.
       BlockedInputMessaging: This survey request was blocked by the Fasal Pulse guardrail.
       BlockedOutputsMessaging: This survey question was blocked by the Fasal Pulse guardrail.
       TopicPolicyConfig:
         TopicsConfig:
-          - Name: New agronomic advice
-            Type: DENY
-            Definition: >-
-              Telling the farmer to take a new farming action, product, dose or treatment, instead of asking about
-              advice they were already given.
-            Examples:
-              - You should also apply 50 kg of urea per acre this week.
-              - Spray imidacloprid twice before the rain to be safe.
-              - Switch to a hybrid seed variety next season.
           - Name: Personal information request
             Type: DENY
             Definition: >-
@@ -152,7 +144,8 @@ Resources:
     Type: AWS::Bedrock::GuardrailVersion
     Properties:
       GuardrailIdentifier: !GetAtt SurveyGuardrail.GuardrailId
-      Description: Version used by the agent (MEL_GUARDRAIL_VERSION).
+      # Change this text whenever the guardrail changes: that makes CloudFormation publish a new version.
+      Description: "v2: personal-information topic, PII and content filters (no advice topic)."
 
   # ------------------------------------------------------------------ AgentCore execution role (least privilege)
   AgentExecutionRole:

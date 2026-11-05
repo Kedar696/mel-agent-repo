@@ -102,8 +102,10 @@ show her own copy (each language keeps its own taps; the **restart icon** in the
 > us scored 20 surveys by hand. The AI lands within one point of a person **97%** of the time; we agree with
 > each other only **83%** of the time. **[Which model makes the best judge?]** We tried every model on Amazon
 > Bedrock, 70 of them, and picked the cheapest one that's as accurate as the best: about **5 cents per 1,000
-> surveys**. **[What it costs]** Every run is costed: writing every survey in the dataset with Bedrock, in both
-> languages, costs *(read the "Full run, actual" tile)*.
+> surveys**. **[What it costs]** Every run is costed. We had Bedrock write every survey in the dataset, 2,616 of
+> them in Hindi and English: **$11 in total, under half a cent per survey** (about $4 per 1,000). Bedrock wrote
+> **92%** of the questions itself (English 95%, Hindi 88%); the rest failed a check twice and safely got the
+> template. 0 broken files, and the AI judge gives them **4.9 out of 5**.
 >
 > **[Run history → Rules we changed]** This is how we got here. We started at 96%. All 6 mistakes were
 > potatoes already dug up and in storage: we said "harvested, nothing to ask", but stored potatoes can
@@ -160,17 +162,25 @@ here, so don't look for her ticket.
 > We only ask when there's something worth asking, in the farmer's language, at the right time, and every
 > bad answer gets a person's attention. Thank you.
 
-(AWS slide: Bedrock (Amazon's AI service) is **built** and required by Digital Green; App Runner,
-EventBridge, RDS and Amazon Connect are marked **not built**. Don't open any console on stage.)
+(AWS slide: the agent is **live on Amazon Bedrock AgentCore** in us-west-2: Evidence → Analyst → Verifier →
+Synthesizer, Claude Haiku 4.5 writes, Gemma 3 12B judges, Bedrock Guardrails block personal questions,
+results land in S3 and metrics in CloudWatch, all set up from one CloudFormation template. EventBridge, RDS and
+Amazon Connect are marked **not built**. Don't open any console on stage; use the screenshots.)
 
 ---
 
 ## Likely questions (short answers)
 
 - **Is this real farmer data?** No. It's synthetic data from Digital Green's pack. Nothing is actually sent.
-- **Does it use AI to write the questions?** By default it uses checked templates: safe, free and
-  repeatable. An AI option on Amazon Bedrock (P4) is being added; every AI-written survey goes through the
-  same safety checks and falls back to a template if it fails. *(Update once P4's Bedrock path lands.)*
+- **Does it use AI to write the questions?** Yes, on Amazon Bedrock: Claude Haiku 4.5 wrote 92% of the
+  2,616 surveys in both languages for $11. Every draft goes through the same safety checks as the templates, a
+  rejected draft is sent back with the reasons (up to twice), and if it still fails the farmer gets the
+  checked template. Without Bedrock it runs on templates alone: safe, free and repeatable.
+- **Why are more Hindi surveys on the template?** Hindi drafts fail a check more often (88% model-written vs
+  95% English); the template is the safe fallback. A native-speaker review of the Hindi is still pending (P4).
+- **Is it really running on AWS?** Yes: the same agent runs on Bedrock AgentCore in the event account (one
+  survey in both languages: about 4 seconds, $0.004). The app shows recorded AgentCore runs, so the demo
+  does not depend on the network.
 - **How do you stop it giving bad advice?** It never gives advice, only asks what happened. Checks block
   surveys that sound like advice or ask for personal information, and the scorecard proves 0 slipped through.
 - **How do you know the checks work?** Tests feed in a survey that gives advice ("You should spray…") and one

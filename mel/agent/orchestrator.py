@@ -68,12 +68,22 @@ def verify(survey: dict, insight: dict, n_items: int, *, template: dict | None =
     if rel < RELEVANCE_THRESHOLD:
         problems.append(f"relevance {rel:.2f} is below the send bar {RELEVANCE_THRESHOLD}: name the crop or animal, "
                         "the problem, or the advised action")
-    if template is not None and rel < relevance(template, insight):
+    # "At least as relevant as the template" only in English. P4's score looks for fixed word lists that the Hindi
+    # templates are written from, so a good Hindi draft with other words or spellings scores lower than the template
+    # (5 Nov pilot: 43 of 44 Hindi rejections were this check). Hindi drafts still need the 0.3 send bar.
+    hindi = str(survey.get("language", "")).startswith("hi")
+    if template is not None and not hindi and rel < relevance(template, insight):
         problems.append("less relevant than the template: ask about the specific advised action")
     long_ = [q.get("item_id", "?") for q in items if len(q.get("prompt") or "") > MAX_PROMPT_CHARS]
     if long_:
         problems.append(f"questions {', '.join(long_)} are longer than {MAX_PROMPT_CHARS} characters: one short "
                         "question each, and do not repeat the advice back")
+    # Say the limit plainly: P4's guard only names the label, and on 5 Nov Haiku kept "Did not add chemicals" (21)
+    # through both revisions.
+    long_labels = [o.get("label") for q in items for o in q.get("options", []) if len(o.get("label") or "") > 20]
+    if long_labels:
+        problems.append(f"answer labels {', '.join(repr(x) for x in long_labels)} are longer than 20 characters: "
+                        "use 1 to 3 short words, e.g. 'Yes', 'Not yet', 'Still a problem'")
     if not problems and llm.check_model():
         opinion = llm.model_check(survey, insight)
         for k, v in (opinion or {}).items():

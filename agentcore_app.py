@@ -18,6 +18,12 @@ Settings (environment of the runtime; credentials come from its IAM execution ro
 """
 import os
 
+# In the container the app folder is read-only and the AgentCore toolkit copies the laptop's out/ (model and judge
+# caches) into the image. Work in /tmp instead, so every call is a real Bedrock call and every write succeeds.
+# Set before importing mel, which reads MEL_OUT_DIR at import.
+if os.environ.get("DOCKER_CONTAINER") == "1":
+    os.environ.setdefault("MEL_OUT_DIR", "/tmp/mel_out")
+
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 from mel.agent import run_agent, bedrock_guardrail, MAX_REVISIONS

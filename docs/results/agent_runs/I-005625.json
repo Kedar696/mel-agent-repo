@@ -1,0 +1,637 @@
+{
+ "insight_id": "I-005625",
+ "recorded": "2026-11-05 01:57",
+ "where": "agentcore",
+ "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "checker": null,
+ "judge": null,
+ "guardrail": "dh15hs1wc6uw",
+ "events": [
+  {
+   "step": "evidence",
+   "status": "ok",
+   "title": "Evidence Extractor",
+   "detail": "mustard · pest disease · do not act",
+   "ms": 0.0,
+   "data": {
+    "crop_or_animal": "mustard",
+    "growth_stage": "post_harvest",
+    "concern": "pest_disease",
+    "severity": "low",
+    "advice_type": "do_not_act",
+    "farmer_asked": "Farmer reports insects in stored mustard in mustard (threshing and storage) and asks what is wrong.",
+    "advice_given": "Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.",
+    "district": null,
+    "preferred_channel": "whatsapp",
+    "chat_hours_known": 0,
+    "history_rules": [],
+    "attention": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst decides: survey (rule R8)",
+   "detail": "Advice to hold off. Ask whether the farmer held off and what happened. Window 2027-03-06T07:00:00+05:30 to 2027-03-08T19:00:00+05:30.",
+   "ms": 2.2,
+   "data": {
+    "decision": {
+     "survey": true,
+     "rule": "R8",
+     "reason_code": null,
+     "send_window": {
+      "not_before": "2027-03-06T07:00:00+05:30",
+      "not_after": "2027-03-08T19:00:00+05:30"
+     },
+     "send_time": {
+      "send_at": "2027-03-06T07:00:00+05:30",
+      "slot": null,
+      "rule": "async_channel",
+      "assumption": false,
+      "reason": "The whatsapp channel can be read later, so send when the window opens."
+     },
+     "attention": null,
+     "notes": []
+    }
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst drafts [en-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 1529.7,
+   "data": {
+    "lang": "en-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "Did you receive advice not to mix chemicals into your stored mustard grain?",
+     "After receiving this advice, what happened with your stored mustard?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "fail",
+   "title": "Verifier [en-IN]",
+   "detail": "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long); safety/format check failed: schema: schema_invalid (items/1/options/1/label: 'Added chemicals anyway' is too long); safety/format check failed: schema: schema_invalid (items/1/options/2/label: 'Insects still in grain' is too long); safety/format check failed: q2: label_too_long (Did not add chemicals); safety/format check failed: q2: label_too_long (Added chemicals anyway); safety/format check failed: q2: label_too_long (Insects still in grain)",
+   "ms": 1.7,
+   "data": {
+    "lang": "en-IN",
+    "ok": false,
+    "problems": [
+     "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long)",
+     "safety/format check failed: schema: schema_invalid (items/1/options/1/label: 'Added chemicals anyway' is too long)",
+     "safety/format check failed: schema: schema_invalid (items/1/options/2/label: 'Insects still in grain' is too long)",
+     "safety/format check failed: q2: label_too_long (Did not add chemicals)",
+     "safety/format check failed: q2: label_too_long (Added chemicals anyway)",
+     "safety/format check failed: q2: label_too_long (Insects still in grain)"
+    ],
+    "relevance": 1.0,
+    "judge": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst revises (round 1 of 2) [en-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 1649.7,
+   "data": {
+    "lang": "en-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "Did you get advice not to mix chemicals in your stored mustard?",
+     "What did you do with your stored mustard?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "fail",
+   "title": "Verifier [en-IN]",
+   "detail": "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long); safety/format check failed: q2: label_too_long (Did not add chemicals)",
+   "ms": 1.0,
+   "data": {
+    "lang": "en-IN",
+    "ok": false,
+    "problems": [
+     "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long)",
+     "safety/format check failed: q2: label_too_long (Did not add chemicals)"
+    ],
+    "relevance": 1.0,
+    "judge": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst revises (round 2 of 2) [en-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 1087.9,
+   "data": {
+    "lang": "en-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "Did you get advice not to mix chemicals in your stored mustard?",
+     "Did you follow the advice and not add chemicals?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "fail",
+   "title": "Verifier [en-IN]",
+   "detail": "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long); safety/format check failed: q2: label_too_long (Did not add chemicals)",
+   "ms": 0.9,
+   "data": {
+    "lang": "en-IN",
+    "ok": false,
+    "problems": [
+     "safety/format check failed: schema: schema_invalid (items/1/options/0/label: 'Did not add chemicals' is too long)",
+     "safety/format check failed: q2: label_too_long (Did not add chemicals)"
+    ],
+    "relevance": 1.0,
+    "judge": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst uses the template [en-IN]",
+   "detail": "still failing after 2 revisions",
+   "ms": 0.0,
+   "data": {
+    "lang": "en-IN",
+    "questions": [
+     "Did you hold off as advised?",
+     "How is your mustard now?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [en-IN]",
+   "detail": "passed every check",
+   "ms": 634.0,
+   "data": {
+    "lang": "en-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 0.3,
+    "judge": 5
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst drafts [hi-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 1712.9,
+   "data": {
+    "lang": "hi-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "क्या आपने सरसों में कीटों के बारे में दी गई सलाह सुनी थी कि अभी रासायनिक न मिलाएं?",
+     "क्या आपने सरसों में रासायनिक न मिलाने की सलाह का पालन किया?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "fail",
+   "title": "Verifier [hi-IN]",
+   "detail": "safety/format check failed: q1: gives_new_advice (क्या आपने सरसों में कीटों के बारे में दी गई सलाह सुनी थी कि )",
+   "ms": 1.0,
+   "data": {
+    "lang": "hi-IN",
+    "ok": false,
+    "problems": [
+     "safety/format check failed: q1: gives_new_advice (क्या आपने सरसों में कीटों के बारे में दी गई सलाह सुनी थी कि )"
+    ],
+    "relevance": 0.6,
+    "judge": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst revises (round 1 of 2) [hi-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 1668.9,
+   "data": {
+    "lang": "hi-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "क्या आपने रासायनिक न मिलाने की सलाह का पालन किया?",
+     "क्या सरसों में कीट की समस्या कम हुई?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [hi-IN]",
+   "detail": "passed every check",
+   "ms": 688.6,
+   "data": {
+    "lang": "hi-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 0.6,
+    "judge": 5
+   }
+  },
+  {
+   "step": "synthesizer",
+   "status": "ok",
+   "title": "Synthesizer",
+   "detail": "2 survey files, hand-off (low priority, first channel whatsapp), 1 channel renders; all schema-valid",
+   "ms": 3.5,
+   "data": {
+    "schema_errors": {}
+   }
+  },
+  {
+   "step": "result",
+   "status": "ok",
+   "title": "Result",
+   "insight_id": "I-005625",
+   "decision": {
+    "survey": true,
+    "rule": "R8",
+    "reason_code": null,
+    "send_window": {
+     "not_before": "2027-03-06T07:00:00+05:30",
+     "not_after": "2027-03-08T19:00:00+05:30"
+    },
+    "send_time": {
+     "send_at": "2027-03-06T07:00:00+05:30",
+     "slot": null,
+     "rule": "async_channel",
+     "assumption": false,
+     "reason": "The whatsapp channel can be read later, so send when the window opens."
+    },
+    "attention": null,
+    "notes": []
+   },
+   "surveys": {
+    "en-IN": {
+     "survey_id": "S-05625",
+     "farmer_id": "F-000179",
+     "source_insight_ids": [
+      "I-005625"
+     ],
+     "language": "en-IN",
+     "send_window": {
+      "not_before": "2027-03-06T07:00:00+05:30",
+      "not_after": "2027-03-08T19:00:00+05:30"
+     },
+     "rationale": "Advice to hold off. Ask whether the farmer held off and what happened.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "Did you hold off as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-single-select",
+       "prompt": "How is your mustard now?",
+       "options": [
+        {
+         "value": "better",
+         "label": "Better"
+        },
+        {
+         "value": "same",
+         "label": "Same"
+        },
+        {
+         "value": "worse",
+         "label": "Worse",
+         "follow_up": "advice_did_not_work"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.3
+     },
+     "_source": "template",
+     "_revisions": 3,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 0.3,
+      "judge": 5
+     },
+     "_fallback_reason": "still failing after 2 revisions",
+     "_history": []
+    },
+    "hi-IN": {
+     "survey_id": "S-05625",
+     "farmer_id": "F-000179",
+     "source_insight_ids": [
+      "I-005625"
+     ],
+     "language": "hi-IN",
+     "send_window": {
+      "not_before": "2027-03-06T07:00:00+05:30",
+      "not_after": "2027-03-08T19:00:00+05:30"
+     },
+     "rationale": "Advice to hold off. Ask whether the farmer held off and what happened.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने रासायनिक न मिलाने की सलाह का पालन किया?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं",
+         "follow_up": "advice_did_not_work"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-single-select",
+       "prompt": "क्या सरसों में कीट की समस्या कम हुई?",
+       "options": [
+        {
+         "value": "yes_reduced",
+         "label": "हाँ, कम हुई"
+        },
+        {
+         "value": "no_same",
+         "label": "नहीं, वैसी ही है",
+         "follow_up": "advice_did_not_work"
+        },
+        {
+         "value": "worse",
+         "label": "बढ़ गई",
+         "follow_up": "crop_or_animal_damaged"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.6
+     },
+     "_source": "bedrock",
+     "_revisions": 1,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 0.6,
+      "judge": 5
+     },
+     "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+     "_history": []
+    }
+   },
+   "handoff": {
+    "handoff_id": "H-05625",
+    "created_at": "2027-03-01T23:00:00+05:30",
+    "survey": {
+     "survey_id": "S-05625",
+     "farmer_id": "F-000179",
+     "source_insight_ids": [
+      "I-005625"
+     ],
+     "language": "en-IN",
+     "send_window": {
+      "not_before": "2027-03-06T07:00:00+05:30",
+      "not_after": "2027-03-08T19:00:00+05:30"
+     },
+     "rationale": "Advice to hold off. Ask whether the farmer held off and what happened.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "Did you hold off as advised?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-single-select",
+       "prompt": "How is your mustard now?",
+       "options": [
+        {
+         "value": "better",
+         "label": "Better"
+        },
+        {
+         "value": "same",
+         "label": "Same"
+        },
+        {
+         "value": "worse",
+         "label": "Worse",
+         "follow_up": "advice_did_not_work"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.3
+     }
+    },
+    "send_window": {
+     "not_before": "2027-03-06T07:00:00+05:30",
+     "not_after": "2027-03-08T19:00:00+05:30"
+    },
+    "send_hours": {
+     "from": "07:00",
+     "to": "19:00"
+    },
+    "channel_order": [
+     {
+      "channel": "whatsapp",
+      "wait_hours": null
+     }
+    ],
+    "frequency_cap": {
+     "key": "mel:farmer:F-000179",
+     "max_surveys": 1,
+     "window_days": 7,
+     "exempt": false
+    },
+    "priority": "low",
+    "expires_at": "2027-03-10T19:00:00+05:30",
+    "farmerchat_flow": {
+     "org_id": "org.farmerchat",
+     "flow_key": "mel_s_05625",
+     "version": 1,
+     "campaign_id": "77c323ff-ec89-5c34-8db1-bde86cee258c",
+     "flow_id": "b611335e-ad59-5c5f-9e02-deb6de6d84d4"
+    }
+   },
+   "renders": {
+    "whatsapp": {
+     "channel": "whatsapp",
+     "how_it_arrives": "Days after the chat, so outside WhatsApp's 24-hour reply window. The first message must be an approved template; the questions follow once the farmer taps Start.",
+     "opening_template": {
+      "messaging_product": "whatsapp",
+      "to": "<farmer WhatsApp number>",
+      "type": "template",
+      "template": {
+       "name": "mel_survey_invite",
+       "language": {
+        "code": "en"
+       },
+       "components": [
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "0",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-05625|start"
+          }
+         ]
+        },
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "1",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-05625|later"
+          }
+         ]
+        }
+       ]
+      }
+     },
+     "template_text_for_approval": {
+      "body": "A short question from FarmerChat about the advice you got. It takes one minute.",
+      "quick_replies": [
+       "Start",
+       "Not now"
+      ]
+     },
+     "messages": [
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "Did you hold off as advised?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-05625|q1|yes",
+            "title": "Yes"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-05625|q1|no",
+            "title": "No"
+           }
+          }
+         ]
+        }
+       }
+      },
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "How is your mustard now?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-05625|q2|better",
+            "title": "Better"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-05625|q2|same",
+            "title": "Same"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-05625|q2|worse",
+            "title": "Worse"
+           }
+          }
+         ]
+        }
+       }
+      }
+     ]
+    }
+   },
+   "no_survey": null,
+   "metrics": {
+    "calls": 7,
+    "cached": 0,
+    "failed": 0,
+    "input_tokens": 3704,
+    "output_tokens": 1816,
+    "cost_usd": 0.011634,
+    "seconds": 8.985,
+    "revisions": 4,
+    "sources": {
+     "en-IN": "template",
+     "hi-IN": "bedrock"
+    }
+   },
+   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-005625/20261105T065751.json"
+  }
+ ]
+}

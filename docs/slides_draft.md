@@ -75,7 +75,9 @@ Evaluation tab live if time allows.
 ## 8. How this runs on AWS
 | Piece | Status |
 |---|---|
-| Amazon Bedrock: AI writer (P4) and AI relevance judge (P5) | **Built** *(confirm before the demo)* |
+| Amazon Bedrock AgentCore: the agent (Evidence → Analyst → Verifier → Synthesizer) | **Live** in us-west-2 (`fasal_pulse`); 1 survey in 2 languages ≈ 4 s, $0.004 |
+| Amazon Bedrock: Claude Haiku 4.5 writes, Gemma 3 12B judges, Guardrails block personal questions | **Built**: full run 2,616 surveys, $11.06, 92% model-written, judge 4.9/5, 0 broken files |
+| S3 (results) + CloudWatch (dashboard `fasal-pulse-agent`) | **Live**, from `infra/fasal-pulse.yaml` (CloudFormation, deployed) |
 | REST API in a container, so it can move to Digital Green's EKS (P1) | **Built**: `POST /surveys`, `GET /surveys/due`, `/healthz` (FastAPI); Dockerfile runs it, `infra/` defines ECR + App Runner + an EKS Deployment/Service (definition only, not deployed) |
 | App Runner: a web link to this demo | Optional |
 | EventBridge (send at 07:00, retry later), RDS PostgreSQL (weekly limit, opt-outs), Amazon Connect (voice calls) | **Not built**, production design only |
@@ -90,7 +92,7 @@ Evaluation tab live if time allows.
 ## Still to fill in before the deck is final
 - [ ] Team names, repo link (slide 1, 9)
 - [x] AI judge score and agreement with the 20 hand-scored surveys (slide 4)
-- [x] REST API status at freeze (slide 8): built (container + infra/, not deployed). Bedrock status still P5 to confirm.
+- [x] REST API status at freeze (slide 8): built (container + infra/, not deployed). Bedrock + AgentCore: live (5 Nov full run).
 - [ ] Any new rule changes: one slide each, numbers from the "Rules we changed" table
 - [ ] Hindi review status (P4): say "pending native review" on slide 3 if not signed off
 - [ ] Screenshots of each app tab for the backup (in case the live demo fails)
