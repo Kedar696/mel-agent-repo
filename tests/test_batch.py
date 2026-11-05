@@ -90,7 +90,10 @@ def test_capped_survey_skips_when_cannot_move_or_merge():
     h2["survey"]["send_window"] = dict(h2["send_window"])
     res = run_batch([h1, h2], relevance_threshold=0.5)
     assert res.counts["skipped"] == 1
-    assert res.counts["cap_violations"] >= 1
+    # A skip is the cap working, not a violation: it is counted as prevented, and no
+    # scheduled pair breaks the 7-day rule.
+    assert res.counts["prevented"] == 1
+    assert res.counts["cap_violations"] == 0
 
 
 # ===================================================== opt-outs

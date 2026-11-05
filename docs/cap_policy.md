@@ -1,54 +1,50 @@
 # Frequency-cap policy: two surveys in one week (P3)
 
-Owner: P3 (`mel/schedule/handoff.py`, `CapLedger`). This documents the deterministic
-decision the cap ledger makes when more than one survey would go to the same farmer
-inside the 7-day window. It implements the brief's rule and the H+4 decision to add
-`CapLedger.admit()` (`docs/h4_interface_decisions.md`, row 12).
+Owner: P3 (`mel/schedule/handoff.py` `CapLedger`, `mel/schedule/batch.py` `run_batch`).
+This is the deterministic policy every P3 scheduling path applies: the batch (`run_batch`), the
+season demo (`SeasonScheduler.admit_all`) and the tests. Last checked against the code 5 Nov.
 
 ## The rule (from the brief)
-- At most **1 non-high-priority survey per farmer per 7 days**, counted across every
-  survey and every channel.
-- **High priority is exempt**: it is sent even when the cap is full, and it still counts
+- At most **1 non-high-priority survey per farmer per 7 days**, across every survey and channel.
+- **High priority is exempt**: it is sent even when the cap is full, and it **still counts**
   toward the window for later surveys.
 - An opted-out farmer gets nothing, ever.
 
-## The decision: `CapLedger.admit(handoff, opt_out=None) -> Admit`
-`Admit.decision` is one of five words:
+## Order of checks for each hand-off
+1. **Opt-out** → `opted_out`. Checked again by the broadcaster at send time, so a farmer who opts
+   out while another of their surveys is queued never gets it.
+2. **Quality gate** → `rejected`: `self_eval.schema_valid` is not true, any P4 guard fails
+   (`check_survey`), or the relevance score is below the threshold P4 supplies (equal passes).
+   A rejected survey never reaches the cap, so it cannot take the farmer's weekly slot.
+3. **Weekly cap** → one of:
 
 | decision | when | what happens |
 |---|---|---|
-| `sent` | within the cap, or high-priority (exempt) | scheduled as-is; counts toward the window |
-| `opted_out` | the farmer is on the opt-out list | nothing is sent |
-| `moved` | capped, but a later day still inside this survey's `[not_before, expires_at]` is free | rescheduled to that day (07:00 kept); window width and expiry recomputed |
-| `merged` | capped, cannot move, and an earlier survey to the same farmer is still open on this survey's open day | questions ride along with that earlier survey; **both** surveys' `source_insight_ids` are preserved |
-| `skipped` | capped, cannot move, and no open survey covers this day | dropped |
+| `sent` | within the cap, or high priority | scheduled as-is; counts toward the window |
+| `moved` | capped, and a later start at least 7 days after every blocking send is still `<= not_after` | the window now opens on that day (same clock time, 07:00); `not_after` and `expires_at` stay exactly as they were |
+| `merged` | capped, cannot move, and an earlier survey to the same farmer is still open on this survey's first day, with room for its insight IDs | the host survey goes out once; **all** contributing `source_insight_ids` are recorded on it (order kept, no duplicates, at most 5 = `survey.schema.json` maxItems) |
+| `skipped` | capped, cannot move, no eligible host | dropped |
 
-## Why move-before-skip, and why merge is narrow
-The task says: *prefer moving a capped survey to the next eligible date only if it stays
-inside its send window and expiry; otherwise skip.* So:
+"7 days" is exact: 6 days 23:59 apart is capped, exactly 7 days is eligible, in either order.
 
-1. **Move first.** The earliest day at least `window_days` (7) after the blocking send,
-   that is still `<= not_after`, keeping the 07:00 start. If that day exists, move there.
-   This respects the brief's send window and expiry: a survey is never pushed past the
-   point where its answer would still be fresh.
-2. **Merge only when it is genuinely one conversation.** If the survey cannot move but an
-   earlier survey to the same farmer is *still open on this day* (its window covers this
-   survey's `not_before`), the two are folded into one so the farmer answers once. Source
-   insight IDs from both are kept (order preserved, de-duplicated) so provenance is not
-   lost. Merge is deliberately narrow: it never hides a drop behind a survey whose window
-   has already closed.
-3. **Skip otherwise.** If it can neither move nor merge, it is dropped — the farmer is at
-   their weekly limit and there is nothing to attach to.
+## Send order (and why a move is placed late)
+Hand-offs are decided in send-window-start order. Ties at the same instant are broken by the
+optional frequency rank (higher first), then created time, farmer and `handoff_id`; a rank never
+moves a survey ahead of one that opens earlier. A **moved** survey is put back in that order at
+its new start and decided again when its turn comes. Otherwise a high-priority survey opening in
+between would be missed and the moved survey could land inside its week (9 cases on the full
+pack before this was fixed).
 
-## Determinism
-No randomness. Given the same hand-offs in the same order, `admit()` always returns the
-same decisions. `CapLedger.allow()` (the original yes/no gate) is unchanged and still used
-by the Streamlit replay; `admit()` is layered on top of the same bookkeeping.
+## Repeats
+Admitting the same `handoff_id` again returns the first decision and counts nothing.
 
-## Evidence / tests
-`tests/test_schedule.py`:
-`test_admit_first_survey_is_sent`, `test_admit_opted_out_blocks`,
-`test_admit_high_priority_is_exempt_but_counts`,
-`test_admit_second_normal_in_same_window_merges_and_preserves_insight_ids`,
-`test_admit_moves_when_a_later_date_fits_the_window`,
-`test_admit_skips_when_cannot_move_or_merge`, `test_allow_still_works_as_before`.
+## Counts for P5 (`run_batch(...).counts`, all from actual decisions)
+`sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`, `duplicates`,
+`prevented` = skipped + opted_out + rejected (the gate working: **not** violations), and
+`cap_violations` = an independent audit of what goes out: non-high-priority sends less than 7
+days after another send to the same farmer. It should be 0 (full pack: 0).
+
+## Evidence
+`tests/test_p3_completion.py` (boundary, both orders, exemption, move window, move after a high,
+merge limit, duplicates, rejected-before-cap, opt-out after queuing), `tests/test_batch.py`,
+`tests/test_schedule.py`.
