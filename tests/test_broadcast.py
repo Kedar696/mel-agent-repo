@@ -289,3 +289,18 @@ def test_due_now_is_readonly_view():
     opened = _at("2026-12-06T07:00:00+05:30")
     assert [x["handoff_id"] for x in bc.due_now(opened)] == [h["handoff_id"]]
     assert len(bc) == 1  # due_now does not remove anything
+
+
+def test_quality_cache_rechecks_a_changed_survey():
+    """P5's cache in quality_failures must never hide a change: same content -> same answer, edited -> re-checked."""
+    import copy
+    from mel.schedule.broadcast import quality_failures
+    from mel.data import load_insights
+    from mel.pipeline import run_pipeline
+    h = next(o["handoff"] for o in run_pipeline(load_insights(None)).outputs if "handoff" in o)
+    s = copy.deepcopy(h["survey"])
+    assert quality_failures(s, 0.0) == quality_failures(copy.deepcopy(s), 0.0) == []
+    s["items"][0]["options"][0]["label"] = "x" * 40          # now too long for a tap label
+    assert any("label_too_long" in f for f in quality_failures(s, 0.0))
+    s["self_eval"]["relevance_score"] = 0.1
+    assert quality_failures(s, 0.5) != quality_failures(s, 0.0)   # threshold is part of the key

@@ -69,6 +69,7 @@ class ModelClient:
 
     def __init__(self, runtime=None, max_attempts=4, base_delay=1.0, sleep=time.sleep):
         self._runtime, self.max_attempts, self.base_delay, self._sleep = runtime, max_attempts, base_delay, sleep
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}   # tokens of the last converse() (0 on a cache hit)
 
     def _rt(self):
         if self._runtime is None:
@@ -95,6 +96,7 @@ class ModelClient:
             try:
                 hit = json.loads(cached.read_text(encoding="utf-8"))
                 self._log(model_id, purpose, tag, 0, 0, 0.0, cached=True, ok=True)
+                self.last_usage = {"input_tokens": 0, "output_tokens": 0}
                 return hit["text"]
             except (ValueError, KeyError, OSError):
                 pass                                     # a broken cache file is just a miss
@@ -122,6 +124,7 @@ class ModelClient:
             use = resp.get("usage") or {}
             tin, tout = int(use.get("inputTokens", 0)), int(use.get("outputTokens", 0))
             self._log(model_id, purpose, tag, tin, tout, secs, ok=True)
+            self.last_usage = {"input_tokens": tin, "output_tokens": tout}
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
                 cached.write_text(json.dumps({"text": text, "input_tokens": tin, "output_tokens": tout}, ensure_ascii=False), encoding="utf-8")
