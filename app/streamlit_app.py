@@ -5,6 +5,7 @@ Tabs: Dashboard (default: overview + evaluation), Survey demo (insight | interac
 Follow-up queue. Look and feel: app/theme.py. Interactive preview: app/channel_preview.py.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
 import copy
+import json
 import os
 import re
 import sys
@@ -40,7 +41,7 @@ def _reload_mel_if_changed():
 _MEL_STAMP = _reload_mel_if_changed()
 
 from mel.channels import render
-from mel.config import CHANNELS, PACK_DATA
+from mel.config import CHANNELS, PACK_DATA, ROOT as ROOT_DIR
 from mel.data import load_insights, load_farmers, errors
 from mel.evaluation import evaluate, load_history, rules_changed
 from mel.pipeline import run_pipeline, run_insight, clean
@@ -517,6 +518,120 @@ def report_strip(kicker: str, title: str, note: str = ""):
          f'</div><h2>{escape(title)}</h2></div>' + (f'<div class="mel-sum">{escape(note)}</div>' if note else "") + '</div>')
 
 
+# ---------------------------------------------------------------- the agent, step by step (P5, AWS AgentCore design)
+# Evidence Extractor -> Analyst -> Verifier -> Synthesizer, with bounded revision (mel/agent). Runs locally, or on
+# Amazon Bedrock AgentCore when MEL_AGENTCORE_ARN is set. A run recorded on a laptop with Bedrock access
+# (python -m mel.agent --record) is shown on the hosted app, which has no AWS keys.
+AGENT_RUNS = ROOT_DIR / "docs" / "results" / "agent_runs"
+STEP_ICON = {"evidence": ":material/search:", "analyst": ":material/table_chart:", "verifier": ":material/shield:",
+             "synthesizer": ":material/description:"}
+STEP_NAME = {"evidence": "Evidence Extractor", "analyst": "Analyst", "verifier": "Verifier", "synthesizer": "Synthesizer"}
+
+
+@st.cache_resource(show_spinner=False)
+def _farmers_by_id():
+    return load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None)
+
+
+def _agent_inputs(ins):
+    from mel.timing import chat_hours
+    same = [i for i, _ in rows if i.get("farmer_id") == ins.get("farmer_id")]
+    return {"farmer": _farmers_by_id().get(ins.get("farmer_id")),
+            "history_hours": chat_hours(same, ins.get("farmer_id"), ins.get("created_at"))}
+
+
+def _recorded_run(insight_id):
+    try:
+        return json.loads((AGENT_RUNS / f"{insight_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _show_event(e, where):
+    ok = e["status"] == "ok"
+    head = f"{'✓' if ok else '✗'} **{e['title']}**" + (f" · {e['ms']:.0f} ms" if e.get("ms") is not None else "")
+    where.markdown(head)
+    data = e.get("data") or {}
+    if e["step"] == "analyst" and data.get("questions"):
+        where.markdown("\n".join(f"  - {q}" for q in data["questions"]))
+        if e["detail"]:
+            where.caption(e["detail"])
+    elif e["step"] == "verifier" and not ok:
+        where.markdown("\n".join(f"  - {p}" for p in data.get("problems", [])) or e["detail"])
+    elif e["step"] == "verifier":
+        where.caption(f"passed every check · relevance {data.get('relevance')}"
+                      + (f" · AI judge {data['judge']}/5" if data.get("judge") is not None else ""))
+    else:
+        where.caption(us_text(e["detail"]))
+
+
+def agent_panel(ins, attention, mem):
+    """Shows how the agent writes this conversation's survey, step by step."""
+    from mel.agent import run_agent
+    from mel.writer import llm
+    arn = os.environ.get("MEL_AGENTCORE_ARN", "").strip()
+    rec = _recorded_run(ins["insight_id"])
+    where = ("Amazon Bedrock AgentCore" if arn else
+             "this machine, writing with Bedrock" if llm.enabled() else "this machine, templates only (no AWS keys here)")
+    st.caption("Four steps, as in our AWS design: the **Evidence Extractor** gathers what we know, the **Analyst** "
+               "decides and drafts, the **Verifier** checks (safety, relevance, short questions, Guardrails), and a "
+               "rejected draft goes back to the Analyst at most twice before the safe template is used. The "
+               f"**Synthesizer** builds the files. Runs on: {where}.")
+    key = f"agent_events|{ins['insight_id']}|{attention is not None and attention.get('tier')}|{mem is not None}"
+    c = st.columns([1, 2.4], vertical_alignment="center")
+    if c[0].button("Run the agent", key=f"run_{key}", icon=":material/play_arrow:"):
+        events = []
+        from mel.evaluation.costs import CostMeter, record_cost, row_from_results
+        meter = CostMeter()
+        with st.status("The agent is working…", expanded=True) as box:
+            stream = (agentcore_stream(arn, ins) if arn else
+                      run_agent(ins, memory=mem, attention=attention, **_agent_inputs(ins)))
+            for e in stream:
+                if e.get("step") == "result":
+                    events.append(e)
+                    break
+                events.append(e)
+                _show_event(e, box)
+            m = (events[-1] if events and events[-1].get("step") == "result" else {}).get("metrics", {})
+            box.update(label=f"Done in {m.get('seconds', 0):.1f} s · {m.get('calls', 0)} model calls · "
+                             f"{m.get('revisions', 0)} revisions", state="complete", expanded=False)
+        st.session_state[key] = events
+        if not arn and meter.summary()["calls"]:       # a local run that paid for model calls: track its cost
+            record_cost(row_from_results("single", f"app: {ins['insight_id']}", meter,
+                                         [e for e in events if e.get("step") == "result"],
+                                         writer=llm.write_model() if llm.enabled() else None,
+                                         checker=llm.check_model() or None))
+    shown = st.session_state.get(key)
+    if not shown and rec:
+        c[1].caption(f"Showing a run recorded on {rec.get('recorded', '?')} with Bedrock "
+                     f"({rec.get('writer') or 'templates'}; judge {rec.get('judge') or 'none'}). Press Run the agent "
+                     "to run it here.")
+        shown = rec["events"]
+    if shown:
+        res = shown[-1] if shown[-1].get("step") == "result" else {}
+        m = res.get("metrics", {})
+        if m:
+            k = st.columns(4)
+            k[0].metric("Model calls", m.get("calls", 0), delta_color="off", delta_arrow="off")
+            k[1].metric("Revisions", m.get("revisions", 0), "Analyst ↔ Verifier", delta_color="off", delta_arrow="off")
+            k[2].metric("Cost", f"${m.get('cost_usd') or 0:.4f}", f"{m.get('input_tokens', 0):,} in / "
+                        f"{m.get('output_tokens', 0):,} out tokens", delta_color="off", delta_arrow="off")
+            k[3].metric("Time", f"{m.get('seconds', 0):.1f} s",
+                        " · ".join(f"{l}: {src}" for l, src in (m.get("sources") or {}).items()),
+                        delta_color="off", delta_arrow="off")
+        for e in shown:
+            if e.get("step") in STEP_NAME:
+                with st.container(border=True):
+                    st.markdown(f"{STEP_ICON[e['step']]} {STEP_NAME[e['step']]}")
+                    _show_event(e, st)
+
+
+def agentcore_stream(arn, ins):
+    """Events from the agent running on Amazon Bedrock AgentCore Runtime (agentcore/app.py), as they arrive."""
+    from mel.agent.remote import invoke
+    yield from invoke(arn, {"insight": ins})
+
+
 with tab_studio:
     by_id = {i.get("insight_id"): (i, o) for i, o in rows}
     picks = {k: v for k, v in DEMO_PICKS.items() if k in by_id}
@@ -701,6 +816,9 @@ with tab_studio:
                         "Generic (no history)": generic[k]["prompt"] if k < len(generic) else "(none)",
                         "Adapted to this farmer": sv["items"][k]["prompt"] if k < len(sv["items"]) else "(none)"}
                         for k in range(n_rows)]), hide_index=True, width="stretch")
+            with st.expander("How the agent wrote this survey: Evidence → Analyst → Verifier → Synthesizer",
+                             icon=":material/smart_toy:"):
+                agent_panel(ins, attention, mem)
             with st.expander("Developer details: survey, channel payload, hand-off and answer record (JSON)"):
                 st.caption(f"Survey ({LANG_NAME.get(lang, lang)})")
                 st.json(sv, expanded=False)
@@ -1083,6 +1201,59 @@ with tab_over:
     else:
         st.subheader("Activity attention (deliberate change)")
         st.info("Run `python scripts/activity_report.py` to generate the before/after numbers for this section.")
+
+    from mel.evaluation.costs import load_costs, FULL_SET_SURVEYS
+    ledger = load_costs()     # docs/results/cost_history.jsonl: one row per run that wrote surveys with Bedrock
+    if ledger:
+        st.subheader("What it costs")
+        try:
+            full = json.loads((ROOT_DIR / "docs" / "results" / "full_bedrock_run.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            full = None
+        priced = [r for r in ledger if r.get("usd_per_survey") is not None]
+        latest = next((r for r in reversed(priced) if r.get("kind") in ("batch", "pilot", "partial")),
+                      priced[-1] if priced else None)
+        st.caption("Every run that writes surveys with Bedrock is logged with its real spend (cached answers cost "
+                   "nothing), split into writing, checking and judging. Cost per survey covers both languages, "
+                   f"revisions and checks; the projection is for the full synthetic dataset ({FULL_SET_SURVEYS:,} surveys, "
+                   f"{FULL_SET_SURVEYS * 2:,} files).")
+        k = st.columns(4)
+        if latest:
+            k[0].metric("Cost per survey", f"${latest['usd_per_survey']:.4f}",
+                        f"{latest.get('writer') or 'templates'} · {latest['kind']} run {latest['run']}",
+                        delta_color="off", delta_arrow="off")
+            k[1].metric("Per 1,000 surveys", f"${latest['usd_per_1000_surveys']:.2f}", delta_color="off", delta_arrow="off")
+            k[2].metric("Projected, full dataset", f"${latest['projected_full_usd']:.2f}",
+                        f"{FULL_SET_SURVEYS:,} surveys, Hindi + English", delta_color="off", delta_arrow="off")
+        if full:
+            c = full.get("cost") or {}
+            k[3].metric("Full run, actual", f"${c.get('spent_usd') or 0:.2f}",
+                        f"{full['surveys']:,} surveys in {full['seconds'] / 60:.0f} min"
+                        + (" · stopped at the cap" if full.get("stopped_at_cap") else ""),
+                        delta_color="off", delta_arrow="off")
+        else:
+            k[3].metric("Full run, actual", "not run yet", "python -m mel.agent.batch", delta_color="off", delta_arrow="off")
+        if len(priced) >= 2:
+            st.markdown("**Cost per survey, run by run**")
+            st.line_chart(pd.DataFrame({"run": [f"{r['run']} {r['kind']}" for r in priced],
+                                        "cost per survey (USD)": [r["usd_per_survey"] for r in priced]}).set_index("run"),
+                          color=PALETTE["green"], height=200)
+        if full:
+            st.caption(f"Full run: {full.get('sources')} · revisions {full.get('revisions')} on "
+                       f"{full.get('surveys_revised')} surveys · template fallbacks {sum((full.get('fallbacks') or {}).values())}"
+                       + (f" · AI judge relevance {full['judge_relevance']}" if full.get("judge_relevance") else "")
+                       + f" · {full.get('schema_invalid_files', 0)} schema-invalid files.")
+        with st.expander(f"All {len(ledger)} cost runs"):
+            table(pd.DataFrame([{
+                "Run": r["run"], "When": r["at"], "What": r.get("label"), "Writer": r.get("writer") or "templates",
+                "Surveys": r.get("surveys"), "Model calls": r.get("calls"), "From cache": r.get("cached_calls"),
+                "Spent": f"${r.get('spent_usd') or 0:.4f}",
+                "Write / check / judge": " / ".join(f"${(r.get('by_purpose') or {}).get(p, {}).get('usd', 0):.4f}"
+                                                    for p in ("write", "check", "judge")),
+                "Per survey": f"${r['usd_per_survey']:.5f}" if r.get("usd_per_survey") is not None else "—",
+                "Projected full set": f"${r['projected_full_usd']:.2f}" if r.get("projected_full_usd") is not None else "—",
+                "Revisions": r.get("revisions"), "Fallbacks": sum((r.get("fallbacks") or {}).values())}
+                for r in reversed(ledger)]), width="stretch", hide_index=True)
 
     st.subheader("Brief rules vs answer-key setting")
     st.caption("Matching the answer key's send times costs timeliness: most of its windows open before the "
