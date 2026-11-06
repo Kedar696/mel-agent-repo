@@ -12,11 +12,10 @@ Golden-set rule ids (inferred from data/golden_set.jsonl, rules.json does not li
   R7 crop_already_harvested    standing-crop advice after harvest (not storage advice)
   R8 survey
 """
-import os
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from mel.config import rules
+from mel.config import env, rules
 from mel.data.validate import is_valid
 from mel.timing import send_window, parse_ist, is_past_harvest, pick_send_time
 
@@ -70,7 +69,7 @@ def _no(rule, code):
 def _critical_policy() -> str:
     """MEL_CRITICAL_POLICY: `human_call` (default, the answer key: R2, a person calls) or `survey` (the brief:
     critical only raises priority). Digital Green has not said which; the contract says default = answer key."""
-    policy = os.environ.get("MEL_CRITICAL_POLICY", "human_call")
+    policy = env("MEL_CRITICAL_POLICY", "human_call")
     if policy not in {"human_call", "survey"}:
         raise ValueError("MEL_CRITICAL_POLICY must be 'human_call' or 'survey'")
     return policy

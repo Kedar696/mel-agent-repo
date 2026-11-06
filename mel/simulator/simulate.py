@@ -29,10 +29,9 @@ flag is computed internally and only attached when MEL_RESPONSE_LATE_FIELD=1, so
 record this module emits by default stays schema-valid.
 """
 import hashlib
-import os
 from datetime import datetime, time, timedelta
 
-from mel.config import IST, outcome_codes
+from mel.config import IST, flag, outcome_codes
 from mel.channels.render import choices, SPEECH_YES_NO
 from mel.timing import parse_ist, fmt_ist, expires_at
 
@@ -44,7 +43,7 @@ SHEET = ("app", "web")
 
 # Whether the `late` flag may be written onto records. Off by default so records stay
 # valid against today's response.schema.json; P1 adds the field, then this turns on.
-_EMIT_LATE = os.environ.get("MEL_RESPONSE_LATE_FIELD") == "1"
+_EMIT_LATE = flag("MEL_RESPONSE_LATE_FIELD")
 
 
 def cases_for(channel: str) -> list[str]:

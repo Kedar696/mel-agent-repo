@@ -22,6 +22,7 @@ from a local run or from AgentCore. The last event has step "result". Nothing he
 import time
 
 from mel.channels import render
+from mel.config import bedrock_region, env, flag
 from mel.data.validate import errors as schema_errors
 from mel.decision import decide
 from mel.pipeline import clean
@@ -109,7 +110,7 @@ def bedrock_guardrail(guardrail_id: str, version: str = "DRAFT", runtime=None):
     text -> reason or None. Needs a guardrail created in the account (MEL_GUARDRAIL_ID); never called otherwise."""
     if runtime is None:
         import boto3
-        runtime = boto3.client("bedrock-runtime", region_name=llm.region() or None)
+        runtime = boto3.client("bedrock-runtime", region_name=bedrock_region() or None)
 
     def check(text: str):
         r = runtime.apply_guardrail(guardrailIdentifier=guardrail_id, guardrailVersion=version, source="OUTPUT",
@@ -122,6 +123,20 @@ def bedrock_guardrail(guardrail_id: str, version: str = "DRAFT", runtime=None):
             return ", ".join(names) or "intervened"
         return None
     return check
+
+
+def guardrail_from_env(runtime=None):
+    """The guardrail MEL_GUARDRAIL_ID / MEL_GUARDRAIL_VERSION name, or None when none is set."""
+    gid = env("MEL_GUARDRAIL_ID")
+    return bedrock_guardrail(gid, env("MEL_GUARDRAIL_VERSION", "DRAFT"), runtime) if gid else None
+
+
+def judge_from_env():
+    """The AI judge on MEL_JUDGE_MODEL when MEL_AGENT_JUDGE=1, else None."""
+    if not flag("MEL_AGENT_JUDGE"):
+        return None
+    from mel.evaluation.judge import BedrockClient
+    return BedrockClient()
 
 
 # ---------------------------------------------------------------- Analyst + Verifier loop, one language

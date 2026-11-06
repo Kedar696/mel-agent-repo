@@ -20,13 +20,12 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import random
 import re
 import time
 from collections import defaultdict
 
-from mel.config import OUT, PACK_DATA, ROOT
+from mel.config import OUT, PACK_DATA, ROOT, env
 from mel.data import load_golden
 from mel.pipeline import run_insight, clean
 
@@ -99,7 +98,7 @@ class BedrockClient:
     with its retries, backoff, on-disk cache and per-call log (out/bedrock_calls.jsonl). Logged as purpose "judge"."""
 
     def __init__(self, model_id: str | None = None, region: str | None = None, runtime=None):
-        self.model_id = model_id or os.environ.get("MEL_JUDGE_MODEL")
+        self.model_id = model_id or env("MEL_JUDGE_MODEL")
         if not self.model_id:
             raise RuntimeError("Set MEL_JUDGE_MODEL to a Bedrock model id enabled in our account (ask P1/P4).")
         from mel.writer.llm import ModelClient
@@ -114,7 +113,7 @@ class BedrockClient:
 
 
 def _cost(usage: dict) -> float | None:
-    pin, pout = os.environ.get("MEL_JUDGE_PRICE_IN"), os.environ.get("MEL_JUDGE_PRICE_OUT")
+    pin, pout = env("MEL_JUDGE_PRICE_IN"), env("MEL_JUDGE_PRICE_OUT")
     if not (pin and pout):
         return None
     return (usage.get("input_tokens", 0) * float(pin) + usage.get("output_tokens", 0) * float(pout)) / 1e6

@@ -33,13 +33,11 @@ def test_request_shape_and_audio_bytes(monkeypatch):
     assert seen["body"]["text"].startswith("नमस्ते")
 
 
-def test_key_comes_from_env_or_dot_env(monkeypatch, tmp_path):
+def test_key_comes_from_the_settings(monkeypatch):
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    (tmp_path / ".env").write_text("MEL_USE_LLM=0\nELEVENLABS_API_KEY='from-file'\n", encoding="utf-8")
-    assert tts._env("ELEVENLABS_API_KEY", root=tmp_path) == "from-file"
-    monkeypatch.setenv("ELEVENLABS_API_KEY", "from-env")
-    assert tts._env("ELEVENLABS_API_KEY", root=tmp_path) == "from-env"
-    assert tts._env("ELEVENLABS_VOICE_ID", "default", root=tmp_path) == "default"
+    assert tts.api_key() == ""
+    monkeypatch.setenv("ELEVENLABS_API_KEY", " from-env ")
+    assert tts.api_key() == "from-env"
 
 
 def test_api_refusal_is_a_readable_error(monkeypatch):

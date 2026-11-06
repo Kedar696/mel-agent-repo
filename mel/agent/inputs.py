@@ -1,15 +1,14 @@
 """What the agent needs besides the insight: the farmer's profile and chat hours. Owner: P5.
 Loads the full participant pack when it is in the repo (MEL_DATA_DIR still wins), else the mock sample."""
-import os
 from collections import defaultdict
 
-from mel.config import PACK_DATA
+from mel.config import PACK_DATA, full_pack
 
 
 class Pack:
     def __init__(self, insights=None, farmers=None):
         from mel.data import load_insights, load_farmers
-        full = (PACK_DATA / "insights.jsonl").exists() and not os.environ.get("MEL_DATA_DIR")
+        full = full_pack()
         self.insights = insights if insights is not None else load_insights(PACK_DATA / "insights.jsonl" if full else None)
         self.farmers = farmers if farmers is not None else load_farmers(PACK_DATA / "farmers.csv" if full else None)
         self.by_id = {i.get("insight_id"): i for i in self.insights}

@@ -8,8 +8,9 @@ The runtime (agentcore_app.py) streams one JSON event per line ("data: {...}", s
 "result" event. A non-streaming JSON answer is also accepted. Credentials come from the AWS account (IAM), no key.
 """
 import json
-import os
 import uuid
+
+from mel.config import bedrock_region, env
 
 
 def region_of(arn: str) -> str | None:
@@ -22,9 +23,7 @@ def _client(arn: str = ""):
     """A runtime is called in its own region, whatever region the caller runs in (the hosted UI runs in us-east-1,
     the agent in us-west-2). Falls back to the usual settings when the ARN has no region."""
     import boto3
-    region = (region_of(arn) or os.environ.get("MEL_BEDROCK_REGION") or os.environ.get("AWS_REGION")
-              or os.environ.get("AWS_DEFAULT_REGION"))
-    return boto3.client("bedrock-agentcore", region_name=region or "us-east-1")
+    return boto3.client("bedrock-agentcore", region_name=region_of(arn) or bedrock_region() or "us-east-1")
 
 
 def parse_stream(lines):
@@ -52,7 +51,7 @@ def parse_stream(lines):
 def invoke(arn: str, payload: dict, client=None, session_id: str | None = None):
     """Yield the agent's events from AgentCore. `session_id` must be at least 33 characters (AgentCore's rule)."""
     c = client or _client(arn)
-    r = c.invoke_agent_runtime(agentRuntimeArn=arn, qualifier=os.environ.get("MEL_AGENTCORE_QUALIFIER", "DEFAULT"),
+    r = c.invoke_agent_runtime(agentRuntimeArn=arn, qualifier=env("MEL_AGENTCORE_QUALIFIER", "DEFAULT"),
                                runtimeSessionId=session_id or f"fasal-pulse-{uuid.uuid4().hex}",
                                payload=json.dumps(payload).encode("utf-8"))
     body = r["response"]

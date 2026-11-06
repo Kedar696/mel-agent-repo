@@ -5,7 +5,6 @@ Tabs: Dashboard (default: overview + evaluation), Survey demo (insight | interac
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
 import copy
 import json
-import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -47,7 +46,7 @@ def _reload_mel_if_changed():
 _MEL_STAMP, _APP_STAMP = _reload_mel_if_changed()
 
 from mel.channels import render
-from mel.config import CHANNELS, PACK_DATA, ROOT as ROOT_DIR
+from mel.config import CHANNELS, PACK_DATA, ROOT as ROOT_DIR, env, full_pack
 from mel.data import load_insights, load_farmers, errors
 from mel.evaluation import evaluate
 from mel.pipeline import run_pipeline, run_insight, clean
@@ -136,7 +135,7 @@ def table(df, **kw):
 
 # The full participant pack (6,999 conversations) when it is in the repo; the 57-row mock sample otherwise.
 # An explicit MEL_DATA_DIR always wins.
-DATA_DIR = None if os.environ.get("MEL_DATA_DIR") else (PACK_DATA if (PACK_DATA / "insights.jsonl").exists() else None)
+DATA_DIR = PACK_DATA if full_pack() else None
 
 
 @st.cache_resource(show_spinner="Running the pipeline on every conversation…")
@@ -769,7 +768,7 @@ def agent_panel(ins, attention, mem):
     """Shows how the agent writes this conversation's survey, step by step."""
     from mel.agent import run_agent
     from mel.writer import llm
-    arn = os.environ.get("MEL_AGENTCORE_ARN", "").strip()
+    arn = env("MEL_AGENTCORE_ARN")
     rec = _recorded_run(ins["insight_id"])
     where = ("Amazon Bedrock AgentCore" if arn else
              "this machine, writing with Bedrock" if BEDROCK_ON else "this machine, templates only (no AWS keys here)")

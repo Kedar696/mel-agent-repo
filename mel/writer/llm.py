@@ -31,14 +31,13 @@ import contextlib
 import contextvars
 import hashlib
 import json
-import os
 import random
 import re
 import threading
 import time
 from pathlib import Path
 
-from mel.config import OUT, ROOT
+from mel.config import OUT, ROOT, bedrock_region, env, flag
 
 REPLAY = ROOT / "docs" / "results" / "bedrock_cache.jsonl"   # committed answers, replayed for $0 (see export_cache)
 
@@ -49,23 +48,21 @@ LANG_NAME = {"hi-IN": "Hindi (Devanagari script)", "en-IN": "English (simple Ind
 
 
 # ------------------------------------------------------------------ config (read at call time so tests can change it)
-def write_model() -> str: return os.environ.get("MEL_BEDROCK_WRITE_MODEL", "").strip()
-def check_model() -> str: return os.environ.get("MEL_BEDROCK_CHECK_MODEL", "").strip()
-def region() -> str: return (os.environ.get("MEL_BEDROCK_REGION") or os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "").strip()
-def cache_dir() -> Path: return Path(os.environ.get("MEL_CACHE_DIR") or OUT / "cache" / "bedrock")
-def log_path() -> Path: return Path(os.environ.get("MEL_LLM_LOG") or OUT / "bedrock_calls.jsonl")
+def write_model() -> str: return env("MEL_BEDROCK_WRITE_MODEL")
+def check_model() -> str: return env("MEL_BEDROCK_CHECK_MODEL")
+def cache_dir() -> Path: return Path(env("MEL_CACHE_DIR") or OUT / "cache" / "bedrock")
+def log_path() -> Path: return Path(env("MEL_LLM_LOG") or OUT / "bedrock_calls.jsonl")
 
 
 def prices() -> dict:
     """USD per 1,000 tokens per model id. MEL_BEDROCK_PRICES wins; else the team's checked price file
     docs/results/bedrock_prices.json (USD per 1M tokens, from the AWS Price List API; P5), converted."""
     try:
-        env = json.loads(os.environ.get("MEL_BEDROCK_PRICES") or "{}")
+        given = json.loads(env("MEL_BEDROCK_PRICES") or "{}")
     except ValueError:
-        env = {}
-    if env:
-        return env
-    from mel.config import ROOT
+        given = {}
+    if given:
+        return given
     try:
         raw = json.loads((ROOT / "docs" / "results" / "bedrock_prices.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -84,7 +81,7 @@ def enabled() -> bool:
     """True only when the person opted in AND a writing model id is configured. `writer(...)` / `override(...)`
     can force it for a block or a thread, so scoring and batch numbers never spend tokens while the demo does."""
     forced = _override.get()
-    on = os.environ.get("MEL_USE_LLM") == "1" if forced is None else forced
+    on = flag("MEL_USE_LLM") if forced is None else forced
     return bool(on) and bool(write_model())
 
 
@@ -133,7 +130,7 @@ class ModelClient:
             except ImportError as e:
                 raise ModelUnavailable("boto3 is not installed") from e
             try:
-                self._runtime = boto3.client("bedrock-runtime", region_name=region() or None)
+                self._runtime = boto3.client("bedrock-runtime", region_name=bedrock_region() or None)
             except Exception as e:      # no region, bad credentials file, ...
                 raise ModelUnavailable(f"cannot create bedrock client: {e}") from e
         return self._runtime
