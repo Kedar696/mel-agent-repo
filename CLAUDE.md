@@ -132,8 +132,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   `docs/activity_attention_request.md`. **Uncommitted** on `lucas-p1` pending review.
 - **Terraform (P2, 5 Nov, `willF-terraform`; the only IaC since `willF-one-account`):** `infra/terraform/`
   (`agent.tf` = S3, Guardrail, AgentCore role, dashboard, budget in us-west-2; `ui.tf` = ECR, CodeBuild, ECS roles,
-  cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Not applied yet:
-  the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
+  cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Agent side applied 5 Nov
+  (`-target` on `agent.tf`); the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
   fmt + validate. Steps in `infra/README.md`.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
@@ -231,10 +231,12 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   free resume via cache, files to `out/agent_batch/`, summary `docs/results/full_bedrock_run.json`. Dashboard "What it
   costs". Decided: Haiku 4.5, hi+en, history off, cap $40. **Pilot and full run not yet run** (need AWS keys).
 - **IaC + demo-day plan (P5, 5 Nov, `p5-agent-orchestrator`):** `infra/fasal-pulse.yaml` (CloudFormation, replaced by `infra/terraform/agent.tf` on 5 Nov; rules restrict to us-east-1/us-west-2): private SSE S3 bucket (HTTPS only, results expire 30 d), least-privilege AgentCore execution role, Bedrock Guardrail + version (deny personal-info requests, PII + content filters, no violence filter; v1 also denied "new agronomic advice" but it blocked "Did you follow the advice?", so v2 drops it), CloudWatch dashboard (SEARCH over `FasalPulse/Agent`), optional budget. Outputs incl. ready `--env` flags for `agentcore launch`. `tests/test_infra.py`. Steps in `docs/agentcore.md`. Hackathon rules check, stack and order of work: `docs/demo_day_plan.md`. Repo is public but has **no LICENSE** (team to pick MIT-0 or Apache-2.0). No AWS CLI on Michael's laptop: deploy via console upload or CloudShell. **Stack deployed 5 Nov in us-west-2 in P5's own sandbox, not this account** (team chose Oregon; all AgentCore/Bedrock settings now use `MEL_BEDROCK_REGION=us-west-2`); its guardrail id is not valid here (`terraform output guardrail_id` after apply). Batch runner now test-calls the guardrail before spending (and stops if it blocks a harmless question). Pilot 1 (40 surveys, us-west-2, guardrail v2): $0.22, projected full $15.41, judge 4.87, but hi-IN fell back to templates 15/40: 43 of 44 Hindi rejections were "less relevant than the template" (P4 keyword lists are the templates' own words). Fix: that comparison is now English-only (`mel/agent/orchestrator.py verify`); Hindi keeps the 0.3 send bar. P4 to review. Pilot 2: hi-IN bedrock 39/40, judge 4.90. Cost per survey now = full price of every distinct request in the run (cache hits priced from the tokens they took; `list_cost_usd` + `key` in out/bedrock_calls.jsonl, `full_price_usd` + `projection_basis` in ledger rows), so a cached re-run projects like a fresh one; pilot 2 replay: $0.0039/survey, ~$10.3 full (+ judge ~$0.25; guardrail ApplyGuardrail charges are not in the ledger). Mis-priced pilot 2 ledger row removed.
-- **Hosted link (P2, 5 Nov):** one copy of the UI, in the account, on ECS Express Mode (us-east-1, service
-  `fasal-pulse-ui`): https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ . `MEL_AGENTCORE_ARN` is not
-  set on it yet, so "Run the agent" shows the recorded runs; after `agentcore launch` in this account, roll the
-  service with the ARN (`infra/README.md`). ~$2/day: delete the service after the presentation (empty the ECR repo first).
+- **Hosted link + agent in the account (P2, 5 Nov night):** the UI on ECS Express Mode (us-east-1, service
+  `fasal-pulse-ui`, image `7a47ca8` = main): https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ .
+  `terraform apply` (agent side) + `agentcore launch` done in this account: runtime `fasal_pulse` (us-west-2),
+  guardrail from Terraform, insights in the bucket; the service has `MEL_AGENTCORE_ARN`, so "Run the agent" is live.
+  Gotcha: the toolkit reuses the repo's API `Dockerfile` unless it is moved aside (`docs/agentcore.md`).
+  ~$2/day: delete the service after the presentation (empty the ECR repo first).
 - **Deliverables check (P5, 5 Nov):** `docs/deliverables_coverage.md` maps every line of Digital Green's Vision and
   Technical documents (copied into `docs/`, git-ignored) to proof; all 7 Definition-of-Done items met; gaps in order:
   blind human scoring, Hindi review, guardrail on the $2.61 run (Will's run had none; run 2, $11.06, had v2), adoption

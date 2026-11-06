@@ -1,11 +1,11 @@
 {
  "insight_id": "I-001253",
- "recorded": "2026-11-05 01:57",
+ "recorded": "2026-11-05 23:48",
  "where": "agentcore",
- "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "writer": null,
  "checker": null,
  "judge": null,
- "guardrail": "dh15hs1wc6uw",
+ "guardrail": "8dw1s0ayihkz",
  "events": [
   {
    "step": "evidence",
@@ -33,7 +33,7 @@
    "status": "ok",
    "title": "Analyst decides: survey (rule R8)",
    "detail": "Sent to an expert. Ask whether the expert was reached and how the crop or animal is. Window 2026-11-28T07:00:00+05:30 to 2026-11-30T19:00:00+05:30.",
-   "ms": 2.1,
+   "ms": 2.3,
    "data": {
     "decision": {
      "survey": true,
@@ -60,13 +60,13 @@
    "status": "ok",
    "title": "Analyst drafts [en-IN]",
    "detail": "2 questions from Bedrock",
-   "ms": 1126.7,
+   "ms": 931.4,
    "data": {
     "lang": "en-IN",
     "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "questions": [
      "Did you call the veterinary doctor about deworming your goat?",
-     "After the veterinary doctor's visit, how much did your goat's health improve?"
+     "How much did the veterinary doctor's advice help your goat's health?"
     ]
    }
   },
@@ -75,7 +75,7 @@
    "status": "ok",
    "title": "Verifier [en-IN]",
    "detail": "passed every check",
-   "ms": 630.3,
+   "ms": 923.5,
    "data": {
     "lang": "en-IN",
     "ok": true,
@@ -87,15 +87,15 @@
   {
    "step": "analyst",
    "status": "ok",
-   "title": "Analyst drafts [hi-IN]",
+   "title": "Analyst translates the English survey [hi-IN]",
    "detail": "2 questions from Bedrock",
-   "ms": 1331.4,
+   "ms": 1836.3,
    "data": {
     "lang": "hi-IN",
     "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "questions": [
-     "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में?",
-     "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ?"
+     "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया?",
+     "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की?"
     ]
    }
   },
@@ -104,7 +104,7 @@
    "status": "ok",
    "title": "Verifier [hi-IN]",
    "detail": "passed every check",
-   "ms": 702.4,
+   "ms": 876.9,
    "data": {
     "lang": "hi-IN",
     "ok": true,
@@ -171,15 +171,14 @@
         },
         {
          "value": "no",
-         "label": "No",
-         "follow_up": "could_not_reach_expert"
+         "label": "No"
         }
        ]
       },
       {
        "item_id": "q2",
        "type": "survey-scale",
-       "prompt": "After the veterinary doctor's visit, how much did your goat's health improve?",
+       "prompt": "How much did the veterinary doctor's advice help your goat's health?",
        "scale_min": 1,
        "scale_max": 5,
        "follow_up_at_or_below": 2,
@@ -219,7 +218,7 @@
       {
        "item_id": "q1",
        "type": "survey-confirm",
-       "prompt": "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में?",
+       "prompt": "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया?",
        "options": [
         {
          "value": "yes",
@@ -227,15 +226,14 @@
         },
         {
          "value": "no",
-         "label": "नहीं",
-         "follow_up": "could_not_reach_expert"
+         "label": "नहीं"
         }
        ]
       },
       {
        "item_id": "q2",
        "type": "survey-scale",
-       "prompt": "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ?",
+       "prompt": "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की?",
        "scale_min": 1,
        "scale_max": 5,
        "follow_up_at_or_below": 2,
@@ -279,7 +277,7 @@
       {
        "item_id": "q1",
        "type": "survey-confirm",
-       "prompt": "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में?",
+       "prompt": "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया?",
        "options": [
         {
          "value": "yes",
@@ -287,15 +285,14 @@
         },
         {
          "value": "no",
-         "label": "नहीं",
-         "follow_up": "could_not_reach_expert"
+         "label": "नहीं"
         }
        ]
       },
       {
        "item_id": "q2",
        "type": "survey-scale",
-       "prompt": "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ?",
+       "prompt": "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की?",
        "scale_min": 1,
        "scale_max": 5,
        "follow_up_at_or_below": 2,
@@ -379,7 +376,7 @@
         "step_label": "2 में से 1",
         "item_id": "q1",
         "question_type": "survey-confirm",
-        "question": "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में?",
+        "question": "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया?",
         "options": [
          {
           "label": "हाँ",
@@ -396,7 +393,7 @@
         "step_label": "2 में से 2",
         "item_id": "q2",
         "question_type": "survey-scale",
-        "question": "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ?",
+        "question": "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की?",
         "options": [
          {
           "label": "1",
@@ -476,7 +473,7 @@
        "interactive": {
         "type": "button",
         "body": {
-         "text": "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में?"
+         "text": "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया?"
         },
         "action": {
          "buttons": [
@@ -505,7 +502,7 @@
        "interactive": {
         "type": "list",
         "body": {
-         "text": "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ?"
+         "text": "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की?"
         },
         "action": {
          "button": "चुनें",
@@ -548,7 +545,7 @@
      "items": [
       {
        "item_id": "q1",
-       "say": "क्या आपने पशु चिकित्सक को बुलाया था बकरी के कृमि संक्रमण के बारे में? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
+       "say": "क्या आपने अपनी बकरी की कृमि निकालने के लिए पशु चिकित्सक को बुलाया? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
        "keypad": {
         "1": "yes",
         "2": "no"
@@ -573,7 +570,7 @@
       },
       {
        "item_id": "q2",
-       "say": "पशु चिकित्सक की सलाह से आपकी बकरी का स्वास्थ्य कितना बेहतर हुआ? 1 से 5 के बीच कोई अंक दबाएँ या बोलें।",
+       "say": "पशु चिकित्सक की सलाह आपकी बकरी के स्वास्थ्य में कितना मदद की? 1 से 5 के बीच कोई अंक दबाएँ या बोलें।",
        "keypad": {
         "1": 1,
         "2": 2,
@@ -616,17 +613,17 @@
     "calls": 4,
     "cached": 0,
     "failed": 0,
-    "input_tokens": 1643,
-    "output_tokens": 650,
-    "cost_usd": 0.003738,
-    "seconds": 3.798,
+    "input_tokens": 1248,
+    "output_tokens": 254,
+    "cost_usd": 0.001324,
+    "seconds": 4.576,
     "revisions": 0,
     "sources": {
      "en-IN": "bedrock",
      "hi-IN": "bedrock"
     }
    },
-   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-001253/20261105T065735.json"
+   "saved_to": "s3://fasal-pulse-data-a8460baa13e0ea0aa889c01a2a/results/I-001253/20261106T044808.json"
   }
  ]
 }

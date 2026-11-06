@@ -1,11 +1,11 @@
 {
  "insight_id": "I-000291",
- "recorded": "2026-11-05 01:57",
+ "recorded": "2026-11-05 23:48",
  "where": "agentcore",
- "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "writer": null,
  "checker": null,
  "judge": null,
- "guardrail": "dh15hs1wc6uw",
+ "guardrail": "8dw1s0ayihkz",
  "events": [
   {
    "step": "evidence",
@@ -33,7 +33,7 @@
    "status": "ok",
    "title": "Analyst decides: no survey",
    "detail": "[R2 critical_needs_human_call] Critical case: a person should call the farmer instead of an automated survey.",
-   "ms": 2.0,
+   "ms": 1.9,
    "data": {
     "decision": {
      "survey": false,
@@ -51,7 +51,7 @@
    "status": "ok",
    "title": "Synthesizer",
    "detail": "no-survey record",
-   "ms": 0.3,
+   "ms": 0.5,
    "data": {
     "no_survey": {
      "insight_id": "I-000291",
@@ -96,7 +96,7 @@
     "cost_usd": 0.0,
     "seconds": 0.003
    },
-   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-000291/20261105T065757.json"
+   "saved_to": "s3://fasal-pulse-data-a8460baa13e0ea0aa889c01a2a/results/I-000291/20261106T044824.json"
   }
  ]
 }
