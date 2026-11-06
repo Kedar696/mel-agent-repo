@@ -1,5 +1,5 @@
 # The Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode: the image
-# registry, a CodeBuild project that builds ui.Dockerfile straight from GitHub, the three ECS roles, a cluster and the
+# registry, a CodeBuild project that builds the Dockerfile's ui target straight from GitHub, the three ECS roles, a cluster and the
 # Express service (Fargate behind an HTTPS load balancer, one task).
 
 # ---- The image registry and the build that fills it ---------------------------------------------
@@ -52,7 +52,7 @@ resource "aws_iam_role_policy" "ui_build" {
 resource "aws_codebuild_project" "ui" {
   region        = var.ui_region
   name          = "${var.ui_name}-build"
-  description   = "Builds ui.Dockerfile from GitHub and pushes it to the UI registry (no Docker needed on a laptop)."
+  description   = "Builds the Dockerfile's ui target from GitHub and pushes it to the UI registry (no Docker needed on a laptop)."
   service_role  = aws_iam_role.ui_build.arn
   build_timeout = 30
 
@@ -97,7 +97,7 @@ resource "aws_codebuild_project" "ui" {
             - aws ecr get-login-password | docker login --username AWS --password-stdin "$${ECR_URI%%/*}"
         build:
           commands:
-            - cd src && TAG=$(git rev-parse --short HEAD) && docker build -f ui.Dockerfile -t "$ECR_URI:$TAG" -t "$ECR_URI:latest" . && docker push "$ECR_URI:$TAG" && docker push "$ECR_URI:latest" && echo "PUSHED $ECR_URI:$TAG"
+            - cd src && TAG=$(git rev-parse --short HEAD) && docker build --target ui -t "$ECR_URI:$TAG" -t "$ECR_URI:latest" . && docker push "$ECR_URI:$TAG" && docker push "$ECR_URI:latest" && echo "PUSHED $ECR_URI:$TAG"
     EOT
   }
 }

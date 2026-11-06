@@ -7,7 +7,8 @@ _Last updated: 2026-11-05 (willF-one-account: one account, one Terraform, one ho
 and k8s files removed; lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions;
 willF-team-open-items: P2 weather note, Hindi "pending review" label, CODEOWNERS P3 = @Semdon31;
 willF-bedrock-writer: compact Bedrock writer, Hindi by translation, replay file, Bedrock questions in the Survey demo
-and in Create your own insight)_
+and in Create your own insight;
+willF-postgres-unify: one generator path, database-backed API with bearer auth, FarmerChat answer path)_
 
 ## What this is
 Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
@@ -135,6 +136,23 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Not applied yet:
   the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
   fmt + validate. Steps in `infra/README.md`.
+
+- **One path + database + answers back (Will, 5 Nov, `willF-postgres-unify`; P1, P3, P5 to review):**
+  `mel.pipeline.run_insight` now wraps `mel.agent.run_agent_to_end`, so the CLI, the REST API, the evaluation and
+  AgentCore all generate through the one agent (templates when Bedrock is off); golden scores and the full-pack
+  schedule counts are unchanged (99.3% / 1,613 sent / 425 moved / 480 merged / 98 skipped); full-pack `run` 16 s.
+  **`mel/store.py`**: one database for surveys, hand-offs, answers and opt-outs; `MEL_DATABASE_URL` =
+  `postgresql://` (Amazon RDS for PostgreSQL, Digital Green's stack; `infra/terraform/db.tf` defines one, not
+  applied) or `sqlite://` (default file under MEL_OUT_DIR; in-memory in tests). **API** (`mel/api/app.py`, run with
+  `uvicorn --factory mel.api.app:create_app`): bearer token `MEL_API_TOKEN` on every call but `/healthz` (refuses to
+  start without one); `POST /surveys` admits through P3's `CapLedger.admit_checked` rebuilt per request from the
+  farmer's stored hand-offs, so replicas agree and a restart loses nothing; `GET /v1/surveys/{flow_id}` (static
+  registration: the derived `farmerchat_flow.flow_id`); `POST /v1/surveys/{flow_id}/responses` (FarmerChat's answer
+  path: schema-checked, idempotent on `response_key`, `farmer_opted_out` -> opt-out list, `needs_follow_up` -> queue);
+  `GET /follow-ups`. The API container runs anywhere that reaches the database (no k8s files, per the one-IaC
+  decision; pass `MEL_DATABASE_URL` + `MEL_API_TOKEN` as secrets). **Packaging:** `pyproject.toml` installs `mel`
+  with extras `api` / `agent` / `ui` / `dev` (`pip install -e ".[dev]"`); one multi-stage `Dockerfile` with targets
+  `api` / `ui` / `agent` (CI and CodeBuild use `--target`). Tests: `tests/test_api.py` (29), `tests/test_store.py`.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
@@ -288,7 +306,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.
 - Bedrock is **required** for every model call (FINAL contract, 4 Nov), via the account's IAM role, no key.
-  Everything else on AWS is after core targets; EventBridge/RDS/Connect are slide-only.
+  Everything else on AWS is after core targets; EventBridge/Connect are slide-only. RDS for PostgreSQL is built
+  (5 Nov, `willF-postgres-unify`, at Will's request): `mel/store.py` + `infra/terraform/db.tf`, not yet applied.
 - One AWS account (Will's Workshop Studio sandbox), one IaC (`infra/terraform/`), one Bedrock region for the models
   and the agent (us-west-2), one AgentCore runtime, one hosted link (5 Nov). No second copies; no CloudFormation,
   App Runner or Kubernetes files.

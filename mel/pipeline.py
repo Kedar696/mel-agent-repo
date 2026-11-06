@@ -6,11 +6,9 @@ from datetime import timedelta
 
 from mel.config import CHANNELS, LANGS
 from mel.decision import decide
-from mel.schedule import build_handoff
 from mel.schedule.handoff import priority as _brief_priority
 from mel.timing import chat_hours
 from mel.timing.window import parse_ist as _parse_ist
-from mel.writer import write_surveys
 
 RULE_IDS = tuple(f"R{n}" for n in range(1, 9))
 PRIORITIES = ("high", "normal", "low")
@@ -24,19 +22,22 @@ def clean(survey: dict) -> dict:
 
 def run_insight(insight: dict, farmer: dict | None = None, history_hours=(), memory=None,
                 attention: dict | None = None) -> dict:
-    """Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in farmer's language).
+    """The one generator, mel.agent.run_agent (decide -> write with Bedrock or the templates -> verify -> hand off),
+    without its step events. Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in
+    the farmer's language). The CLI, the REST API, the evaluation and AgentCore all go through this one path.
     `farmer` (farmers.csv row) and `history_hours` only refine decision.send_time, P2's recommended send time.
     The hand-off file cannot carry it (the organisers' schema forbids extra fields); senders read it from the decision.
     `memory` (mel.writer.FarmerMemory) turns on P4's history rules H1-H4, which adapt the questions.
     `attention` (mel.data.activity, off by default) adjusts priority (P3), question count (P4) and send time (P2);
     it never changes survey vs no-survey, the rule, or the send window. When None, behaviour is exactly today's."""
-    d = decide(insight, farmer, history_hours, attention)
+    from mel.agent import run_agent_to_end          # here, not at the top: the agent imports this module
+    from mel.decision.rules import Decision
+    _, res = run_agent_to_end(insight, farmer=farmer, history_hours=history_hours, memory=memory, attention=attention)
+    d = Decision(**res["decision"])
     if not d.survey:
-        return {"decision": d, "no_survey": d.no_survey_record(insight)}
-    surveys = write_surveys(insight, d.send_window, memory=memory, attention=attention)
-    lang = insight.get("conversation_language", "hi-IN")
-    farmer_copy = clean(surveys.get(lang) or surveys["hi-IN"])
-    return {"decision": d, "surveys": surveys, "handoff": build_handoff(insight, farmer_copy, attention)}
+        return {"decision": d, "no_survey": res["no_survey"]}
+    surveys = {lang: res["surveys"][lang] for lang in LANGS if lang in res["surveys"]}   # the project's language order
+    return {"decision": d, "surveys": surveys, "handoff": res["handoff"]}
 
 
 def select_insights(insights: list[dict], limit: int | None = None, farmer: str | None = None) -> list[dict]:

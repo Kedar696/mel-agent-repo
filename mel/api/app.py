@@ -1,182 +1,204 @@
-"""FastAPI app for the MEL survey agent. Owner: P1 (Data, Contracts & Integration).
+"""FastAPI app for the MEL survey agent. Owner: P1.
 
-Thin by design: it reuses mel.pipeline (decide + write + hand-off) and mel.schedule
-(weekly cap, opt-outs, quality gate, broadcaster) without copying any of their logic.
+Thin by design: one generator (mel.agent.run_agent: decide, write with Bedrock or the templates, verify, hand off),
+P3's opt-out, quality and weekly-cap rules unchanged, and one database (mel.store) for everything that must outlive
+a process. No rule lives here.
 
-Endpoints
----------
-POST /surveys        run one insight; if it yields a survey, admit it to the scheduler.
-GET  /surveys/due    read-only list of hand-offs the scheduler would send at an instant.
-GET  /healthz        liveness for the container.
+Endpoints (every one but /healthz needs `Authorization: Bearer <MEL_API_TOKEN>`)
+  POST /surveys                          run one insight; a survey is admitted (opt-out, quality gate, weekly cap) and stored
+  GET  /surveys/due                      the hand-offs a sender should send at an instant (read-only)
+  GET  /v1/surveys/{flow_id}             the survey registered under a FarmerChat flow id (static registration)
+  POST /v1/surveys/{flow_id}/responses   FarmerChat's answer path: one answer record in; opt-outs and follow-ups come out
+  GET  /follow-ups                       answer records that need a person (needs_follow_up)
+  GET  /healthz                          liveness
 
-Shared state
-------------
-One in-memory ``SeasonScheduler(relevance_threshold=RELEVANCE_THRESHOLD)`` per process,
-created by ``create_app()`` (so each test gets a fresh one) and guarded by a lock. The
-scheduler holds the weekly-cap ledger, the opt-out list and the broadcaster queue. **This
-state lives only in memory and is lost when the process restarts** -- there is no database.
-Delivery stays simulated; no real messaging and no AWS calls are made here.
+State lives in the database MEL_DATABASE_URL names (Amazon RDS for PostgreSQL, or SQLite locally), so any number of
+replicas can run. The weekly cap is decided per request from that farmer's stored hand-offs; the same hand-off again
+returns its first decision and takes no second slot.
 
-Run it:  uvicorn mel.api.app:app
+Run it:  MEL_API_TOKEN=... uvicorn --factory mel.api.app:create_app
 """
 import json
+import os
+import secrets
 import threading
+from datetime import datetime
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mel.data import load_farmers
-from mel.pipeline import clean, run_insight
-from mel.schedule import SeasonScheduler
-from mel.schedule.broadcast import passes_quality, within_send_hours
+from mel.agent import run_agent_to_end
+from mel.config import IST
+from mel.data import errors, load_farmers
+from mel.pipeline import clean
+from mel.schedule import Admit, CapLedger, OptOutList
+from mel.schedule.broadcast import passes_quality, queue_key, within_send_hours
+from mel.store import Store
 from mel.timing import fmt_ist, parse_ist
 from mel.writer import RELEVANCE_THRESHOLD
 
 
 class UTF8JSONResponse(JSONResponse):
-    """JSON responses that keep Hindi unescaped (`ensure_ascii=False`), as the rest of the
-    project writes JSON. FastAPI's default JSONResponse escapes non-ASCII; we override it so
-    `survey`/`no_survey` text comes back as real Devanagari, not \\uXXXX."""
+    """JSON responses that keep Hindi unescaped (`ensure_ascii=False`), as the rest of the project writes JSON."""
 
     def render(self, content) -> bytes:
-        return json.dumps(content, ensure_ascii=False, allow_nan=False,
-                          separators=(",", ":")).encode("utf-8")
+        return json.dumps(content, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
 
 
-# --------------------------------------------------------------- serialisation helpers
-def _decision_dict(d) -> dict:
-    """The Decision fields the contract names, as plain JSON. No schema covers the Decision,
-    so we emit exactly: survey, rule, reason_code, send_window, send_time (plus notes and
-    attention, which are already part of the dataclass)."""
-    return {
-        "survey": d.survey,
-        "rule": d.rule,
-        "reason_code": d.reason_code,
-        "send_window": d.send_window,
-        "send_time": d.send_time,
-        "notes": list(d.notes),
-        "attention": d.attention,
-    }
+def _bad(status: int, detail) -> UTF8JSONResponse:
+    return UTF8JSONResponse(status_code=status, content={"detail": detail})
 
 
-def create_app(farmers: dict | None = None) -> FastAPI:
-    """Build a fresh app with its own scheduler. `farmers` defaults to `load_farmers()`; pass
-    an explicit dict (even `{}`) in tests to avoid touching the data folder."""
-    app = FastAPI(title="Fasal Pulse - MEL Survey Agent API", version="1.0.0",
-                  default_response_class=UTF8JSONResponse)
+async def _json_object(request: Request) -> dict | None:
+    """The body as a dict, or None when it is not JSON or not an object (a client error, never a crash)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
 
-    app.state.scheduler = SeasonScheduler(relevance_threshold=RELEVANCE_THRESHOLD)
+
+def admit(store: Store, handoff: dict) -> Admit:
+    """P3's gate (opt-out, quality, weekly cap) against this farmer's stored hand-offs, then the outcome is stored.
+    The ledger is rebuilt from the farmer's rows on every call, so every replica decides from the same facts.
+    ponytail: two requests for the same farmer in the same instant could both pass the cap; a row lock per farmer
+    if that ever shows up."""
+    stored = store.handoff(handoff["handoff_id"])
+    if stored:
+        body, decision, reason = stored
+        return Admit(decision, body, reason)
+    fid = handoff["survey"]["farmer_id"]
+    opt_out = OptOutList()
+    if store.opted_out(fid):
+        opt_out.record({"failure_code": "farmer_opted_out", "farmer_id": fid})
+    ledger = CapLedger()
+    for prior in store.farmer_handoffs(fid):
+        ledger.allow(prior)
+    a = ledger.admit_checked(handoff, opt_out=opt_out, relevance_threshold=RELEVANCE_THRESHOLD)
+    if a.decision == "merged":
+        host = store.handoff(a.handoff["handoff_id"])       # the host now carries this survey's insight ids too
+        store.put_handoff(a.handoff, host[1], host[2])
+        store.put_handoff(handoff, "merged", a.reason)
+    else:
+        store.put_handoff(a.handoff, a.decision, a.reason)
+    return a
+
+
+def create_app(farmers: dict | None = None, store: Store | None = None, token: str | None = None) -> FastAPI:
+    """`farmers` defaults to `load_farmers()`; `store` to `Store()` (MEL_DATABASE_URL); `token` to MEL_API_TOKEN.
+    Tests pass an in-memory store and a token so nothing touches the environment."""
+    token = token or os.environ.get("MEL_API_TOKEN", "")
+    if not token:
+        raise RuntimeError("MEL_API_TOKEN is not set; the API does not start without a bearer token")
+    store = store or Store()
+    app = FastAPI(title="Fasal Pulse - MEL Survey Agent API", version="2.0.0", default_response_class=UTF8JSONResponse)
+    app.state.store = store
     app.state.lock = threading.Lock()
     try:
         app.state.farmers = load_farmers() if farmers is None else farmers
     except FileNotFoundError:
         app.state.farmers = {}
 
+    def auth(request: Request):
+        scheme, _, given = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not secrets.compare_digest(given.strip(), token):
+            raise HTTPException(401, "a valid bearer token is required", headers={"WWW-Authenticate": "Bearer"})
+    guarded = [Depends(auth)]
+
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
 
-    @app.post("/surveys")
+    @app.post("/surveys", dependencies=guarded)
     async def post_survey(request: Request):
-        # A body that is not a JSON object is a client error (422), not a server crash.
-        try:
-            insight = await request.json()
-        except Exception:
-            return UTF8JSONResponse(status_code=422, content={"detail": "body must be a JSON object"})
-        if not isinstance(insight, dict):
-            return UTF8JSONResponse(status_code=422, content={"detail": "body must be a JSON object"})
-
-        # Attention and history stay off, matching the CLI default. Junk input is NOT an error:
-        # the pipeline returns the R1 no-survey result, which we report as a 200 no_survey.
-        farmer = app.state.farmers.get(insight.get("farmer_id"))  # None if unknown
+        insight = await _json_object(request)
+        if insight is None:
+            return _bad(422, "body must be a JSON object")
+        # History and attention stay off, matching the CLI default. Junk input is not an error: the agent
+        # returns the R1 no-survey result, reported as a 200 no_survey.
+        farmer = app.state.farmers.get(insight.get("farmer_id"))
+        _, res = run_agent_to_end(insight, farmer=farmer)
+        decision = res["decision"]
+        if not decision["survey"]:
+            store.put_no_survey(res["no_survey"])
+            return UTF8JSONResponse(status_code=200, content={"status": "no_survey", "decision": decision,
+                                                              "no_survey": res["no_survey"]})
+        surveys = {lang: clean(s) for lang, s in res["surveys"].items()}     # schema-valid: _-keys stripped
+        for s in surveys.values():
+            store.put_survey(s)
         with app.state.lock:
-            result = run_insight(insight, farmer)
-            decision = _decision_dict(result["decision"])
+            a = admit(store, res["handoff"])
+        return UTF8JSONResponse(status_code=201, content={
+            "status": "survey", "decision": decision, "surveys": surveys, "handoff": a.handoff,
+            "admission": {"decision": a.decision, "reason": a.reason}})
 
-            if "no_survey" in result:
-                return UTF8JSONResponse(
-                    status_code=200,
-                    content={"status": "no_survey", "decision": decision,
-                             "no_survey": result["no_survey"]},
-                )
-
-            # A survey. Admit it to the one shared scheduler (weekly cap + opt-outs + quality
-            # gate). Admitting the same insight again returns the first decision and takes no
-            # second weekly slot (CapLedger de-dupes by handoff_id).
-            handoff = result["handoff"]
-            admit = app.state.scheduler.admit(handoff)
-            # The resulting hand-off: a moved copy or a merge host when the cap changed it.
-            out_handoff = admit.handoff
-
-            # surveys and handoff must pass the existing schemas; strip _-prefixed keys.
-            surveys = {lang: clean(s) for lang, s in result["surveys"].items()}
-            return UTF8JSONResponse(
-                status_code=201,
-                content={"status": "survey", "decision": decision, "surveys": surveys,
-                         "handoff": out_handoff,
-                         "admission": {"decision": admit.decision, "reason": admit.reason}},
-            )
-
-    @app.get("/surveys/due")
+    @app.get("/surveys/due", dependencies=guarded)
     def surveys_due(at: str | None = None, limit: int | None = None):
-        """Read-only: the hand-offs the broadcaster would send at `at` (default: the
-        scheduler's simulated clock). Never advances the clock, sends, or dequeues anything.
-
-        `at` is ISO 8601 with a timezone offset. In a query string a literal `+` decodes to a
-        space, so `at=...+05:30` arrives as `... 05:30`; we restore that single space to `+`
-        so the raw form works as well as the percent-encoded `%2B05:30`."""
-        scheduler = app.state.scheduler
+        """Read-only: what a sender should send at `at` (ISO 8601 with offset; default: now). In a query string
+        a literal `+` decodes to a space, so `...+05:30` arrives as `... 05:30`; that one space is restored."""
         if at is None:
-            clock = scheduler.clock
+            now = datetime.now(IST)
         else:
-            fixed = at.replace(" ", "+", 1) if " " in at else at   # query-string '+'-as-space
             try:
-                clock = _FixedClock(parse_ist(fixed))
+                now = parse_ist(at.replace(" ", "+", 1) if " " in at else at)
             except (ValueError, TypeError):
-                return UTF8JSONResponse(status_code=422,
-                                    content={"detail": "`at` must be ISO 8601 with a timezone offset"})
+                return _bad(422, "`at` must be ISO 8601 with a timezone offset")
         if limit is not None and limit < 0:
-            return UTF8JSONResponse(status_code=422, content={"detail": "`limit` must be 0 or more"})
-
-        now = clock.now()
-        opt_out = scheduler.opt_out
-        rt = scheduler.relevance_threshold
+            return _bad(422, "`limit` must be 0 or more")
+        # Window opened and not expired come from the database; the rest matches Broadcaster._decide_one.
         due = []
-        # due_now gives window-opened hand-offs in send-window order (read-only view). Then we
-        # keep only what the broadcaster would really SEND now, matching Broadcaster._decide_one:
-        # not opted out, not past not_after, not past expires_at, passes the P4 quality gate,
-        # and inside the day's send hours.
-        for h in scheduler.broadcaster.due_now(clock):
-            if opt_out is not None and opt_out.blocks(h):
+        for h in sorted(store.due(fmt_ist(now.astimezone(IST))), key=queue_key):
+            if store.opted_out(h["survey"]["farmer_id"]):
                 continue
             if now > parse_ist(h["send_window"]["not_after"]):
                 continue
-            if now > parse_ist(h["expires_at"]):
-                continue
-            if not passes_quality(h["survey"], rt):
+            if not passes_quality(h["survey"], RELEVANCE_THRESHOLD):
                 continue
             if not within_send_hours(now, h.get("send_hours")):
                 continue
             due.append(h)
         if limit is not None:
             due = due[:limit]
-        # Return each stored hand-off unchanged, so every entry in `handoffs` is a full,
-        # schema-valid schedule_handoff (same object the scheduler holds and would send).
         return {"as_of": fmt_ist(now), "count": len(due), "handoffs": due}
 
+    @app.get("/v1/surveys/{flow_id}", dependencies=guarded)
+    def get_flow(flow_id: str):
+        """Static registration: the flow id is derived when the hand-off is built (rules.json farmerchat_flow), and
+        this is what FarmerChat reads back under it. A real registration call replaces the derivation, not this."""
+        found = store.handoff_by_flow(flow_id)
+        if not found:
+            return _bad(404, "unknown flow_id")
+        body, decision, reason = found
+        return {"flow": body["farmerchat_flow"], "admission": {"decision": decision, "reason": reason}, "handoff": body}
+
+    @app.post("/v1/surveys/{flow_id}/responses", dependencies=guarded)
+    async def post_response(flow_id: str, request: Request):
+        record = await _json_object(request)
+        if record is None:
+            return _bad(422, "body must be a JSON object")
+        found = store.handoff_by_flow(flow_id)
+        if not found:
+            return _bad(404, "unknown flow_id")
+        problems = errors("response", record)
+        if problems:
+            return _bad(422, problems)
+        survey = found[0]["survey"]
+        if record["survey_id"] != survey["survey_id"] or record["farmer_id"] != survey["farmer_id"]:
+            return _bad(422, "survey_id and farmer_id must match the flow's survey")
+        new = store.put_response(record, flow_id)
+        if record.get("failure_code") == "farmer_opted_out":
+            store.opt_out(record["farmer_id"], record["response_key"], record["recorded_at"])
+        return UTF8JSONResponse(status_code=201 if new else 200, content={
+            "response_key": record["response_key"], "status": record["status"], "stored": new,
+            "needs_follow_up": bool(record.get("needs_follow_up")),
+            "follow_up_reasons": list(record.get("follow_up_reasons") or []),
+            "opted_out": store.opted_out(record["farmer_id"])})
+
+    @app.get("/follow-ups", dependencies=guarded)
+    def follow_ups(limit: int | None = None):
+        if limit is not None and limit < 0:
+            return _bad(422, "`limit` must be 0 or more")
+        rows = store.follow_ups(limit)
+        return {"count": len(rows), "responses": rows}
+
     return app
-
-
-class _FixedClock:
-    """A minimal read-only clock holding one instant, for a `GET /surveys/due?at=...` call.
-    It only needs `now()`; the broadcaster's `due_now` reads nothing else."""
-
-    def __init__(self, now):
-        self._now = now
-
-    def now(self):
-        return self._now
-
-
-# Module-level app for `uvicorn mel.api.app:app`.
-app = create_app()

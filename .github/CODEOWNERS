@@ -14,8 +14,7 @@
 /infra/                   @lucasDQB
 /Dockerfile               @lucasDQB
 /.dockerignore            @lucasDQB
-/requirements.txt         @lucasDQB
-/requirements-api.txt     @lucasDQB
+/pyproject.toml           @lucasDQB
 /LICENSE                  @lucasDQB
 /NOTICE                   @lucasDQB
 /tests/test_data.py       @lucasDQB

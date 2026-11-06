@@ -17,7 +17,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff
+        run: pip install -e ".[dev]"
       - name: Lint (ruff, rules in pyproject.toml)
         run: ruff check
       - name: Run tests
@@ -31,10 +31,10 @@ jobs:
       - name: Excel and JSON parity
         run: python -m mel.cli parity
       - name: Build the API image
-        run: docker build -t mel-survey-agent-api:ci .
+        run: docker build --target api -t mel-survey-agent-api:ci .
       - name: Smoke-test the API image (/healthz)
         run: |
-          docker run -d --name mel-api-ci -p 8000:8000 mel-survey-agent-api:ci
+          docker run -d --name mel-api-ci -p 8000:8000 -e MEL_API_TOKEN=ci mel-survey-agent-api:ci
           for i in $(seq 1 20); do
             if curl -fs http://127.0.0.1:8000/healthz; then ok=1; break; fi
             sleep 1
@@ -43,7 +43,7 @@ jobs:
           docker rm -f mel-api-ci
           test "${ok:-0}" = "1"
       - name: Build the UI image
-        run: docker build -f ui.Dockerfile -t mel-survey-agent-ui:ci .
+        run: docker build --target ui -t mel-survey-agent-ui:ci .
       - name: Smoke-test the UI image (/_stcore/health)
         run: |
           docker run -d --name mel-ui-ci -p 8501:8501 mel-survey-agent-ui:ci

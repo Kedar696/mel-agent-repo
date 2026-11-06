@@ -20,7 +20,7 @@ command line, CI and the integration guarantees between the Excel workbooks and 
 `import mel.cli, mel.pipeline, mel.data` SHALL NOT load `openpyxl`; it is imported only inside functions that read a workbook.
 
 ### R-4 CI
-CI SHALL use Python 3.12 only and run, in order: `pip install -r requirements.txt`, `pytest -q`, `python -m mel.cli run --simulate`,
+CI SHALL use Python 3.12 only and run, in order: `pip install -e ".[dev]"`, `pytest -q`, `python -m mel.cli run --simulate`,
 `validate`, `eval`, `parity`, with no `continue-on-error` and no `|| true`.
 
 ### R-5 `run --clean`

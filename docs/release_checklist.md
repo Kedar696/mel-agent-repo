@@ -16,7 +16,7 @@ git clone --branch main --single-branch https://github.com/michvinh-7/mel-agent-
 cd /tmp/mel_release
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 pytest -q
 python -m mel.cli run --simulate --clean
 python -m mel.cli validate
@@ -39,8 +39,8 @@ Expected (full pack): `run` → sent+moved = 2,038 out (1,613 sent, 425 moved, 4
 
 REST API:
 ```
-pip install -r requirements-api.txt
-uvicorn mel.api.app:app
+pip install -e ".[api]"
+MEL_API_TOKEN=change-me uvicorn --factory mel.api.app:create_app
 ```
 In another terminal (Windows: use `curl.exe`):
 ```

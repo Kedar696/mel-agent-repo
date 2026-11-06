@@ -5,7 +5,7 @@ write the change down as a request to that person and carry on.
 
 | Owner | Files |
 |---|---|
-| P1 Data, Contracts & Integration | `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/`, `scripts/`, `data/mock/`, `.github/`, `.kiro/`, `requirements.txt`, `.env.example`, `tests/test_data.py` and P1's new `tests/test_*.py` (`test_cli.py`, `test_parity.py`) |
+| P1 Data, Contracts & Integration | `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/`, `scripts/`, `data/mock/`, `.github/`, `.kiro/`, `pyproject.toml`, `.env.example`, `tests/test_data.py` and P1's new `tests/test_*.py` (`test_cli.py`, `test_parity.py`) |
 | P2 Decision & Timing | `mel/decision/`, `mel/timing/`, `tests/test_decision.py`, `tests/test_timing.py` |
 | P3 Scheduler, Channels & Simulator | `mel/schedule/`, `mel/channels/`, `mel/simulator/`, `tests/test_schedule.py`, `tests/test_simulator.py` |
 | P4 Survey Writing & Safety | `mel/writer/`, `tests/test_writer.py` |
@@ -20,4 +20,4 @@ write the change down as a request to that person and carry on.
 
 ## Branches
 Branch per task. Never push to `main` directly; PRs are reviewed by a downstream owner. P1's branch is `lucas-p1`.
-Shared shapes (function signatures, schemas, `requirements.txt`): post in chat first.
+Shared shapes (function signatures, schemas, the dependencies in `pyproject.toml`): post in chat first.

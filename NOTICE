@@ -9,6 +9,5 @@ reference / synthetic fixtures for this hackathon, under Digital Green's own ter
 
   - mel-survey-agent-participant-pack/   (the organisers' participant pack, verbatim)
   - data/mock/                           (a synthetic subset derived from the pack)
-  - demo/p4_standalone/data/             (synthetic data derived from the pack)
 
 Do not redistribute the participant pack or pack-derived data under the Apache-2.0 license.

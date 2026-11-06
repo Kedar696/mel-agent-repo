@@ -9,7 +9,8 @@ secrets in any file.
 | Piece | Where | Status |
 |---|---|---|
 | Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | Definition, checked in CI (`terraform fmt -check`, `terraform validate`); apply it before `agentcore launch` |
-| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
+| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds the `Dockerfile`'s `ui` target from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
+| The **REST API** (`mel/api`): its state (surveys, hand-offs, answers, opt-outs) in **Amazon RDS for PostgreSQL**, Digital Green's database | `terraform/db.tf` (us-east-1); the API container is `docker build --target api .` and runs anywhere that reaches the database (ECS, EKS, a laptop) with `MEL_DATABASE_URL` and `MEL_API_TOKEN` | Definition, checked in CI; not applied |
 | The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | Steps in `docs/agentcore.md`. Set its ARN on the UI (`MEL_AGENTCORE_ARN`) and "Run the agent" runs live; until then the app shows the recorded runs |
 
 ## Terraform (`terraform/`)
@@ -20,6 +21,10 @@ secrets in any file.
   `agentcore launch` (docs/agentcore.md).
 - `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service. Its task
   role may only call `bedrock-agentcore:InvokeAgentRuntime` on this account's runtimes in the agent's region.
+- `db.tf`: a small PostgreSQL instance (`db.t4g.micro`, encrypted, private, 7-day backups) in the default VPC, with
+  its master password generated and kept by Secrets Manager (`manage_master_user_password`, so no secret is in the
+  file or the state). Outputs `db_endpoint` and `db_master_secret_arn`; `MEL_DATABASE_URL` is
+  `postgresql://mel:<password>@<endpoint>/mel`.
 
 ```bash
 cd infra/terraform
@@ -40,10 +45,10 @@ second apply, with that SHA, creates the service, and `terraform output ui_url` 
 ARNs); a team sharing one setup would add an S3 backend.
 
 ## The Streamlit UI on ECS Express Mode (live since 5 Nov)
-`ui.Dockerfile` at the repo root packages `app/streamlit_app.py` with the participant pack and the
-recorded agent runs; `ui.Dockerfile.dockerignore` next to it decides what is copied in (Docker uses
-`<Dockerfile>.dockerignore` when it exists; `.dockerignore` belongs to the API image). CI builds the
-image and checks `/_stcore/health`. `terraform/ui.tf` is the same setup as infrastructure-as-code.
+The `ui` target of the one `Dockerfile` at the repo root packages `app/streamlit_app.py` with the
+participant pack and the recorded agent runs (`.dockerignore` decides what is copied in; the `api` and
+`agent` targets copy only what they import). CI builds the image and checks `/_stcore/health`.
+`terraform/ui.tf` is the same setup as infrastructure-as-code.
 
 Why Express Mode: App Runner stopped taking new customers on 30 April 2026, and Express Mode is the
 replacement AWS points to. One container image in; ECS creates the Fargate service, the HTTPS load
@@ -61,7 +66,7 @@ because Streamlit keeps each visitor's session inside the process. The task role
    in `terraform/ui.tf`).
 3. CodeBuild project `fasal-pulse-ui-build` with the same buildspec, then
    `aws codebuild start-build --project-name fasal-pulse-ui-build`: it clones GitHub, builds
-   `ui.Dockerfile` on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
+   the `ui` target on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
 4. `aws ecs create-cluster --cluster-name default`, then
    ```bash
    aws ecs create-express-gateway-service --service-name fasal-pulse-ui \
@@ -86,11 +91,12 @@ AccessDenied error and the recorded runs are still there.
 To stop paying: `aws ecs delete-express-gateway-service --service-arn <arn>` (and empty the registry).
 Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
 
-### Why one copy only
-The REST API (`mel/api`, `Dockerfile`) and the UI keep their scheduler state (the weekly-cap ledger, the opt-out
-list and the queue of hand-offs) **in memory**. Two copies would each hold a different, out-of-step state and
-would disagree about what is due, so the service runs a single task. Running more than one needs a shared store
-(see "Production design" below); that is not built.
+### Why the UI runs one copy, and the API any number
+The UI keeps each visitor's Streamlit session in its process, so the service runs a single task. The REST API
+(`mel/api`, `docker build --target api .`) keeps nothing between requests: surveys, hand-offs, answer records and
+opt-outs live in the database `MEL_DATABASE_URL` names (`terraform/db.tf` on AWS; a SQLite file locally), and the
+weekly cap is decided per request from that farmer's stored hand-offs, so two copies agree. Every call but
+`/healthz` needs `Authorization: Bearer <MEL_API_TOKEN>`; pass both settings to the container as secrets.
 
 ### IAM action names (so no one copies the wrong ones)
 The agent's execution role allows exactly `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`,
@@ -105,12 +111,13 @@ system, not this hackathon build. They are **slide-only**; there is no code or t
 here:
 - **EventBridge / Step Functions** — the real "alarm clock": send at the right time, retry on
   WhatsApp after 24 h. In this project the simulated clock does that deterministically.
-- **RDS for PostgreSQL** — the shared database that would hold the weekly limit and opt-outs
-  across restarts and across more than one instance. Here that state is in memory.
+- **RDS for PostgreSQL** — now built for the REST API (`mel/store.py`, `terraform/db.tf`): the weekly limit,
+  opt-outs, hand-offs and answers survive restarts and are shared by every copy. Not yet applied to the account.
 - **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
 
 ## What we could and could not validate here
 - `terraform/`: `terraform fmt -check` and `terraform validate` pass (Terraform 1.17.1, AWS provider 6.72; CI
   runs both). An offline apply against a mocked AWS provider ran clean. `tests/test_infra.py` checks the bucket,
-  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. Not yet applied to the
+  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. `db.tf` is only
+  validated, never applied. Not yet applied to the
   account: the UI there was made by hand as described above, and the agent's resources are still to be applied.
