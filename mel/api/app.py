@@ -25,6 +25,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from mel.agent import run_agent_to_end
 from mel.config import IST, env
@@ -116,7 +117,8 @@ def create_app(farmers: dict | None = None, store: Store | None = None, token: s
         # History and attention stay off, matching the CLI default. Junk input is not an error: the agent
         # returns the R1 no-survey result, reported as a 200 no_survey.
         farmer = app.state.farmers.get(insight.get("farmer_id"))
-        _, res = run_agent_to_end(insight, farmer=farmer)
+        # Off the event loop: with Bedrock on, one run takes seconds, and /healthz must keep answering meanwhile.
+        _, res = await run_in_threadpool(run_agent_to_end, insight, farmer=farmer)
         decision = res["decision"]
         if not decision["survey"]:
             store.put_no_survey(res["no_survey"])

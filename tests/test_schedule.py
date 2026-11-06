@@ -127,3 +127,21 @@ def test_allow_still_works_as_before():
     assert led.allow(h) is True   # first within cap
     h2 = copy.deepcopy(h); h2["handoff_id"] = "H-55555"
     assert led.allow(h2) is False  # second non-exempt in same window blocked
+
+
+def test_admit_move_clears_every_prior_send_not_only_the_blocking_ones():
+    """A moved date must be a week clear of EVERY prior send, including one admitted out of order that
+    is more than 7 days from the original start but less than 7 from the moved date. The API rebuilds the
+    ledger from stored hand-offs (in date order) and admits without the batch's deferred re-check."""
+    def at(hid, day, last=25):
+        h = _handoff()
+        h["handoff_id"] = hid
+        win = {"not_before": f"2026-12-{day:02d}T07:00:00+05:30", "not_after": f"2026-12-{last:02d}T19:00:00+05:30"}
+        h["send_window"], h["survey"]["send_window"], h["expires_at"] = win, dict(win), "2026-12-31T19:00:00+05:30"
+        return h
+    led = CapLedger()
+    assert led.admit(at("H-a", 3)).decision == "sent"
+    assert led.admit(at("H-b", 12)).decision == "sent"
+    a = led.admit(at("H-c", 1))                # blocked by the 3rd; a move to the 10th would clash with the 12th
+    assert a.decision == "moved" and a.handoff["send_window"]["not_before"] == "2026-12-19T07:00:00+05:30"
+    assert led.admit(at("H-d", 1, last=15)).decision == "skipped"     # no date clear of both before the 15th

@@ -35,6 +35,7 @@ from mel.writer.templates import question_count, template_items
 
 MAX_REVISIONS = 2          # bounded revision: drafts after the first one, before falling back to the template
 MAX_PROMPT_CHARS = 120     # short, tap-to-answer. Model drafts averaged 114 characters on 5 Nov; templates 28
+MAX_PAYLOAD_REVISIONS = 5  # the most a caller may ask for over the runtime (each revision is a paid model call)
 LANGS = ("en-IN", "hi-IN")
 
 
@@ -122,6 +123,20 @@ def bedrock_guardrail(guardrail_id: str, version: str = "DRAFT", runtime=None):
             return ", ".join(names) or "intervened"
         return None
     return check
+
+
+def payload_options(payload: dict) -> tuple[dict, str]:
+    """`langs` and `max_revisions` from an AgentCore payload -> (run_agent keyword arguments, problem). The payload
+    is a trust boundary: a bad value becomes an error event, never a crash, and revisions are capped so one call
+    cannot be asked to spend without limit."""
+    try:
+        langs = tuple(norm_lang(lang) for lang in (payload.get("langs") or LANGS))
+        max_revisions = int(payload.get("max_revisions", MAX_REVISIONS))
+    except (TypeError, ValueError) as e:
+        return {}, f"bad langs or max_revisions: {e}"
+    if not 0 <= max_revisions <= MAX_PAYLOAD_REVISIONS:
+        return {}, f"max_revisions must be 0 to {MAX_PAYLOAD_REVISIONS}"
+    return {"langs": langs, "max_revisions": max_revisions}, ""
 
 
 def guardrail_from_env(runtime=None):
