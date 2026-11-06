@@ -85,12 +85,12 @@ The full policy, with the exact move/merge/skip rules, is in [docs/cap_policy.md
 A thin FastAPI front in `mel/api/`. `POST /surveys` runs the same agent as the CLI and AgentCore
 (`mel.agent.run_agent`: decide, write with Bedrock or the templates, verify, hand off) and admits the
 result with P3's opt-out, quality and weekly-cap rules unchanged. Everything that must outlive a process
-(surveys, hand-offs, answers, opt-outs) is in one database, so any number of replicas can run.
+(surveys, hand-offs, answers, opt-outs) is in one SQLite file, so a restart loses nothing.
 
 | Setting | Meaning | Default |
 |---|---|---|
 | `MEL_API_TOKEN` | the bearer token every call but `/healthz` must send. The API refuses to start without one. | none |
-| `MEL_DATABASE_URL` | `postgresql://user:pass@host:5432/mel` (Amazon RDS for PostgreSQL, Digital Green's database) or `sqlite:///path` | `sqlite:///<MEL_OUT_DIR>/mel.sqlite3` |
+| `MEL_DATABASE_URL` | `sqlite:///path` (a file) or `sqlite://` (in memory) | `sqlite:///<MEL_OUT_DIR>/mel.sqlite3` |
 
 ```bash
 pip install -e ".[api]"

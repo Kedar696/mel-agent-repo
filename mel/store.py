@@ -1,11 +1,10 @@
 """The API's one database: surveys, hand-offs, answers and opt-outs. Owner: P1.
 
-MEL_DATABASE_URL picks the engine:
-  postgresql://user:pass@host:5432/mel   Amazon RDS for PostgreSQL (Digital Green's database); needs psycopg
-  sqlite:///out/mel.sqlite3              a local file (the default: <MEL_OUT_DIR>/mel.sqlite3)
+MEL_DATABASE_URL names a SQLite database (the standard library's sqlite3, no driver to install):
+  sqlite:///out/mel.sqlite3              a file (the default: <MEL_OUT_DIR>/mel.sqlite3)
   sqlite://                              in memory, for tests
-The SQL is the same on both; only the driver and its placeholder differ. Each record is kept whole as JSON text
-next to the few columns the API filters on, so the schemas in config/schemas stay the only contract.
+Each record is kept whole as JSON text next to the few columns the API filters on, so the schemas in
+config/schemas stay the only contract.
 """
 import json
 import os
@@ -43,34 +42,25 @@ class Store:
     def __init__(self, url: str | None = None):
         from mel.config import OUT
         self.url = url or os.environ.get("MEL_DATABASE_URL") or f"sqlite:///{OUT / 'mel.sqlite3'}"
+        if not self.url.startswith("sqlite://"):
+            raise ValueError(f"MEL_DATABASE_URL must start with sqlite://, got {self.url!r}")
+        rest = self.url[len("sqlite://"):]
+        path = rest[1:] if rest.startswith("/") else rest     # sqlite:///relative, sqlite:////absolute
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
         # ponytail: one connection behind one lock; a pool when more than a few requests a second matter
         self._lock = threading.Lock()
-        if self.url.startswith("postgres"):
-            import psycopg
-            self._db = psycopg.connect(self.url, autocommit=True)
-            self._param = "%s"
-        elif self.url.startswith("sqlite://"):
-            rest = self.url[len("sqlite://"):]
-            path = rest[1:] if rest.startswith("/") else rest     # sqlite:///relative, sqlite:////absolute
-            if path:
-                Path(path).parent.mkdir(parents=True, exist_ok=True)
-            self._db = sqlite3.connect(path or ":memory:", check_same_thread=False, isolation_level=None)
-            self._param = "?"
-        else:
-            raise ValueError(f"MEL_DATABASE_URL must start with postgresql:// or sqlite://, got {self.url!r}")
+        self._db = sqlite3.connect(path or ":memory:", check_same_thread=False, isolation_level=None)
         for stmt in SCHEMA:
             self._run(stmt)
 
-    def _sql(self, sql: str) -> str:
-        return sql if self._param == "?" else sql.replace("?", self._param)
-
     def _run(self, sql: str, params=()):
         with self._lock:
-            return self._db.execute(self._sql(sql), params)
+            return self._db.execute(sql, params)
 
     def _rows(self, sql: str, params=()) -> list:
         with self._lock:
-            return self._db.execute(self._sql(sql), params).fetchall()
+            return self._db.execute(sql, params).fetchall()
 
     # ------------------------------------------------------------------ writes
     def put_survey(self, survey: dict) -> None:

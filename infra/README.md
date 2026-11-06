@@ -20,10 +20,6 @@ secrets in any file.
   `agentcore launch` (docs/agentcore.md).
 - `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service. Its task
   role may only call `bedrock-agentcore:InvokeAgentRuntime` on this account's runtimes in the agent's region.
-- `db.tf`: a small PostgreSQL instance (`db.t4g.micro`, encrypted, private, 7-day backups) in the default VPC, with
-  its master password generated and kept by Secrets Manager (`manage_master_user_password`, so no secret is in the
-  file or the state). Outputs `db_endpoint` and `db_master_secret_arn`; `MEL_DATABASE_URL` is
-  `postgresql://mel:<password>@<endpoint>/mel`.
 
 ```bash
 cd infra/terraform
@@ -90,12 +86,12 @@ AccessDenied error and the recorded runs are still there.
 To stop paying: `aws ecs delete-express-gateway-service --service-arn <arn>` (and empty the registry).
 Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
 
-### Why the UI runs one copy, and the API any number
+### Why one copy
 The UI keeps each visitor's Streamlit session in its process, so the service runs a single task. The REST API
-(`mel/api`, `docker build --target api .`) keeps nothing between requests: surveys, hand-offs, answer records and
-opt-outs live in the database `MEL_DATABASE_URL` names (`terraform/db.tf` on AWS; a SQLite file locally), and the
-weekly cap is decided per request from that farmer's stored hand-offs, so two copies agree. Every call but
-`/healthz` needs `Authorization: Bearer <MEL_API_TOKEN>`; pass both settings to the container as secrets.
+(`mel/api`, `docker build --target api .`) keeps surveys, hand-offs, answer records and opt-outs in the SQLite file
+`MEL_DATABASE_URL` names, and decides the weekly cap per request from that farmer's stored hand-offs, so a restart
+of the process loses nothing. One copy per file; a shared database is the upgrade if a second copy is ever needed.
+Every call but `/healthz` needs `Authorization: Bearer <MEL_API_TOKEN>`; pass it to the container as a secret.
 
 ### IAM action names (so no one copies the wrong ones)
 The agent's execution role allows exactly `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`,
@@ -110,8 +106,8 @@ system, not this hackathon build. They are **slide-only**; there is no code or t
 here:
 - **EventBridge / Step Functions** — the real "alarm clock": send at the right time, retry on
   WhatsApp after 24 h. In this project the simulated clock does that deterministically.
-- **RDS for PostgreSQL** — now built for the REST API (`mel/store.py`, `terraform/db.tf`): the weekly limit,
-  opt-outs, hand-offs and answers survive restarts and are shared by every copy. Not yet applied to the account.
+- **RDS for PostgreSQL** — the shared database more than one API copy would need. Here the API keeps a SQLite
+  file (`mel/store.py`).
 - **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
 
 ## What we could and could not validate here

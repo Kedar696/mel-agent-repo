@@ -12,9 +12,9 @@ Endpoints (every one but /healthz needs `Authorization: Bearer <MEL_API_TOKEN>`)
   GET  /follow-ups                       answer records that need a person (needs_follow_up)
   GET  /healthz                          liveness
 
-State lives in the database MEL_DATABASE_URL names (Amazon RDS for PostgreSQL, or SQLite locally), so any number of
-replicas can run. The weekly cap is decided per request from that farmer's stored hand-offs; the same hand-off again
-returns its first decision and takes no second slot.
+State lives in the SQLite database MEL_DATABASE_URL names, so a restart loses nothing. The weekly cap is decided
+per request from that farmer's stored hand-offs; the same hand-off again returns its first decision and takes no
+second slot.
 
 Run it:  MEL_API_TOKEN=... uvicorn --factory mel.api.app:create_app
 """

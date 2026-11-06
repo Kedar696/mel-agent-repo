@@ -1,4 +1,4 @@
-"""P1: mel.store, the API's database (SQLite here; the same SQL runs on RDS Postgres)."""
+"""P1: mel.store, the API's SQLite database."""
 from datetime import timedelta
 
 import pytest
@@ -57,12 +57,6 @@ def test_responses_are_stored_once_and_feed_follow_ups_and_opt_outs():
     s.opt_out(fid, rec["response_key"], rec["recorded_at"])
     s.opt_out(fid, "rk-later", rec["recorded_at"])                   # the first opt-out stands
     assert s.opted_out(fid) is True and s.counts()["opt_outs"] == 1
-
-
-def test_postgres_gets_its_own_placeholder():
-    s = Store.__new__(Store)
-    s._param = "%s"
-    assert s._sql("a = ? AND b IN (?, ?)") == "a = %s AND b IN (%s, %s)"
 
 
 def test_unknown_engine_is_refused():
