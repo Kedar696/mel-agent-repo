@@ -5,6 +5,7 @@ Usage: python scripts/make_mock_data.py [--pack mel-survey-agent-participant-pac
 Writes data/mock/{insights.jsonl,golden_set.jsonl,farmers.csv}.
 Stratified: every resolution_type, both languages, junk rows, and every golden rule R1-R8.
 """
+
 import argparse, csv, json, random
 from collections import defaultdict
 from pathlib import Path
@@ -15,8 +16,11 @@ OUT = ROOT / "data" / "mock"
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pack", default=str(ROOT / "mel-survey-agent-participant-pack" / "participant-pack"),
-                    help="participant-pack folder (default: the committed pack)")
+    ap.add_argument(
+        "--pack",
+        default=str(ROOT / "mel-survey-agent-participant-pack" / "participant-pack"),
+        help="participant-pack folder (default: the committed pack)",
+    )
     ap.add_argument("--n", type=int, default=60, help="insights to sample")
     ap.add_argument("--seed", type=int, default=7)
     a = ap.parse_args()
@@ -54,7 +58,9 @@ def main():
         for g in gpick:
             f.write(json.dumps(g, ensure_ascii=False) + "\n")
     with open(OUT / "farmers.csv", "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(frows)
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(frows)
     print(f"insights={len(picked)} golden={len(gpick)} farmers={len(frows)} -> {OUT}")
 
 

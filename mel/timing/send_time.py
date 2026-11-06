@@ -11,6 +11,7 @@ Explainable rules, first match wins:
 Rule 5 is not learned from data: the pack's chat times are spread evenly over the day.
 Only "evening" is matched in advice text; the one "morning" in the pack is a negation.
 """
+
 from collections import Counter
 from datetime import datetime, time, timedelta
 from math import comb
@@ -100,8 +101,9 @@ def _at(window: dict, slot: str | None, rule: str, reason: str, assumption: bool
     return {"send_at": fmt_ist(at), "slot": slot, "rule": rule, "assumption": assumption, "reason": reason}
 
 
-def pick_send_time(insight: dict, window: dict, farmer: dict | None = None, history_hours=(),
-                   attention: dict | None = None) -> dict:
+def pick_send_time(
+    insight: dict, window: dict, farmer: dict | None = None, history_hours=(), attention: dict | None = None
+) -> dict:
     """One send time inside `window`, with the rule and reason behind it.
 
     `farmer` is the farmers.csv row (optional). `history_hours` are the farmer's earlier
@@ -116,24 +118,43 @@ def pick_send_time(insight: dict, window: dict, farmer: dict | None = None, hist
     is_call = channel in CALL_CHANNELS or method in CALL_METHODS
 
     if attention and attention.get("tier") == "surge":
-        return _at(window, None, "attention_surge",
-                   "Rising activity: send as soon as the window opens.")
+        return _at(window, None, "attention_surge", "Rising activity: send as soon as the window opens.")
     if insight.get("severity") in ("high", "critical"):
         return _at(window, None, "high_severity", "High severity: send as soon as the window opens.")
     if "evening" in (insight.get("advice_summary") or "").lower():
-        return _at(window, "morning", "advice_evening",
-                   "The advice is carried out in the evening, so ask the next morning.")
+        return _at(
+            window, "morning", "advice_evening", "The advice is carried out in the evening, so ask the next morning."
+        )
     usual = usual_slot(history_hours)
     if usual and (is_call or farmer.get("activity_level") == "light"):
         return _at(window, usual, "usual_time", f"The farmer usually chats in the {usual.replace('_', ' ')}.")
     if not is_call:
-        return _at(window, None, "async_channel",
-                   f"The {channel or 'chosen'} channel can be read later, so send when the window opens.")
+        return _at(
+            window,
+            None,
+            "async_channel",
+            f"The {channel or 'chosen'} channel can be read later, so send when the window opens.",
+        )
     if _in_harvest(insight, parse_ist(window["not_before"]).date()):
-        return _at(window, "evening", "harvest_busy",
-                   "Assumption: harvest keeps farmers in the field all day, so call in the evening.", True)
+        return _at(
+            window,
+            "evening",
+            "harvest_busy",
+            "Assumption: harvest keeps farmers in the field all day, so call in the evening.",
+            True,
+        )
     if farmer.get("livestock"):
-        return _at(window, "afternoon", "livestock_chores",
-                   "Assumption: milking and feeding fill mornings and evenings, so call in the afternoon.", True)
-    return _at(window, "evening", "call_default",
-               "Assumption: farmers are home after field work, so call in the evening.", True)
+        return _at(
+            window,
+            "afternoon",
+            "livestock_chores",
+            "Assumption: milking and feeding fill mornings and evenings, so call in the afternoon.",
+            True,
+        )
+    return _at(
+        window,
+        "evening",
+        "call_default",
+        "Assumption: farmers are home after field work, so call in the evening.",
+        True,
+    )

@@ -22,27 +22,33 @@ number of hand-off, survey and response files does, which `docs/TEAM.md` asks to
 
 ## The change to `cmd_run` (replaces the loop over `result.outputs`)
 ```python
-    from mel.schedule import run_batch, FrequencyScheduler
-    from mel.channels import FarmerReachability
-    result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers)
-    by_handoff = {}
-    for ins, out in zip(result.insights, result.outputs):
-        if "no_survey" in out:
-            _dump(OUT / "no_survey" / f"{ins.get('insight_id','unknown')}.json", out["no_survey"])
-        else:
-            by_handoff[out["handoff"]["handoff_id"]] = out
-    batch = run_batch([o["handoff"] for o in by_handoff.values()],
-                      relevance_threshold=RELEVANCE_THRESHOLD,   # P4's published value
-                      simulate=a.simulate, reachability=FarmerReachability(farmers),
-                      ranker=FrequencyScheduler.from_insights(insights))
-    for h in batch.handoffs_to_send:                      # sent + moved; merged ride on the host
-        ids = h["survey"]["source_insight_ids"]
-        for lang, s in by_handoff[h["handoff_id"]]["surveys"].items():
-            _dump(OUT / "surveys" / f"{s['survey_id']}.{lang}.json", {**clean(s), "source_insight_ids": ids,
-                                                                      "send_window": h["send_window"]})
-        _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
-    for r in batch.responses:
-        _dump(OUT / "responses" / f"{r['response_key']}.json", r)
+from mel.schedule import run_batch, FrequencyScheduler
+from mel.channels import FarmerReachability
+
+result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers)
+by_handoff = {}
+for ins, out in zip(result.insights, result.outputs):
+    if "no_survey" in out:
+        _dump(OUT / "no_survey" / f"{ins.get('insight_id', 'unknown')}.json", out["no_survey"])
+    else:
+        by_handoff[out["handoff"]["handoff_id"]] = out
+batch = run_batch(
+    [o["handoff"] for o in by_handoff.values()],
+    relevance_threshold=RELEVANCE_THRESHOLD,  # P4's published value
+    simulate=a.simulate,
+    reachability=FarmerReachability(farmers),
+    ranker=FrequencyScheduler.from_insights(insights),
+)
+for h in batch.handoffs_to_send:  # sent + moved; merged ride on the host
+    ids = h["survey"]["source_insight_ids"]
+    for lang, s in by_handoff[h["handoff_id"]]["surveys"].items():
+        _dump(
+            OUT / "surveys" / f"{s['survey_id']}.{lang}.json",
+            {**clean(s), "source_insight_ids": ids, "send_window": h["send_window"]},
+        )
+    _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
+for r in batch.responses:
+    _dump(OUT / "responses" / f"{r['response_key']}.json", r)
 ```
 and add to `summary` (before `_dump(OUT / "run_summary.json", summary)`):
 ```python

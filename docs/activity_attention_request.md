@@ -36,13 +36,19 @@ fact is too late for send time. Add a real dataclass field and an `attention` pa
 class Decision:
     ...
     send_time: dict | None = None
-    attention: dict | None = None   # {tier, reason, ...}; None = off
+    attention: dict | None = None  # {tier, reason, ...}; None = off
+
 
 def decide(insight, farmer=None, history_hours=(), attention=None) -> Decision:
     ...  # every no-survey branch is UNCHANGED and ignores attention
-    return Decision(True, "R8", None, win,
-                    send_time=pick_send_time(insight, win, farmer, history_hours, attention),
-                    attention=attention)
+    return Decision(
+        True,
+        "R8",
+        None,
+        win,
+        send_time=pick_send_time(insight, win, farmer, history_hours, attention),
+        attention=attention,
+    )
 ```
 `decide()` still returns the same `survey`/`rule`/`send_window`; `attention` only reaches `pick_send_time` and
 is stored for downstream readers. No change to survey vs no-survey or the rule. Shared-shape change (agreed).
@@ -53,8 +59,7 @@ inside the window so it never sends before `not_before`:
 ```python
 def pick_send_time(insight, window, farmer=None, history_hours=(), attention=None):
     if attention and attention.get("tier") == "surge":
-        return _at(window, None, "attention_surge",
-                   "Rising activity: send as soon as the window opens.")
+        return _at(window, None, "attention_surge", "Rising activity: send as soon as the window opens.")
     ...  # unchanged from here
 ```
 `_at(window, None, …)` already clamps to the window opening (same mechanism `high_severity` uses), so R-5.2
@@ -69,14 +74,15 @@ def pick_send_time(insight, window, farmer=None, history_hours=(), attention=Non
 ### 3a. `build_handoff` takes the tier and adjusts priority
 ```python
 def build_handoff(insight, survey, attention=None):
-    prio = priority(insight)                        # unchanged brief priority
+    prio = priority(insight)  # unchanged brief priority
     if attention is not None:
         prio = adjust_priority(prio, insight, attention)
     ...  # the rest uses `prio` exactly as today (exempt, waits, channel_order, frequency_cap)
 ```
 ```python
-STEP_UP   = {"low": "normal", "normal": "high", "high": "high"}
-STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}   # never demote a brief-high survey
+STEP_UP = {"low": "normal", "normal": "high", "high": "high"}
+STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}  # never demote a brief-high survey
+
 
 def adjust_priority(brief_prio: str, insight: dict, attention: dict) -> str:
     tier = attention.get("tier")
@@ -87,8 +93,8 @@ def adjust_priority(brief_prio: str, insight: dict, attention: dict) -> str:
             return "normal"
         return up
     if tier == "steady_high":
-        return STEP_DOWN[brief_prio]          # only normal->low; high stays high (R-6.1)
-    return brief_prio                          # neutral
+        return STEP_DOWN[brief_prio]  # only normal->low; high stays high (R-6.1)
+    return brief_prio  # neutral
 ```
 Because `channel_order`, `wait_hours_by_priority`, and `frequency_cap.exempt` all derive from the final `prio`,
 a promoted surge automatically gets the voice fallback / 6-hour waits / cap exemption, and a demoted steady_high
@@ -128,7 +134,7 @@ item-count check both go through `question_count`, so putting the cap here makes
 history on or off (correction 2).
 ```python
 def question_count(insight, attention=None):
-    n = 2 if (insight['resolution_type'] != 'direct_action' or insight.get('severity') == 'low') else 3
+    n = 2 if (insight["resolution_type"] != "direct_action" or insight.get("severity") == "low") else 3
     if attention and attention.get("tier") == "steady_high":
         n = min(n, 2)
     return n
@@ -143,10 +149,11 @@ def personalize(items, i, mem, attention=None):
     # H3 fatigue: unchanged — still shortens, including for surge (R-6.4)
     ...
     tier = (attention or {}).get("tier")
-    if ctx['activity_level'] == 'light' and tier != 'surge':   # H4 skipped for surge (R-5, R-6.6)
-        if limit > 2: notes.append(('H4', 'light user'))
+    if ctx["activity_level"] == "light" and tier != "surge":  # H4 skipped for surge (R-5, R-6.6)
+        if limit > 2:
+            notes.append(("H4", "light user"))
         limit = min(limit, 2)
-    if tier == 'steady_high':
+    if tier == "steady_high":
         limit = min(limit, 2)
     if len(items) > limit:
         items = items[:limit]

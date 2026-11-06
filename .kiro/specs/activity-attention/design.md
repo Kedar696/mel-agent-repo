@@ -54,13 +54,14 @@ tuning does not touch code.
 ```python
 @dataclass(frozen=True)
 class Attention:
-    tier: str            # "surge" | "neutral" | "steady_high"
-    reason: str          # insufficient_history | quiet_then_high_weight | activity_jump | declining | none
+    tier: str  # "surge" | "neutral" | "steady_high"
+    reason: str  # insufficient_history | quiet_then_high_weight | activity_jump | declining | none
     baseline_per_week: float
     recent_count: int
     weight: float
     explanation: str
-    def as_dict(self) -> dict: ...   # exactly the keys R-4 lists, for Decision.attention / JSON summary
+
+    def as_dict(self) -> dict: ...  # exactly the keys R-4 lists, for Decision.attention / JSON summary
 ```
 
 ### 2.3 History index (built once per run)

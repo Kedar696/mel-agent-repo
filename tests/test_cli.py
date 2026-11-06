@@ -1,4 +1,5 @@
 """P1: CLI behaviour: validate, --limit, --clean, run_summary.json, junk_report.csv (items 1, 2, 7, 9, 10)."""
+
 import csv
 import inspect
 import json
@@ -21,11 +22,13 @@ def mel(*args, out: Path, data: Path | None = None):
     env = {**os.environ, "MEL_OUT_DIR": str(out)}
     if data:
         env["MEL_DATA_DIR"] = str(data)
-    return subprocess.run([sys.executable, "-m", "mel.cli", *args], cwd=ROOT, env=env,
-                          capture_output=True, text=True, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, "-m", "mel.cli", *args], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8"
+    )
 
 
 # --- validate (1) -----------------------------------------------------------------------
+
 
 def test_validate_fails_on_missing_folder(tmp_path):
     r = mel("validate", out=tmp_path / "nope")
@@ -54,6 +57,7 @@ def test_validate_reports_count_and_bad_json_by_name(tmp_path):
 
 # --- --limit (2) ------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("cmd", ["run", "junk"])
 def test_negative_limit_is_an_error_without_traceback(tmp_path, cmd):
     r = mel(cmd, "--limit", "-1", out=tmp_path)
@@ -71,6 +75,7 @@ def test_limit_zero_processes_nothing(tmp_path):
 
 
 # --- --clean (7) ------------------------------------------------------------------------
+
 
 def test_clean_empties_only_the_four_output_folders(tmp_path):
     for d in ("surveys", "handoffs", "no_survey", "responses"):
@@ -95,11 +100,13 @@ def test_without_clean_stale_files_stay(tmp_path):
 
 # --- run_pipeline (8) -------------------------------------------------------------------
 
+
 def test_run_pipeline_signature_and_result():
     params = list(inspect.signature(pipeline.run_pipeline).parameters)
     assert params[:3] == ["insights", "limit", "farmer"]
     assert pipeline.run_pipeline([]) is not None
     import mel.cli
+
     assert not hasattr(mel.cli, "_select")
 
 
@@ -117,6 +124,7 @@ def test_run_pipeline_filters_and_limits():
 def test_cmd_run_calls_run_pipeline(monkeypatch, tmp_path):
     import argparse
     import mel.cli as cli
+
     seen = {}
     real = cli.run_pipeline
 
@@ -143,6 +151,7 @@ def test_two_runs_write_identical_output(tmp_path):
 
 # --- run_summary.json (9) ---------------------------------------------------------------
 
+
 def _summary(out: Path) -> dict:
     return json.loads((out / "run_summary.json").read_text(encoding="utf-8"))
 
@@ -157,7 +166,7 @@ def test_run_summary_shape_and_consistency(tmp_path):
     assert s["rows_processed"] == sum(s["by_rule"].values()) == len(load_insights())
     assert sum(s["by_first_channel"].values()) == sum(s["by_priority"].values()) == s["surveys"]
     assert s["input_path"].endswith("insights.jsonl")
-    assert all(f"R{n}" in r.stdout for n in range(1, 9))   # the printed summary names the rule ids
+    assert all(f"R{n}" in r.stdout for n in range(1, 9))  # the printed summary names the rule ids
     # cmd_run now applies P3's weekly cap + opt-outs + quality gate (run_batch): what goes out is
     # schedule.sent + schedule.moved, not every planned hand-off. `surveys` stays the planned count.
     sched = s["schedule"]
@@ -179,6 +188,7 @@ def test_run_summary_respects_limit_and_farmer(tmp_path):
 
 # --- junk_report.csv (10) ---------------------------------------------------------------
 
+
 def _junk(out: Path) -> list[dict]:
     with open(out / "junk_report.csv", encoding="utf-8", newline="") as f:
         rd = csv.DictReader(f)
@@ -188,6 +198,7 @@ def _junk(out: Path) -> list[dict]:
 
 def test_junk_report_matches_junk_rows_and_never_changes_decisions(tmp_path):
     from mel.data import why_junk
+
     assert mel("run", out=tmp_path).returncode == 0
     rows = _junk(tmp_path)
     expect = [i["insight_id"] for i in load_insights() if why_junk(i)]
@@ -224,6 +235,7 @@ def test_junk_report_categories_on_full_pack(tmp_path):
 # cmd_run now routes planned hand-offs through mel.schedule.run_batch (docs/cap_policy.md),
 # so the files written are what actually goes out (sent + moved; merged ride their host).
 
+
 def _handoffs(out: Path) -> list[dict]:
     return [json.loads(p.read_text(encoding="utf-8")) for p in sorted((out / "handoffs").glob("*.json"))]
 
@@ -231,8 +243,18 @@ def _handoffs(out: Path) -> list[dict]:
 def test_schedule_block_in_summary(tmp_path):
     assert mel("run", "--simulate", out=tmp_path).returncode == 0
     sched = _summary(tmp_path)["schedule"]
-    for k in ("sent", "moved", "merged", "skipped", "opted_out", "rejected",
-              "duplicates", "prevented", "cap_violations", "late_answers"):
+    for k in (
+        "sent",
+        "moved",
+        "merged",
+        "skipped",
+        "opted_out",
+        "rejected",
+        "duplicates",
+        "prevented",
+        "cap_violations",
+        "late_answers",
+    ):
         assert k in sched
     assert 0 <= sched["late_answers"] <= sched["sent"] + sched["moved"]
     # Files written equal what goes out, and every response links to a written hand-off.
@@ -245,6 +267,7 @@ def test_cap_violations_is_zero_and_no_non_high_within_seven_days(tmp_path):
     from datetime import timedelta
     from mel.schedule.batch import cap_violations
     from mel.timing import parse_ist
+
     assert mel("run", out=tmp_path).returncode == 0
     hs = _handoffs(tmp_path)
     # 1) The summary's independent audit is 0.
@@ -272,6 +295,7 @@ def test_opted_out_farmer_gets_nothing_after_opting_out():
     from mel.pipeline import run_pipeline
     from mel.data import load_farmers
     from mel.writer import RELEVANCE_THRESHOLD
+
     rows = load_insights()
     res = run_pipeline(rows, farmers=load_farmers())
     handoffs = [o["handoff"] for o in res.outputs if "handoff" in o]
@@ -304,11 +328,11 @@ def test_weekly_cap_reduces_output_on_full_pack(tmp_path):
     assert sched["sent"] + sched["moved"] < s["surveys"]
     assert len(_handoffs(tmp_path)) == sched["sent"] + sched["moved"]
     # Decision counts are the regression guard: unchanged by the cap.
-    assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875,
-                            "R5": 1312, "R6": 147, "R7": 14, "R8": 2616}
+    assert s["by_rule"] == {"R1": 723, "R2": 25, "R3": 1287, "R4": 875, "R5": 1312, "R6": 147, "R7": 14, "R8": 2616}
 
 
 # --- --attention still changes output -----------------------------------------------------
+
 
 @pytest.mark.skipif(not has_pack, reason="full participant pack not present")
 def test_attention_flag_changes_output(tmp_path):

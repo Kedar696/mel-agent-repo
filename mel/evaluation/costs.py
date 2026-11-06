@@ -8,6 +8,7 @@ The numbers come from P4's call log (out/bedrock_calls.jsonl, one row per model 
 docs/results/bedrock_prices.json). A CostMeter remembers where the log ended when the run started and reads only what
 was added after, so it stays right with parallel workers. A cached answer costs $0: the ledger shows real spend.
 """
+
 import json
 from collections import defaultdict
 from datetime import datetime
@@ -18,7 +19,7 @@ from mel.writer import llm
 from .history import _git
 
 LEDGER = ROOT / "docs" / "results" / "cost_history.jsonl"
-FULL_SET_SURVEYS = 2616          # surveys in the full 6,999-insight run (brief rules), each in hi-IN and en-IN
+FULL_SET_SURVEYS = 2616  # surveys in the full 6,999-insight run (brief rules), each in hi-IN and en-IN
 LANGS_PER_SURVEY = 2
 
 
@@ -70,15 +71,28 @@ class CostMeter:
             for r in ok:
                 price.setdefault(r["key"], r["list_cost_usd"] or 0)
             full = round(sum(price.values()), 6)
-        return {"calls": sum(b["calls"] for b in by.values()), "cached_calls": sum(1 for r in rows if r.get("cached")),
-                "failed_calls": sum(1 for r in rows if not r.get("ok", True)), "unpriced_calls": unpriced,
-                "input_tokens": sum(b["input_tokens"] for b in by.values()),
-                "output_tokens": sum(b["output_tokens"] for b in by.values()),
-                "spent_usd": round(sum(b["usd"] for b in by.values()), 6), "full_price_usd": full,
-                "by_purpose": {k: dict(v) for k, v in sorted(by.items())},
-                "models": {k: sorted(m for m in v if m) for k, v in sorted(models.items())},
-                "fresh_tags": sorted({r.get("tag") for r in rows if not r.get("cached") and r.get("ok", True)
-                                      and (r.get("purpose") or "write") == "write" and r.get("tag")})}
+        return {
+            "calls": sum(b["calls"] for b in by.values()),
+            "cached_calls": sum(1 for r in rows if r.get("cached")),
+            "failed_calls": sum(1 for r in rows if not r.get("ok", True)),
+            "unpriced_calls": unpriced,
+            "input_tokens": sum(b["input_tokens"] for b in by.values()),
+            "output_tokens": sum(b["output_tokens"] for b in by.values()),
+            "spent_usd": round(sum(b["usd"] for b in by.values()), 6),
+            "full_price_usd": full,
+            "by_purpose": {k: dict(v) for k, v in sorted(by.items())},
+            "models": {k: sorted(m for m in v if m) for k, v in sorted(models.items())},
+            "fresh_tags": sorted(
+                {
+                    r.get("tag")
+                    for r in rows
+                    if not r.get("cached")
+                    and r.get("ok", True)
+                    and (r.get("purpose") or "write") == "write"
+                    and r.get("tag")
+                }
+            ),
+        }
 
 
 def projection(spent_usd: float, surveys_written: int, full_surveys: int = FULL_SET_SURVEYS) -> dict:
@@ -86,14 +100,22 @@ def projection(spent_usd: float, surveys_written: int, full_surveys: int = FULL_
     if not surveys_written:
         return {"usd_per_survey": None, "usd_per_1000_surveys": None, "projected_full_usd": None}
     per = spent_usd / surveys_written
-    return {"usd_per_survey": round(per, 6), "usd_per_1000_surveys": round(per * 1000, 4),
-            "projected_full_usd": round(per * full_surveys, 2), "full_surveys": full_surveys}
+    return {
+        "usd_per_survey": round(per, 6),
+        "usd_per_1000_surveys": round(per * 1000, 4),
+        "projected_full_usd": round(per * full_surveys, 2),
+        "full_surveys": full_surveys,
+    }
 
 
 def record_cost(row: dict, path=LEDGER) -> dict:
     """Append one run to the ledger (adds run number, time and commit)."""
-    full = {"run": len(load_costs(path)) + 1, "at": datetime.now(IST).isoformat(timespec="seconds"),
-            "commit": _git("rev-parse", "--short", "HEAD") or "unknown", **row}
+    full = {
+        "run": len(load_costs(path)) + 1,
+        "at": datetime.now(IST).isoformat(timespec="seconds"),
+        "commit": _git("rev-parse", "--short", "HEAD") or "unknown",
+        **row,
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(full, ensure_ascii=False) + "\n")
@@ -117,7 +139,7 @@ def row_from_results(kind: str, label: str, meter: CostMeter, results: list[dict
     s = meter.summary()
     surveyed = [r for r in results if r.get("surveys")]
     fresh = set(s.pop("fresh_tags"))
-    written = sum(1 for r in surveyed if r.get("insight_id") in fresh)   # surveys that made a new writing call
+    written = sum(1 for r in surveyed if r.get("insight_id") in fresh)  # surveys that made a new writing call
     fallbacks = defaultdict(int)
     sources = defaultdict(int)
     for r in surveyed:
@@ -125,11 +147,20 @@ def row_from_results(kind: str, label: str, meter: CostMeter, results: list[dict
             sources[f"{lang}:{sv.get('_source')}"] += 1
             if sv.get("_fallback_reason"):
                 fallbacks[sv["_fallback_reason"]] += 1
-    return {"kind": kind, "label": label, "insights": len(results), "surveys": len(surveyed),
-            "files": sum(len(r["surveys"]) for r in surveyed), "surveys_written_fresh": written,
-            "revisions": sum((r.get("metrics") or {}).get("revisions", 0) for r in surveyed),
-            "sources": dict(sorted(sources.items())), "fallbacks": dict(sorted(fallbacks.items())),
-            **s, **_projection_for(s, written, len(surveyed)), **extra}
+    return {
+        "kind": kind,
+        "label": label,
+        "insights": len(results),
+        "surveys": len(surveyed),
+        "files": sum(len(r["surveys"]) for r in surveyed),
+        "surveys_written_fresh": written,
+        "revisions": sum((r.get("metrics") or {}).get("revisions", 0) for r in surveyed),
+        "sources": dict(sorted(sources.items())),
+        "fallbacks": dict(sorted(fallbacks.items())),
+        **s,
+        **_projection_for(s, written, len(surveyed)),
+        **extra,
+    }
 
 
 def _projection_for(s: dict, written_fresh: int, surveyed: int) -> dict:
@@ -137,5 +168,8 @@ def _projection_for(s: dict, written_fresh: int, surveyed: int) -> dict:
     run. A mostly-cached re-run then projects the same as a fresh one. Falls back to real spend over surveys that
     made a fresh writing call when the log has no full prices."""
     if s.get("full_price_usd") is not None and surveyed:
-        return {**projection(s["full_price_usd"], surveyed), "projection_basis": "full price of every call, cached included"}
+        return {
+            **projection(s["full_price_usd"], surveyed),
+            "projection_basis": "full price of every call, cached included",
+        }
     return {**projection(s["spent_usd"], written_fresh), "projection_basis": "real spend over freshly written surveys"}

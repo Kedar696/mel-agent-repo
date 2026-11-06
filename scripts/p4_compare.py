@@ -3,6 +3,7 @@
 Without those it still runs and prints 'not run' for the model rows.
 Add MEL_JUDGE=1 MEL_JUDGE_MODEL=<judge id> for an AI-judge relevance column (1-5, P5's judge, checked against people).
 Samples 50 surveys from the full participant pack when it is in the repo (MEL_DATA_DIR still wins)."""
+
 import sys
 from pathlib import Path
 
@@ -19,7 +20,8 @@ insights = load_insights(PACK_DATA / "insights.jsonl" if full_pack() else None)
 judge = None
 if flag("MEL_JUDGE"):
     from mel.evaluation.judge import BedrockClient
-    judge = BedrockClient()          # MEL_JUDGE_MODEL
+
+    judge = BedrockClient()  # MEL_JUDGE_MODEL
 result = compare(sample_insights(insights, decide, 50), models, judge=judge)
 text = markdown(result)
 OUT.mkdir(parents=True, exist_ok=True)

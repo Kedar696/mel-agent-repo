@@ -6,6 +6,7 @@ MEL_DATABASE_URL names a SQLite database (the standard library's sqlite3, no dri
 Each record is kept whole as JSON text next to the few columns the API filters on, so the schemas in
 config/schemas stay the only contract.
 """
+
 import json
 import sqlite3
 import threading
@@ -29,7 +30,7 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS opt_outs (
          farmer_id TEXT PRIMARY KEY, response_key TEXT NOT NULL, recorded_at TEXT NOT NULL)""",
 )
-SENDABLE = ("sent", "moved")      # admissions that hold a place in the queue; a merged survey rides on its host
+SENDABLE = ("sent", "moved")  # admissions that hold a place in the queue; a merged survey rides on its host
 TABLES = ("surveys", "no_survey", "handoffs", "responses", "opt_outs")
 
 
@@ -40,11 +41,12 @@ def _dumps(obj) -> str:
 class Store:
     def __init__(self, url: str | None = None):
         from mel.config import OUT, env
+
         self.url = url or env("MEL_DATABASE_URL") or f"sqlite:///{OUT / 'mel.sqlite3'}"
         if not self.url.startswith("sqlite://"):
             raise ValueError(f"MEL_DATABASE_URL must start with sqlite://, got {self.url!r}")
-        rest = self.url[len("sqlite://"):]
-        path = rest[1:] if rest.startswith("/") else rest     # sqlite:///relative, sqlite:////absolute
+        rest = self.url[len("sqlite://") :]
+        path = rest[1:] if rest.startswith("/") else rest  # sqlite:///relative, sqlite:////absolute
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         # ponytail: one connection behind one lock; a pool when more than a few requests a second matter
@@ -63,35 +65,63 @@ class Store:
 
     # ------------------------------------------------------------------ writes
     def put_survey(self, survey: dict) -> None:
-        self._run("INSERT INTO surveys (survey_id, language, farmer_id, body) VALUES (?, ?, ?, ?) "
-                  "ON CONFLICT (survey_id, language) DO UPDATE SET body = excluded.body",
-                  (survey["survey_id"], survey["language"], survey["farmer_id"], _dumps(survey)))
+        self._run(
+            "INSERT INTO surveys (survey_id, language, farmer_id, body) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (survey_id, language) DO UPDATE SET body = excluded.body",
+            (survey["survey_id"], survey["language"], survey["farmer_id"], _dumps(survey)),
+        )
 
     def put_no_survey(self, record: dict) -> None:
-        self._run("INSERT INTO no_survey (insight_id, farmer_id, body) VALUES (?, ?, ?) "
-                  "ON CONFLICT (insight_id) DO UPDATE SET body = excluded.body",
-                  (record["insight_id"], record["farmer_id"], _dumps(record)))
+        self._run(
+            "INSERT INTO no_survey (insight_id, farmer_id, body) VALUES (?, ?, ?) "
+            "ON CONFLICT (insight_id) DO UPDATE SET body = excluded.body",
+            (record["insight_id"], record["farmer_id"], _dumps(record)),
+        )
 
     def put_handoff(self, handoff: dict, admission: str, reason: str = "") -> None:
         s = handoff["survey"]
-        self._run("INSERT INTO handoffs (handoff_id, farmer_id, survey_id, flow_id, admission, reason, not_before, "
-                  "expires_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (handoff_id) DO UPDATE SET "
-                  "admission = excluded.admission, reason = excluded.reason, not_before = excluded.not_before, "
-                  "expires_at = excluded.expires_at, body = excluded.body",
-                  (handoff["handoff_id"], s["farmer_id"], s["survey_id"], handoff["farmerchat_flow"]["flow_id"],
-                   admission, reason, handoff["send_window"]["not_before"], handoff["expires_at"], _dumps(handoff)))
+        self._run(
+            "INSERT INTO handoffs (handoff_id, farmer_id, survey_id, flow_id, admission, reason, not_before, "
+            "expires_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (handoff_id) DO UPDATE SET "
+            "admission = excluded.admission, reason = excluded.reason, not_before = excluded.not_before, "
+            "expires_at = excluded.expires_at, body = excluded.body",
+            (
+                handoff["handoff_id"],
+                s["farmer_id"],
+                s["survey_id"],
+                handoff["farmerchat_flow"]["flow_id"],
+                admission,
+                reason,
+                handoff["send_window"]["not_before"],
+                handoff["expires_at"],
+                _dumps(handoff),
+            ),
+        )
 
     def put_response(self, record: dict, flow_id: str) -> bool:
         """True when stored now; False when this response_key was seen before (a retry changes nothing)."""
-        cur = self._run("INSERT INTO responses (response_key, survey_id, farmer_id, flow_id, status, needs_follow_up, "
-                        "recorded_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (response_key) DO NOTHING",
-                        (record["response_key"], record["survey_id"], record["farmer_id"], flow_id, record["status"],
-                         int(bool(record.get("needs_follow_up"))), record["recorded_at"], _dumps(record)))
+        cur = self._run(
+            "INSERT INTO responses (response_key, survey_id, farmer_id, flow_id, status, needs_follow_up, "
+            "recorded_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (response_key) DO NOTHING",
+            (
+                record["response_key"],
+                record["survey_id"],
+                record["farmer_id"],
+                flow_id,
+                record["status"],
+                int(bool(record.get("needs_follow_up"))),
+                record["recorded_at"],
+                _dumps(record),
+            ),
+        )
         return cur.rowcount == 1
 
     def opt_out(self, farmer_id: str, response_key: str, recorded_at: str) -> None:
-        self._run("INSERT INTO opt_outs (farmer_id, response_key, recorded_at) VALUES (?, ?, ?) "
-                  "ON CONFLICT (farmer_id) DO NOTHING", (farmer_id, response_key, recorded_at))
+        self._run(
+            "INSERT INTO opt_outs (farmer_id, response_key, recorded_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (farmer_id) DO NOTHING",
+            (farmer_id, response_key, recorded_at),
+        )
 
     # ------------------------------------------------------------------- reads
     def handoff(self, handoff_id: str) -> tuple[dict, str, str] | None:
@@ -100,20 +130,26 @@ class Store:
         return (json.loads(rows[0][0]), rows[0][1], rows[0][2]) if rows else None
 
     def handoff_by_flow(self, flow_id: str) -> tuple[dict, str, str] | None:
-        rows = self._rows("SELECT body, admission, reason FROM handoffs WHERE flow_id = ? ORDER BY handoff_id", (flow_id,))
+        rows = self._rows(
+            "SELECT body, admission, reason FROM handoffs WHERE flow_id = ? ORDER BY handoff_id", (flow_id,)
+        )
         return (json.loads(rows[0][0]), rows[0][1], rows[0][2]) if rows else None
 
     def farmer_handoffs(self, farmer_id: str) -> list[dict]:
         """This farmer's hand-offs that hold a weekly slot, earliest send first: what the cap counts."""
-        rows = self._rows("SELECT body FROM handoffs WHERE farmer_id = ? AND admission IN (?, ?) "
-                          "ORDER BY not_before, handoff_id", (farmer_id, *SENDABLE))
+        rows = self._rows(
+            "SELECT body FROM handoffs WHERE farmer_id = ? AND admission IN (?, ?) ORDER BY not_before, handoff_id",
+            (farmer_id, *SENDABLE),
+        )
         return [json.loads(r[0]) for r in rows]
 
     def due(self, at_ist: str) -> list[dict]:
         """Hand-offs whose window has opened and that have not expired at `at_ist` (an IST timestamp as
         mel.timing.fmt_ist writes it, so the strings compare in time order)."""
-        rows = self._rows("SELECT body FROM handoffs WHERE admission IN (?, ?) AND not_before <= ? AND expires_at >= ?",
-                          (*SENDABLE, at_ist, at_ist))
+        rows = self._rows(
+            "SELECT body FROM handoffs WHERE admission IN (?, ?) AND not_before <= ? AND expires_at >= ?",
+            (*SENDABLE, at_ist, at_ist),
+        )
         return [json.loads(r[0]) for r in rows]
 
     def opted_out(self, farmer_id: str) -> bool:

@@ -7,39 +7,85 @@ reads are schema fillers: behavioral_intent "diagnosing", decision_episode_type 
 asset.growth_stage None, quality_flag "clean". Submissions live in st.session_state only: they never join the
 pack, the batch, or the Overview and Evaluation numbers.
 """
+
 from datetime import datetime
 
 from mel.timing.window import IST
 
 # The 14 crops and animals in the pack, with the category the schema wants.
-ASSETS = {"wheat": "crop", "mustard": "crop", "lentil": "crop", "gram": "crop", "pea": "crop", "potato": "crop",
-          "onion": "crop", "tomato": "crop", "cabbage": "crop", "cauliflower": "crop", "maize": "crop",
-          "goat": "livestock", "cow": "livestock", "buffalo": "livestock"}
-CONCERNS = {"pest_disease": "Pest or disease", "weather_climate": "Weather", "growth_issue": "Poor growth",
-            "nutrient_deficiency": "Nutrient deficiency", "water_stress": "Water stress", "soil_health": "Soil health",
-            "weed_management": "Weeds", "variety_selection": "Which variety to grow",
-            "storage_post_harvest": "Storage after harvest", "market_price": "Market price", "yield_loss": "Yield loss",
-            "livestock_health": "Animal health", "livestock_nutrition": "Animal feeding",
-            "breeding_reproduction": "Breeding"}
+ASSETS = {
+    "wheat": "crop",
+    "mustard": "crop",
+    "lentil": "crop",
+    "gram": "crop",
+    "pea": "crop",
+    "potato": "crop",
+    "onion": "crop",
+    "tomato": "crop",
+    "cabbage": "crop",
+    "cauliflower": "crop",
+    "maize": "crop",
+    "goat": "livestock",
+    "cow": "livestock",
+    "buffalo": "livestock",
+}
+CONCERNS = {
+    "pest_disease": "Pest or disease",
+    "weather_climate": "Weather",
+    "growth_issue": "Poor growth",
+    "nutrient_deficiency": "Nutrient deficiency",
+    "water_stress": "Water stress",
+    "soil_health": "Soil health",
+    "weed_management": "Weeds",
+    "variety_selection": "Which variety to grow",
+    "storage_post_harvest": "Storage after harvest",
+    "market_price": "Market price",
+    "yield_loss": "Yield loss",
+    "livestock_health": "Animal health",
+    "livestock_nutrition": "Animal feeding",
+    "breeding_reproduction": "Breeding",
+}
 SEVERITY = {"low": "Low", "medium": "Medium", "high": "High", "critical": "Critical (a person calls instead)"}
-ADVICE_TYPES = {"direct_action": "Told the farmer what to do", "wait_and_monitor": "Told the farmer to wait and watch",
-                "do_not_act": "Told the farmer not to act", "plan_created": "Made a plan with the farmer",
-                "escalate_to_expert": "Sent the farmer to an expert", "generic_information": "General information only",
-                "needs_more_context": "Asked the farmer for more details"}
+ADVICE_TYPES = {
+    "direct_action": "Told the farmer what to do",
+    "wait_and_monitor": "Told the farmer to wait and watch",
+    "do_not_act": "Told the farmer not to act",
+    "plan_created": "Made a plan with the farmer",
+    "escalate_to_expert": "Sent the farmer to an expert",
+    "generic_information": "General information only",
+    "needs_more_context": "Asked the farmer for more details",
+}
 CHECK_BACK = {"yes": "Yes", "no": "No, nothing to check"}
 # verification.timing (insight.schema.json): when to check back. "none" = after the action window (the rules' default).
-TIMINGS = {"none": "after the action window", "same_day": "the same day", "next_day": "the next day",
-           "two_to_five_days": "in 2 to 5 days", "three_to_ten_days": "in 3 to 10 days",
-           "seven_to_fourteen_days": "in 7 to 14 days", "seasonal": "later in the season"}
+TIMINGS = {
+    "none": "after the action window",
+    "same_day": "the same day",
+    "next_day": "the next day",
+    "two_to_five_days": "in 2 to 5 days",
+    "three_to_ten_days": "in 3 to 10 days",
+    "seven_to_fourteen_days": "in 7 to 14 days",
+    "seasonal": "later in the season",
+}
 LANGUAGES = {"en-IN": "English", "hi-IN": "Hindi"}
 DEFAULT_DISTRICT = "Patna"
 # Pack ids run I-000001 to I-006999 and survey/hand-off ids keep only the digits (compose.survey_id_for), so this
 # namespace can never meet a pack survey, hand-off or weekly-limit entry.
 ID_BASE = 900000
 # What the editor starts with; the app keeps the user's draft in session state from here on.
-DEFAULTS = {"question": "", "advice": "", "asset": "mustard", "concern": "pest_disease", "severity": "medium",
-            "resolution": "direct_action", "days": 3, "check": "yes", "timing": "none", "channel": "app",
-            "language": "en-IN", "district": DEFAULT_DISTRICT}
+DEFAULTS = {
+    "question": "",
+    "advice": "",
+    "asset": "mustard",
+    "concern": "pest_disease",
+    "severity": "medium",
+    "resolution": "direct_action",
+    "days": 3,
+    "check": "yes",
+    "timing": "none",
+    "channel": "app",
+    "language": "en-IN",
+    "district": DEFAULT_DISTRICT,
+}
 # verification.method per channel (rules.json channel_by_method maps them back to a channel)
 METHOD = {"app": "push", "web": "push", "whatsapp": "whatsapp", "telegram": "push", "voice": "ivr_callback"}
 EPISODE = {"plan_created": "decision", "generic_information": "general_knowledge", "needs_more_context": "exploration"}
@@ -99,8 +145,12 @@ def apply_reading(fields: dict, read: dict) -> dict:
 
 def reading_note(fields: dict) -> str:
     """One line saying what the model read, for the report: the Details it filled in and the question count."""
-    bits = [fields["asset"].title(), CONCERNS[fields["concern"]].lower(), f"{SEVERITY[fields['severity']].lower()} severity",
-            ADVICE_TYPES[fields["resolution"]].lower()]
+    bits = [
+        fields["asset"].title(),
+        CONCERNS[fields["concern"]].lower(),
+        f"{SEVERITY[fields['severity']].lower()} severity",
+        ADVICE_TYPES[fields["resolution"]].lower(),
+    ]
     if fields.get("check") == "yes":
         bits.append(f"act within {fields['days']} day{'s' if fields['days'] != 1 else ''}")
         bits.append(f"check back {TIMINGS.get(fields.get('timing') or 'none')}")
@@ -130,7 +180,11 @@ def build_insight(fields: dict, ids: dict, created_at: str) -> dict:
         **ids,
         "created_at": created_at,
         "conversation_language": fields.get("language", "en-IN"),
-        "location": {"country": "IN", "state": "Bihar", "district": (fields.get("district", DEFAULT_DISTRICT) or "").strip()},
+        "location": {
+            "country": "IN",
+            "state": "Bihar",
+            "district": (fields.get("district", DEFAULT_DISTRICT) or "").strip(),
+        },
         "asset": {"name": fields["asset"], "category": ASSETS[fields["asset"]], "growth_stage": None},
         "concern": fields["concern"],
         "behavioral_intent": "diagnosing",
@@ -140,8 +194,11 @@ def build_insight(fields: dict, ids: dict, created_at: str) -> dict:
         "advice_summary": (fields.get("advice") or "").strip() or NO_ADVICE_TEXT,
         "resolution_type": resolution,
         "action_window_days": int(fields.get("days", 3)),
-        "verification": {"needed": check, "timing": fields.get("timing") if fields.get("timing") in TIMINGS else "none",
-                         "method": METHOD[channel] if check else "none"},
+        "verification": {
+            "needed": check,
+            "timing": fields.get("timing") if fields.get("timing") in TIMINGS else "none",
+            "method": METHOD[channel] if check else "none",
+        },
         "preferred_channel": channel,
         "quality_flag": "clean",
     }
@@ -151,5 +208,8 @@ def submission(fields: dict, n: int) -> dict:
     """What the app stores in session state for the n-th submission: the frozen insight plus a note. The
     submission time is the insight's created_at; the app formats it for display (Eastern Time) when drawn."""
     _, note = effective_resolution(fields)
-    return {"insight": build_insight(fields, new_ids(n), now_ist()), "note": note,
-            "questions": fields.get("questions") if fields.get("questions") in (1, 2, 3) else None}
+    return {
+        "insight": build_insight(fields, new_ids(n), now_ist()),
+        "note": note,
+        "questions": fields.get("questions") if fields.get("questions") in (1, 2, 3) else None,
+    }

@@ -168,7 +168,8 @@ insight ─► decision (R1–R8) ─► timing (window, expiry) ─► writer (
 | `mel/evaluation/`, `app/` | golden scoring, Streamlit demo | P5 Evaluation & Demo |
 
 The signed Team Contracts document is the source of truth. `docs/TEAM.md` is the short version;
-`docs/h4_interface_decisions.md` lists the function names to settle at H+4; `docs/prompts/` holds reusable prompts.
+`docs/h4_interface_decisions.md` records the function names settled at H+4; the hackathon-time prompts, demo script and
+plans are kept in `docs/archive/`.
 
 ## Results
 Digital Green's brief and its answer key disagree on send times (brief: 07:00, after the farmer's action

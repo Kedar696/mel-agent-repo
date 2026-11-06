@@ -6,6 +6,7 @@ every failed field. The second are sorted by what the row says, so the report te
 *what* the farmer sent, not how the file is shaped. This only describes rows; it never
 changes a survey decision (that stays in ``mel.decision``).
 """
+
 import re
 
 from .validate import failed_fields, why_junk

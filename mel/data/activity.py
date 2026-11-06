@@ -17,6 +17,7 @@ Design notes (full spec: .kiro/specs/activity-attention/):
     never crash the run, never count as activity, and never affect the dataset start.
   * activity_level in farmers.csv is a STATIC label and is deliberately not used to detect change.
 """
+
 import json
 from dataclasses import dataclass
 from datetime import timedelta
@@ -41,19 +42,23 @@ def settings() -> dict:
 @dataclass(frozen=True)
 class Attention:
     """What attention thinks about one insight. `as_dict()` is exactly what rides on Decision.attention."""
+
     tier: str
     reason: str
     baseline_per_week: float
     recent_count: int
     weight: float
     explanation: str
-    high_budget: str | None = None   # "spent" when run_pipeline used up this farmer's 7-day high promotion
+    high_budget: str | None = None  # "spent" when run_pipeline used up this farmer's 7-day high promotion
 
     def as_dict(self) -> dict:
         d = {
-            "tier": self.tier, "reason": self.reason,
-            "baseline_per_week": self.baseline_per_week, "recent_count": self.recent_count,
-            "weight": self.weight, "explanation": self.explanation,
+            "tier": self.tier,
+            "reason": self.reason,
+            "baseline_per_week": self.baseline_per_week,
+            "recent_count": self.recent_count,
+            "weight": self.weight,
+            "explanation": self.explanation,
         }
         if self.high_budget is not None:
             d["high_budget"] = self.high_budget
@@ -64,6 +69,7 @@ def _usable_time(row):
     """parse_ist(created_at) for a usable row, else None. A usable row is a dict with a farmer_id and a
     created_at that parses. Junk rows (why_junk) are excluded here too, so they never count or move the start."""
     from .validate import why_junk
+
     if not isinstance(row, dict) or not row.get("farmer_id"):
         return None
     if why_junk(row):
@@ -89,6 +95,7 @@ def _high_weight(insight: dict) -> bool:
     """The existing high-priority test, reused (not copied): escalate_to_expert, severity high/critical,
     or emergency intent. Imported locally so mel.data does not import mel.schedule at module load."""
     from mel.schedule.handoff import priority
+
     return priority(insight) == "high"
 
 
@@ -122,7 +129,7 @@ class ActivityHistory:
         already filtered to strictly before the insight and with the insight's own conversation dropped."""
         first_seen: dict = {}
         for t, cid in rows:
-            key = cid if cid is not None else ("_anon", t)   # a row with no conversation_id counts once on its own
+            key = cid if cid is not None else ("_anon", t)  # a row with no conversation_id counts once on its own
             if key not in first_seen or t < first_seen[key]:
                 first_seen[key] = t
         return sum(1 for t in first_seen.values() if lo <= t < hi)
@@ -135,8 +142,7 @@ class ActivityHistory:
             return _make("neutral", "none", 0.0, 0, c)
 
         own_cid = insight.get("conversation_id")
-        prior = [(t, cid) for (t, cid) in self.by_farmer.get(insight["farmer_id"], [])
-                 if t < t0 and cid != own_cid]
+        prior = [(t, cid) for (t, cid) in self.by_farmer.get(insight["farmer_id"], []) if t < t0 and cid != own_cid]
 
         bw = c["baseline_window"]
         base_lo = t0 - timedelta(days=bw["from_days"])
@@ -193,8 +199,9 @@ _TIER_NONE_EXPLAIN = {
 }
 
 
-def _make(tier: str, reason: str, baseline_per_week: float, recent_count: int, c: dict,
-          high_budget: str | None = None) -> Attention:
+def _make(
+    tier: str, reason: str, baseline_per_week: float, recent_count: int, c: dict, high_budget: str | None = None
+) -> Attention:
     weight = c["weights"][tier]
     explanation = _EXPLAIN.get(reason) or _TIER_NONE_EXPLAIN[tier]
     return Attention(tier, reason, baseline_per_week, recent_count, weight, explanation, high_budget)

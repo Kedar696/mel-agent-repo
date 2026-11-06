@@ -19,6 +19,7 @@ What the checklist asks of it:
     is always passed in explicitly -- there is no shared default invented here, because the
     "right" relevance bar is a P4/P5 decision, not P3's to hard-code.
 """
+
 import json
 from datetime import datetime, time
 
@@ -43,7 +44,7 @@ def quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
         return _quality_failures(survey, relevance_threshold)
     hit = _QUALITY_CACHE.get(key)
     if hit is None:
-        hit = tuple(_quality_failures(survey, relevance_threshold))   # raises for a bad threshold, like before
+        hit = tuple(_quality_failures(survey, relevance_threshold))  # raises for a bad threshold, like before
         if len(_QUALITY_CACHE) >= _QUALITY_CACHE_MAX:
             _QUALITY_CACHE.clear()
         _QUALITY_CACHE[key] = hit
@@ -94,6 +95,7 @@ def _quality_failures(survey: dict, relevance_threshold: float) -> list[str]:
 
     # Every P4 guard, not just the three self_eval summarises.
     from mel.writer import check_survey
+
     out += [f"guard: {g}" for g in check_survey(survey)]
     return out
 
@@ -125,11 +127,13 @@ def queue_key(handoff: dict, rank: float | None = None):
     break ties between hand-offs opening at the same instant, a higher frequency rank, then the
     contract's order (created time, then farmer), then handoff_id. A rank never moves a
     hand-off ahead of one whose window opens earlier."""
-    return (parse_ist(handoff["send_window"]["not_before"]),
-            -(rank if rank is not None else 0.0),
-            handoff.get("created_at") or "",
-            handoff.get("frequency_cap", {}).get("key", ""),
-            handoff.get("handoff_id") or "")
+    return (
+        parse_ist(handoff["send_window"]["not_before"]),
+        -(rank if rank is not None else 0.0),
+        handoff.get("created_at") or "",
+        handoff.get("frequency_cap", {}).get("key", ""),
+        handoff.get("handoff_id") or "",
+    )
 
 
 # ---------------------------------------------------------------- simulated app
@@ -142,11 +146,15 @@ class SimulatedApp:
         self.inbox: list[dict] = []
 
     def deliver(self, handoff: dict, at, channel: str | None = None) -> None:
-        self.inbox.append({"handoff_id": handoff.get("handoff_id"),
-                           "survey_id": handoff["survey"]["survey_id"],
-                           "farmer_id": handoff["survey"]["farmer_id"],
-                           "channel": channel or handoff["channel_order"][0]["channel"],
-                           "delivered_at": fmt_ist(at)})
+        self.inbox.append(
+            {
+                "handoff_id": handoff.get("handoff_id"),
+                "survey_id": handoff["survey"]["survey_id"],
+                "farmer_id": handoff["survey"]["farmer_id"],
+                "channel": channel or handoff["channel_order"][0]["channel"],
+                "delivered_at": fmt_ist(at),
+            }
+        )
 
     def __len__(self) -> int:
         return len(self.inbox)
@@ -166,6 +174,7 @@ class Broadcast:
       opted_out -- the farmer is on the opt-out list (possibly since it was queued): dropped,
                   never sent.
     """
+
     ACTIONS = ("sent", "waiting", "pending", "expired", "rejected", "opted_out")
 
     def __init__(self, action: str, handoff: dict, reason: str = ""):
@@ -182,9 +191,11 @@ class Broadcast:
         return f"Broadcast({self.action!r}, {self.handoff_id!r}, {self.reason!r})"
 
     def __eq__(self, other):
-        return (isinstance(other, Broadcast)
-                and (self.action, self.reason) == (other.action, other.reason)
-                and self.handoff_id == other.handoff_id)
+        return (
+            isinstance(other, Broadcast)
+            and (self.action, self.reason) == (other.action, other.reason)
+            and self.handoff_id == other.handoff_id
+        )
 
 
 class Broadcaster:
@@ -210,7 +221,7 @@ class Broadcaster:
 
     def __init__(self, clock=None, opt_out=None, app=None):
         self._queue: list[dict] = []
-        self._rank: dict[str, float] = {}     # optional frequency rank per handoff_id (tie-break only)
+        self._rank: dict[str, float] = {}  # optional frequency rank per handoff_id (tie-break only)
         self._clock = clock
         # The opt-out list is checked on every decision, not only at admission: a farmer who opts
         # out while one of their surveys is still queued must not get it. SeasonScheduler passes
@@ -231,8 +242,7 @@ class Broadcaster:
 
     def counts(self) -> dict:
         """P5: cumulative rejected/expired/opted-out totals from actual broadcaster decisions."""
-        return {"rejected": self.rejected_count, "expired": self.expired_count,
-                "opted_out": self.opted_out_count}
+        return {"rejected": self.rejected_count, "expired": self.expired_count, "opted_out": self.opted_out_count}
 
     def _resolve_clock(self, clock):
         c = clock if clock is not None else self._clock
@@ -369,8 +379,7 @@ class Broadcaster:
         # (Answers to an earlier send are still accepted until expires_at; that is the
         # simulator's job, not a new send.)
         if now > not_after:
-            return Broadcast("expired", handoff,
-                             reason=f"send window closed {handoff['send_window']['not_after']}")
+            return Broadcast("expired", handoff, reason=f"send window closed {handoff['send_window']['not_after']}")
 
         # Window not open yet: hold.
         if now < not_before:

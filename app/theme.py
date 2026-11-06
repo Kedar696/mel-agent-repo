@@ -17,6 +17,7 @@ Design notes
   needs its own look scopes rules under its keyed container (`.st-key-... [data-testid=...]`), which beats
   these by specificity without `!important`.
 """
+
 import base64
 from pathlib import Path
 from urllib.parse import quote
@@ -28,11 +29,23 @@ import streamlit as st
 # the strong surfaces, mint sections, zinc grays, a yellow highlight. The variable names below are unchanged,
 # so every mel-* surface in the app follows the retheme without edits.
 PALETTE = {  # farmer.chat's own tokens (--p-green, --p-green-deep, --p-forest*, --p-ink, --p-body, --p-line, --p-mist, --p-sun, --p-red)
-    "ivory": "#F1F7F2", "sand": "#E6EFE8", "paper": "#FFFFFF", "line": "#E4E4E7",
-    "ink": "#09090B", "muted": "#52525C",
-    "green": "#00832B", "green_deep": "#0B4524", "green_ink": "#032E15", "green_soft": "#E3F6E8",
-    "marigold": "#F9FF47", "marigold_ink": "#6B6F00", "marigold_soft": "#FBFFD6",
-    "clay": "#E5533D", "clay_soft": "#FCE7E3", "slate": "#52525C", "bright": "#00C950",
+    "ivory": "#F1F7F2",
+    "sand": "#E6EFE8",
+    "paper": "#FFFFFF",
+    "line": "#E4E4E7",
+    "ink": "#09090B",
+    "muted": "#52525C",
+    "green": "#00832B",
+    "green_deep": "#0B4524",
+    "green_ink": "#032E15",
+    "green_soft": "#E3F6E8",
+    "marigold": "#F9FF47",
+    "marigold_ink": "#6B6F00",
+    "marigold_soft": "#FBFFD6",
+    "clay": "#E5533D",
+    "clay_soft": "#FCE7E3",
+    "slate": "#52525C",
+    "bright": "#00C950",
 }
 # FarmerChat's actual mark: the twelve leaf paths of the header logo on farmer.chat (viewBox 0 0 130 130).
 _PETALS = (
@@ -53,12 +66,19 @@ _PATHS = "".join(f'<path d="{d}"/>' for d in _PETALS)
 # Inline, so it scales with the font size and takes the current text colour.
 MARK = f'<svg class="mel-mark" viewBox="0 0 130 130" width="1em" height="1em" fill="currentColor" aria-hidden="true">{_PATHS}</svg>'
 # The same mark in FarmerChat green, as a CSS image (the section-heading bullet).
-_MARK_URI = "data:image/svg+xml," + quote(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 130" fill="#00C950">{_PATHS}</svg>')
+_MARK_URI = "data:image/svg+xml," + quote(
+    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 130" fill="#00C950">{_PATHS}</svg>'
+)
 # Fasal Pulse's icon (sprout and pulse line), cropped from the team logo posted in the team Discord on 3 Nov.
-FP_ICON = "data:image/png;base64," + base64.b64encode((Path(__file__).parent / "assets" / "fasal-pulse-icon.png").read_bytes()).decode()
+FP_ICON = (
+    "data:image/png;base64,"
+    + base64.b64encode((Path(__file__).parent / "assets" / "fasal-pulse-icon.png").read_bytes()).decode()
+)
 # The co-brand lockup used in the hero and the footer: FarmerChat × Fasal Pulse.
-LOCKUP = (f'<span class="mel-lockup">{MARK}<b>FarmerChat</b><span class="mel-x">×</span>'
-          f'<img class="mel-fp" src="{FP_ICON}" alt=""><b>Fasal Pulse</b></span>')
+LOCKUP = (
+    f'<span class="mel-lockup">{MARK}<b>FarmerChat</b><span class="mel-x">×</span>'
+    f'<img class="mel-fp" src="{FP_ICON}" alt=""><b>Fasal Pulse</b></span>'
+)
 
 # Fasal Pulse's mascot, drawn from the user's Survey demo sketch (round face, two oval eyes) plus a sprout:
 # a glossy mint seedling on the agent's panel. It looks around while the agent's lines appear, then smiles
@@ -82,7 +102,8 @@ MASCOT = (
     '<ellipse cx="83" cy="83" rx="5" ry="3" fill="#FF8F7A" opacity=".5"/>'
     '<circle class="think" cx="60" cy="87" r="2.6" fill="#0B4524"/>'
     '<path class="smile" d="M53 85Q60 91 67 85" stroke="#0B4524" stroke-width="3" stroke-linecap="round" fill="none"/>'
-    '</g></svg>')
+    "</g></svg>"
+)
 
 CSS = """
 :root{

@@ -6,6 +6,7 @@ repeated POST / a second non-high survey within 7 days / state that survives a r
 the broadcaster would really send), the FarmerChat answer path (POST /v1/surveys/{flow_id}/responses: stored once,
 opt-outs, follow-ups, 404 / 422), GET /v1/surveys/{flow_id}, GET /follow-ups, /healthz and Hindi unescaped.
 """
+
 import copy
 import urllib.parse
 from datetime import timedelta
@@ -31,8 +32,9 @@ TOKEN = "test-token"
 
 def client(store: Store | None = None) -> TestClient:
     """A fresh app on an in-memory database (empty cap, opt-outs and queue), sending the token."""
-    return TestClient(create_app(store=store or Store("sqlite://"), token=TOKEN),
-                      headers={"Authorization": f"Bearer {TOKEN}"})
+    return TestClient(
+        create_app(store=store or Store("sqlite://"), token=TOKEN), headers={"Authorization": f"Bearer {TOKEN}"}
+    )
 
 
 def _first_survey_insight(predicate=None):
@@ -56,6 +58,7 @@ def _non_high(i, r):
 
 
 # --- /healthz and the token ---------------------------------------------------------------
+
 
 def test_healthz_needs_no_token():
     c = TestClient(create_app(store=Store("sqlite://"), token=TOKEN))
@@ -83,6 +86,7 @@ def test_app_refuses_to_start_without_a_token(monkeypatch):
 
 
 # --- POST /surveys: the three input shapes ----------------------------------------------
+
 
 def test_post_survey_returns_201_with_the_contracted_shape():
     insight, _ = _first_survey_insight()
@@ -119,38 +123,41 @@ def test_post_junk_is_a_no_survey_not_an_error():
 
 def test_post_non_object_body_is_422():
     c = client()
-    for content in ("[1,2,3]", "\"hello\"", "not json"):
+    for content in ("[1,2,3]", '"hello"', "not json"):
         assert c.post("/surveys", content=content, headers={"content-type": "application/json"}).status_code == 422
 
 
 # --- schema validity of what comes back -------------------------------------------------
+
 
 def test_returned_survey_and_handoff_pass_the_schemas():
     insight, _ = _first_survey_insight()
     body = client().post("/surveys", json=insight).json()
     for lang, s in body["surveys"].items():
         assert is_valid("survey", s), (lang, s)
-        assert not any(k.startswith("_") for k in s)   # _-prefixed keys stripped
+        assert not any(k.startswith("_") for k in s)  # _-prefixed keys stripped
     assert is_valid("schedule_handoff", body["handoff"])
 
 
 # --- repeated POST / the weekly cap / a restart -----------------------------------------
+
 
 def test_repeated_post_takes_no_second_weekly_slot():
     insight, _ = _first_survey_insight()
     c = client()
     first = c.post("/surveys", json=insight).json()["admission"]
     second = c.post("/surveys", json=insight).json()["admission"]
-    assert first == second                               # same decision, idempotent
+    assert first == second  # same decision, idempotent
     counts = c.app.state.store.counts()
-    assert counts["handoffs"] == 1 and counts["surveys"] == 2   # one hand-off (two language files), counted once
+    assert counts["handoffs"] == 1 and counts["surveys"] == 2  # one hand-off (two language files), counted once
 
 
 def _collision_pair():
     """A base non-high, non-exempt survey insight plus a near-copy for the same farmer a day
     later, so the second one hits the weekly cap."""
     base, _ = _first_survey_insight(
-        lambda i, r: r["handoff"]["priority"] != "high" and not r["handoff"]["frequency_cap"]["exempt"])
+        lambda i, r: r["handoff"]["priority"] != "high" and not r["handoff"]["frequency_cap"]["exempt"]
+    )
     second = copy.deepcopy(base)
     second["insight_id"] = "I-999001"
     second["created_at"] = fmt_ist(parse_ist(base["created_at"]) + timedelta(days=1))
@@ -179,6 +186,7 @@ def test_state_survives_a_restart(tmp_path):
 
 
 # --- GET /surveys/due: timing ------------------------------------------------------------
+
 
 def _post_and_window(c, insight):
     return c.post("/surveys", json=insight).json()["handoff"]
@@ -241,7 +249,7 @@ def test_due_excludes_after_expiry():
 def test_due_bad_or_missing_offset_is_422():
     c = client()
     assert c.get("/surveys/due", params={"at": "not-a-date"}).status_code == 422
-    assert c.get("/surveys/due", params={"at": "2026-12-06T07:00:00"}).status_code == 422   # no offset
+    assert c.get("/surveys/due", params={"at": "2026-12-06T07:00:00"}).status_code == 422  # no offset
     assert c.get("/surveys/due", params={"limit": -1}).status_code == 422
 
 
@@ -250,7 +258,7 @@ def test_due_accepts_both_raw_and_percent_encoded_plus():
     c = client()
     h = _post_and_window(c, insight)
     at = fmt_ist(parse_ist(h["send_window"]["not_before"]).replace(hour=9, minute=0, second=0))
-    raw = c.get(f"/surveys/due?at={at}")                               # literal + (decodes to space)
+    raw = c.get(f"/surveys/due?at={at}")  # literal + (decodes to space)
     enc = c.get("/surveys/due?at=" + urllib.parse.quote(at, safe=""))  # %2B05:30
     assert raw.status_code == enc.status_code == 200
     assert raw.json() == enc.json()
@@ -275,6 +283,7 @@ def test_due_limit_caps_the_list():
 
 # --- GET /surveys/due: read-only, and matches the broadcaster ----------------------------
 
+
 def test_due_is_read_only():
     insight, _ = _first_survey_insight(_non_high)
     c = client()
@@ -283,8 +292,8 @@ def test_due_is_read_only():
     before = c.app.state.store.counts()
     a = c.get("/surveys/due", params={"at": at}).json()
     b = c.get("/surveys/due", params={"at": at}).json()
-    assert a == b                                   # two GETs are identical
-    assert c.app.state.store.counts() == before     # nothing was written
+    assert a == b  # two GETs are identical
+    assert c.app.state.store.counts() == before  # nothing was written
 
 
 def test_due_matches_what_the_broadcaster_would_send():
@@ -304,12 +313,15 @@ def test_due_matches_what_the_broadcaster_would_send():
     bc = Broadcaster(SimClock(at_str))
     bc.queue_all(copy.deepcopy(c.app.state.store.due(at_str)))
     from mel.writer import RELEVANCE_THRESHOLD
-    sent_ids = sorted(b.handoff["handoff_id"] for b in bc.broadcast_due(relevance_threshold=RELEVANCE_THRESHOLD)
-                      if b.action == "sent")
+
+    sent_ids = sorted(
+        b.handoff["handoff_id"] for b in bc.broadcast_due(relevance_threshold=RELEVANCE_THRESHOLD) if b.action == "sent"
+    )
     assert due_ids == sent_ids
 
 
 # --- the FarmerChat answer path ---------------------------------------------------------
+
 
 def _post_survey(c, predicate=None):
     insight, _ = _first_survey_insight(predicate)
@@ -360,14 +372,16 @@ def test_opt_out_answer_blocks_the_farmer_from_then_on():
     assert r.status_code == 201 and r.json()["opted_out"] is True
     # The queued survey is no longer due, and the farmer's next survey is admitted as opted_out.
     at = parse_ist(h["send_window"]["not_before"]).replace(hour=9, minute=0, second=0)
-    assert h["handoff_id"] not in [d["handoff_id"] for d in
-                                   c.get("/surveys/due", params={"at": fmt_ist(at)}).json()["handoffs"]]
+    assert h["handoff_id"] not in [
+        d["handoff_id"] for d in c.get("/surveys/due", params={"at": fmt_ist(at)}).json()["handoffs"]
+    ]
     assert c.post("/surveys", json=second).json()["admission"]["decision"] == "opted_out"
 
 
 def test_negative_outcome_lands_in_the_follow_up_queue():
     def has_follow_up(i, r):
         return any(o.get("follow_up") for s in r["surveys"].values() for q in s["items"] for o in q.get("options", []))
+
     c = client()
     _, h, flow_id = _post_survey(c, has_follow_up)
     rec = _answer(h, "negative_outcome")
@@ -395,6 +409,7 @@ def test_response_errors():
 
 
 # --- Hindi returned unescaped -----------------------------------------------------------
+
 
 def test_hindi_text_is_returned_unescaped():
     insight, _ = _first_survey_insight(lambda i, r: "hi-IN" in r["surveys"])

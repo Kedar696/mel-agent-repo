@@ -13,6 +13,7 @@ Styling: the keyed container (`.st-key-<slug>`) is the phone, so widget rules ar
 channel under that class; the HTML the preview writes sits inside `<div class="mel-pv mel-pv-wa">`
 (or -tg / -app / -web / -voice), so bubble rules hang off those. Nothing targets the rest of the app.
 """
+
 import hashlib
 import re
 from datetime import datetime
@@ -24,22 +25,44 @@ from mel.channels.render import UI, choices, render
 from mel.timing import parse_ist
 from app.display_time import format_clock, format_date
 from app.theme import MARK
-from app.preview_state import (PreviewState, SHEET, build_record, chat_log, label_for, open_time, send_time,
-                               tap_time)
+from app.preview_state import PreviewState, SHEET, build_record, chat_log, label_for, open_time, send_time, tap_time
 
 # Device chrome in the farmer's language (the survey language is the farmer's conversation language).
 # Clocks and dates on the phone are US style in Eastern Time (app/display_time.py); the state machine's
 # IST instants are unchanged underneath.
 CHROME = {
-    "hi-IN": dict(message="संदेश", business="बिज़नेस अकाउंट", bot="बॉट", edited="संपादित", call="इनकमिंग कॉल…",
-                  answer="उठाएँ", declinecall="काटें", missed="कॉल नहीं उठाई",
-                  key="दबाएँ", listen="सुनते रहें", nomore="और कॉल नहीं", hang="कॉल काटें", skipped="छोड़ दिया",
-                  notice="🔒 यह बिज़नेस इस चैट को मैनेज करने के लिए Meta की सुरक्षित सेवा का उपयोग करता है।"),
-    "en-IN": dict(message="Message", business="Business account", bot="bot", edited="edited", call="Incoming call…",
-                  answer="Answer", declinecall="Decline", missed="No answer",
-                  key="Press", listen="Keep listening", nomore="No more calls", hang="End call",
-                  skipped="Skipped",
-                  notice="🔒 This business uses a secure service from Meta to manage this chat."),
+    "hi-IN": dict(
+        message="संदेश",
+        business="बिज़नेस अकाउंट",
+        bot="बॉट",
+        edited="संपादित",
+        call="इनकमिंग कॉल…",
+        answer="उठाएँ",
+        declinecall="काटें",
+        missed="कॉल नहीं उठाई",
+        key="दबाएँ",
+        listen="सुनते रहें",
+        nomore="और कॉल नहीं",
+        hang="कॉल काटें",
+        skipped="छोड़ दिया",
+        notice="🔒 यह बिज़नेस इस चैट को मैनेज करने के लिए Meta की सुरक्षित सेवा का उपयोग करता है।",
+    ),
+    "en-IN": dict(
+        message="Message",
+        business="Business account",
+        bot="bot",
+        edited="edited",
+        call="Incoming call…",
+        answer="Answer",
+        declinecall="Decline",
+        missed="No answer",
+        key="Press",
+        listen="Keep listening",
+        nomore="No more calls",
+        hang="End call",
+        skipped="Skipped",
+        notice="🔒 This business uses a secure service from Meta to manage this chat.",
+    ),
 }
 FOOT = {  # what the preview says under the phone once the attempt ends (the record itself is the caller's)
     "finished": "Finished: every question answered.",
@@ -66,8 +89,13 @@ _TIMER_JS = """<script>
   }), 1000);
 })();
 </script>"""
-KIND = {"whatsapp": "mel-pv-wa", "telegram": "mel-pv-tg", "app": "mel-pv-app", "web": "mel-pv-app mel-pv-web",
-        "voice": "mel-pv-voice"}
+KIND = {
+    "whatsapp": "mel-pv-wa",
+    "telegram": "mel-pv-tg",
+    "app": "mel-pv-app",
+    "web": "mel-pv-app mel-pv-web",
+    "voice": "mel-pv-voice",
+}
 
 # Common: the frame (keyed container) and everything inside the preview's own HTML.
 _CSS = """
@@ -176,7 +204,8 @@ _ACT = """
 .st-key-__S__ [data-testid="stChatInput"] textarea{font-size:15px;padding-left:16px}
 """
 _WIDGETS = {
-    "whatsapp": _ACT + """
+    "whatsapp": _ACT
+    + """
 .st-key-__S__{background:#efeae2}
 .st-key-__S__-act{width:calc((100% - 20px) * .84 + 20px)}
 .st-key-__S__-act button{background:#fff;color:#027eb5;border-top:1px solid #e9edef;box-shadow:0 1px .5px rgba(11,20,26,.13)}
@@ -194,7 +223,8 @@ _WIDGETS = {
 .st-key-__S__-pickx button:hover{background:#f0f2f5;color:#111b21}
 .st-key-__S__ [data-testid="stChatInputSubmitButton"] svg{fill:#008069;color:#008069}
 """,
-    "telegram": _ACT + """
+    "telegram": _ACT
+    + """
 .st-key-__S__{background:linear-gradient(165deg,#d9e5ef,#d8e6d9 55%,#e9e2d3)}
 .st-key-__S__-act{width:calc((100% - 20px) * .84 + 20px);padding-top:8px}
 .st-key-__S__ .st-key-__S__-act,.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
@@ -204,7 +234,8 @@ _WIDGETS = {
 .st-key-__S__-act button p{color:#fff}
 .st-key-__S__ [data-testid="stChatInputSubmitButton"] svg{fill:#517da2;color:#517da2}
 """,
-    "app": _ACT + """
+    "app": _ACT
+    + """
 .st-key-__S__{background:#f4f6f3}
 .st-key-__S__-act{background:#fff;padding:0 16px 14px}
 .st-key-__S__ .st-key-__S__-act,.st-key-__S__-act [data-testid="stVerticalBlock"]{gap:8px}
@@ -214,7 +245,8 @@ _WIDGETS = {
 .st-key-__S__-act [data-testid="stHorizontalBlock"] button{border:0;background:transparent;color:#55665c;min-height:2.2rem}
 .st-key-__S__-act [data-testid="stHorizontalBlock"] button p{font-size:13.5px}
 """,
-    "voice": _ACT + """
+    "voice": _ACT
+    + """
 .st-key-__S__{background:#102219}
 .st-key-__S__-act{padding:4px 18px 16px}
 .st-key-__S__-act [data-testid="stHorizontalBlock"]{gap:8px;margin-top:8px}
@@ -261,14 +293,18 @@ def _clock(dt: datetime) -> str:
 
 
 def _status_bar(dt: datetime) -> str:
-    return (f'<div class="mel-pv-sb"><span>{format_clock(dt)}</span>'
-            f'<span>{_SVG["signal"]}{_SVG["wifi"]}{_SVG["battery"]}</span></div>')
+    return (
+        f'<div class="mel-pv-sb"><span>{format_clock(dt)}</span>'
+        f"<span>{_SVG['signal']}{_SVG['wifi']}{_SVG['battery']}</span></div>"
+    )
 
 
 def _app_bar(sub: str, icons: tuple = ("video", "phone", "more")) -> str:
-    return (f'<div class="mel-pv-bar">{_SVG["back"]}<div class="mel-pv-av">F</div>'
-            f'<div><div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{escape(sub)}</div></div>'
-            f'<div class="mel-pv-ic">{"".join(_SVG[i] for i in icons)}</div></div>')
+    return (
+        f'<div class="mel-pv-bar">{_SVG["back"]}<div class="mel-pv-av">F</div>'
+        f'<div><div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{escape(sub)}</div></div>'
+        f'<div class="mel-pv-ic">{"".join(_SVG[i] for i in icons)}</div></div>'
+    )
 
 
 def _html(kind: str, inner: str, cls: str = ""):
@@ -290,28 +326,36 @@ def _bubble(m: dict, channel: str, lang: str, new: bool, open_: bool = False) ->
     drawn under it), so it shows no static copy of them."""
     out = m["who"] == "farmer"
     tick = '<span class="mel-pv-tick">✓✓</span>' if out else ""
-    edited = f'{escape(CHROME[lang]["edited"])} ' if m.get("answer") else ""
+    edited = f"{escape(CHROME[lang]['edited'])} " if m.get("answer") else ""
     meta = f'<div class="mel-pv-meta">{edited}{_clock(m["at"])}{tick}</div>'
-    body = f'<span>{escape(m["text"])}</span>'
+    body = f"<span>{escape(m['text'])}</span>"
     if m.get("answer"):  # Telegram: the bot edited the question to show the tap and dropped its keyboard
         body += f'<div class="mel-pv-tgans">✓ {escape(m["answer"])}</div>'
     bub = f'<div class="mel-pv-bub{" open" if open_ else ""}">{body}{meta}'
     past = m.get("buttons") and not open_ and not m.get("answer")  # buttons the farmer saw earlier: inert
     if past and channel == "whatsapp":
-        labels = [f'☰ {UI[lang]["choose"]}'] if m.get("picker") else m["buttons"]
+        labels = [f"☰ {UI[lang]['choose']}"] if m.get("picker") else m["buttons"]
         bub += '<div class="mel-pv-wabtns">' + "".join(f"<span>{escape(l)}</span>" for l in labels) + "</div>"
     bub += "</div>"
     if past and channel == "telegram":
-        bub = (f'<div style="display:flex;flex-direction:column">{bub}<div class="mel-pv-tgkb">'
-               + "".join(f"<span>{escape(l)}</span>" for l in m["buttons"]) + "</div></div>")
+        bub = (
+            f'<div style="display:flex;flex-direction:column">{bub}<div class="mel-pv-tgkb">'
+            + "".join(f"<span>{escape(l)}</span>" for l in m["buttons"])
+            + "</div></div>"
+        )
     return f'<div class="mel-pv-row {"out" if out else "in"}{" mel-pv-new" if new else ""}">{bub}</div>'
 
 
 def _choice_buttons(state, key, item, chs, cols=None):
     targets = st.columns(len(chs)) if cols else [st] * len(chs)
     for col, (label, value) in zip(targets, chs):
-        col.button(label, key=f"{key}|{item['item_id']}|{value}", on_click=_do,
-                   args=(state, "answer", item["item_id"], value), width="stretch")
+        col.button(
+            label,
+            key=f"{key}|{item['item_id']}|{value}",
+            on_click=_do,
+            args=(state, "answer", item["item_id"], value),
+            width="stretch",
+        )
 
 
 # ---------------------------------------------------------------------------------- channels
@@ -320,9 +364,15 @@ def _chat(survey, channel, state, key, slug, t0, rec, fresh):
     log, cur = chat_log(survey, channel, state, t0, follow_up=bool(rec and rec["needs_follow_up"]))
     now = (cur or log[-1])["at"]
     invite_live = channel == "whatsapp" and state.stage == "invite"
-    _html(kind, _status_bar(now) + _app_bar(c["business"] if channel == "whatsapp" else c["bot"],
-                                            ("video", "phone", "more") if channel == "whatsapp" else ("more",)),
-          "mel-pv-head")
+    _html(
+        kind,
+        _status_bar(now)
+        + _app_bar(
+            c["business"] if channel == "whatsapp" else c["bot"],
+            ("video", "phone", "more") if channel == "whatsapp" else ("more",),
+        ),
+        "mel-pv-head",
+    )
     n_new = 2 if fresh and state.started else 0  # the farmer's tap and the reply it brought
     shown = list(log) + ([{"who": "bot", "text": cur["text"], "at": cur["at"]}] if cur else [])
     msgs, day = [], None
@@ -335,19 +385,25 @@ def _chat(survey, channel, state, key, slug, t0, rec, fresh):
         if cur and i == len(shown) - 1:
             msgs.append(_bubble(m, channel, lang, new=fresh, open_=channel == "whatsapp"))
         else:
-            msgs.append(_bubble(m, channel, lang, new=i >= len(log) - n_new and not cur,
-                                open_=invite_live and i == len(log) - 1))
+            msgs.append(
+                _bubble(
+                    m, channel, lang, new=i >= len(log) - n_new and not cur, open_=invite_live and i == len(log) - 1
+                )
+            )
     # newest first: the screen is laid out bottom-up, so it opens on the latest message, never clipped
-    _html(kind, "".join(reversed(msgs)), f'mel-pv-body mel-pv-chat{" live" if cur or invite_live else ""}')
+    _html(kind, "".join(reversed(msgs)), f"mel-pv-body mel-pv-chat{' live' if cur or invite_live else ''}")
 
     if invite_live:  # the template's quick replies
         with st.container(key=f"{slug}-act"):
             st.button(u["start"], key=f"{key}|start", on_click=_do, args=(state, "start"), width="stretch")
             st.button(u["later"], key=f"{key}|later", on_click=_do, args=(state, "decline"), width="stretch")
     elif state.stage == "picker":  # WhatsApp list message: the picker sheet
-        _html(kind, f'<div class="mel-pv-sheet"><div class="mel-pv-sheet-h"><div class="mel-pv-handle"></div>'
-                    f'<div class="mel-pv-sheet-t">{escape(u["choose"])}</div></div>'
-                    f'<div class="mel-pv-sheet-s">{escape(u["pick_one"])}</div></div>')
+        _html(
+            kind,
+            f'<div class="mel-pv-sheet"><div class="mel-pv-sheet-h"><div class="mel-pv-handle"></div>'
+            f'<div class="mel-pv-sheet-t">{escape(u["choose"])}</div></div>'
+            f'<div class="mel-pv-sheet-s">{escape(u["pick_one"])}</div></div>',
+        )
         with st.container(key=f"{slug}-pick"):
             _choice_buttons(state, key, cur["item"], cur["choices"])
         with st.container(key=f"{slug}-pickx"):
@@ -356,10 +412,13 @@ def _chat(survey, channel, state, key, slug, t0, rec, fresh):
         it = cur["item"]
         with st.container(key=f"{slug}-act"):
             if cur["picker"]:
-                st.button(f'☰ {u["choose"]}', key=f"{key}|pick", on_click=_do, args=(state, "open_picker"),
-                          width="stretch")
+                st.button(
+                    f"☰ {u['choose']}", key=f"{key}|pick", on_click=_do, args=(state, "open_picker"), width="stretch"
+                )
             else:  # Telegram puts the scale's numbers in one row (render._telegram); other choices stack
-                _choice_buttons(state, key, it, cur["choices"], cols=channel == "telegram" and it["type"] == "survey-scale")
+                _choice_buttons(
+                    state, key, it, cur["choices"], cols=channel == "telegram" and it["type"] == "survey-scale"
+                )
     if not state.done:
         wkey = f"{key}|typed"
         st.chat_input(c["message"], key=wkey, on_submit=_typed, args=(state, wkey), max_chars=200)
@@ -370,36 +429,58 @@ def _sheet(survey, channel, state, key, slug, t0, rec, fresh):
     sheet, items, n = render(survey, channel)["sheet"], survey["items"], state.n
     now = open_time(t0) if not state.taps else tap_time(t0, len(state.taps), n)
     if channel == "web":
-        head = ('<div class="mel-pv-sb"><span>● ● ●</span><span class="mel-pv-tab">FarmerChat</span><span></span></div>'
-                '<div class="mel-pv-url">🔒 FarmerChat web chat</div>')
+        head = (
+            '<div class="mel-pv-sb"><span>● ● ●</span><span class="mel-pv-tab">FarmerChat</span><span></span></div>'
+            '<div class="mel-pv-url">🔒 FarmerChat web chat</div>'
+        )
     else:
         # The real FarmerChat app header: forest green, a round menu button, the mark and wordmark, a dark pill
-        head = (_status_bar(now) + '<div class="mel-pv-fcbar"><span class="mel-pv-btn">&#9776;</span>'
-                f'<span class="mel-pv-fcbrand">{MARK}FarmerChat</span><span class="mel-pv-pill">&#9728; 35°</span></div>')
-    push = (f'<div class="mel-pv-push"><b>FarmerChat · {_clock(t0)}</b>{escape(u["invite"])}</div>'
-            if channel == "app" else "")
+        head = (
+            _status_bar(now) + '<div class="mel-pv-fcbar"><span class="mel-pv-btn">&#9776;</span>'
+            f'<span class="mel-pv-fcbrand">{MARK}FarmerChat</span><span class="mel-pv-pill">&#9728; 35°</span></div>'
+        )
+    push = (
+        f'<div class="mel-pv-push"><b>FarmerChat · {_clock(t0)}</b>{escape(u["invite"])}</div>'
+        if channel == "app"
+        else ""
+    )
     _html(kind, head, "mel-pv-head")
     chat = f'<div class="mel-pv-appchat">{push}</div>'
     if state.done and state.ending != "finished":  # closed, dismissed, opted out: the sheet is gone
         _html(kind, chat, "mel-pv-body")
         return
-    done_rows = "".join(f'<div class="mel-pv-done">{escape(sheet["steps"][k]["step_label"])} &nbsp; '
-                        + (f'<b>{escape(label_for(it, state.taps[it["item_id"]]))}</b>' if it["item_id"] in state.taps
-                           else f'<em>{escape(c["skipped"])}</em>') + '</div>'
-                        for k, it in enumerate(items[:state.step]))
+    done_rows = "".join(
+        f'<div class="mel-pv-done">{escape(sheet["steps"][k]["step_label"])} &nbsp; '
+        + (
+            f"<b>{escape(label_for(it, state.taps[it['item_id']]))}</b>"
+            if it["item_id"] in state.taps
+            else f"<em>{escape(c['skipped'])}</em>"
+        )
+        + "</div>"
+        for k, it in enumerate(items[: state.step])
+    )
     if state.done:  # finished: the thank-you step
         thanks = u["closing_fu"] if rec and rec["needs_follow_up"] else sheet["thank_you"]
         body = f'<div class="mel-pv-thanks">{escape(thanks)}</div>'
     else:
-        step, bars = sheet["steps"][state.step], "".join(f'<i class="{"on" if k <= state.step else ""}"></i>' for k in range(n))
-        body = (f'<div class="mel-pv-steps">{bars}</div>{done_rows}'
-                f'<div class="mel-pv-title" style="margin-top:8px">{escape(step["step_label"])}</div>'
-                f'<div class="mel-pv-q{" mel-pv-new" if fresh else ""}">{escape(step["question"])}</div>')
+        step, bars = (
+            sheet["steps"][state.step],
+            "".join(f'<i class="{"on" if k <= state.step else ""}"></i>' for k in range(n)),
+        )
+        body = (
+            f'<div class="mel-pv-steps">{bars}</div>{done_rows}'
+            f'<div class="mel-pv-title" style="margin-top:8px">{escape(step["step_label"])}</div>'
+            f'<div class="mel-pv-q{" mel-pv-new" if fresh else ""}">{escape(step["question"])}</div>'
+        )
     slide = " slide" if fresh and not state.started else ""
     # bottom-up: the sheet sits at the bottom, the dimmed chat above it fills whatever is left
-    _html(kind, f'<div class="mel-pv-sheet app{slide}"><div class="mel-pv-handle"></div>'
-                f'<div class="mel-pv-title">{escape(sheet["title"])}</div>{body}</div>'
-                f'<div class="mel-pv-dim"></div>{chat}', "mel-pv-body")
+    _html(
+        kind,
+        f'<div class="mel-pv-sheet app{slide}"><div class="mel-pv-handle"></div>'
+        f'<div class="mel-pv-title">{escape(sheet["title"])}</div>{body}</div>'
+        f'<div class="mel-pv-dim"></div>{chat}',
+        "mel-pv-body",
+    )
     if state.done:
         _html(kind, '<div style="background:#fff;height:14px"></div>')
         return
@@ -421,13 +502,17 @@ def _voice(survey, channel, state, key, slug, t0, rec, fresh):
         if k < state.step:
             v = state.taps[it["item_id"]]
             kp = next(kk for kk, vv in vo["items"][k]["keypad"].items() if vv == v)
-            lines += [("bot", vo["items"][k]["say"], False), ("me", f'{c["key"]} {kp}: {label_for(it, v)}', False)]
+            lines += [("bot", vo["items"][k]["say"], False), ("me", f"{c['key']} {kp}: {label_for(it, v)}", False)]
         elif k == state.step and state.stage == "question":  # the greeting stands alone until Keep listening
             lines.append(("bot", vo["items"][k]["say"], True))
     if state.done:
-        said = {"finished": vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"],
-                "declined": f'{c["key"]} 2: {u["later"]}', "opted_out": f'{c["key"]} 9: {c["nomore"]}',
-                "dropped": f'📵 {c["hang"]}', "missed": f'📵 {c["missed"]}'}[state.ending]
+        said = {
+            "finished": vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"],
+            "declined": f"{c['key']} 2: {u['later']}",
+            "opted_out": f"{c['key']} 9: {c['nomore']}",
+            "dropped": f"📵 {c['hang']}",
+            "missed": f"📵 {c['missed']}",
+        }[state.ending]
         lines.append(("bot" if state.ending == "finished" else "me", said, True))
     # The phone's clock: the call rings at the send time, is picked up at `opened`, and the timer runs from
     # there: live between taps (the script re-syncs it at every tap) and frozen at recorded_at once it is over.
@@ -443,14 +528,22 @@ def _voice(survey, channel, state, key, slug, t0, rec, fresh):
     if ringing or state.ending == "missed":
         sub = escape(c["call"] if ringing else c["missed"])
     else:
-        sub = (f'<span class="mel-pv-timer" data-start="{secs}"{" data-live=\"1\"" if live else ""}>'
-               f'{secs // 60:02d}:{secs % 60:02d}</span>')
-    cap = "".join(f'<p class="{w}{" now" if now else ""}{" mel-pv-new" if now and fresh else ""}">'
-                  f'{"🔈 " if w == "bot" else ""}{escape(t)}</p>' for w, t, now in lines)
+        sub = (
+            f'<span class="mel-pv-timer" data-start="{secs}"{' data-live="1"' if live else ""}>'
+            f"{secs // 60:02d}:{secs % 60:02d}</span>"
+        )
+    cap = "".join(
+        f'<p class="{w}{" now" if now else ""}{" mel-pv-new" if now and fresh else ""}">'
+        f"{'🔈 ' if w == 'bot' else ''}{escape(t)}</p>"
+        for w, t, now in lines
+    )
     _html(kind, _status_bar(now), "mel-pv-head")
-    _html(kind, f'<div class="mel-pv-cap">{cap}</div><div class="mel-pv-callid"><div class="mel-pv-av">F</div>'
-                f'<div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{sub}</div></div>',
-          f"mel-pv-body mel-pv-call{' ringing' if ringing else ''}")
+    _html(
+        kind,
+        f'<div class="mel-pv-cap">{cap}</div><div class="mel-pv-callid"><div class="mel-pv-av">F</div>'
+        f'<div class="mel-pv-name">FarmerChat</div><div class="mel-pv-sub">{sub}</div></div>',
+        f"mel-pv-body mel-pv-call{' ringing' if ringing else ''}",
+    )
     if live:
         st.html(_TIMER_JS, unsafe_allow_javascript=True)
     if state.done:
@@ -458,12 +551,12 @@ def _voice(survey, channel, state, key, slug, t0, rec, fresh):
     if ringing:  # a real incoming-call screen: Decline (the call rings out) or Answer (the greeting plays)
         with st.container(key=f"{slug}-ring"):
             b1, b2 = st.columns(2)
-            b1.button(f'📵 {c["declinecall"]}', key=f"{key}|miss", on_click=_do, args=(state, "miss"), width="stretch")
-            b2.button(f'📞 {c["answer"]}', key=f"{key}|pickup", on_click=_do, args=(state, "pick_up"), width="stretch")
+            b1.button(f"📵 {c['declinecall']}", key=f"{key}|miss", on_click=_do, args=(state, "miss"), width="stretch")
+            b2.button(f"📞 {c['answer']}", key=f"{key}|pickup", on_click=_do, args=(state, "pick_up"), width="stretch")
         return
     with st.container(key=f"{slug}-act"):
         if state.stage == "invite":
-            st.button(f'▶ {c["listen"]}', key=f"{key}|start", on_click=_do, args=(state, "start"), width="stretch")
+            st.button(f"▶ {c['listen']}", key=f"{key}|start", on_click=_do, args=(state, "start"), width="stretch")
             b1, b2 = st.columns(2)
             b1.button("2", key=f"{key}|later", on_click=_do, args=(state, "decline"), width="stretch", help=u["later"])
             b2.button("9", key=f"{key}|opt", on_click=_do, args=(state, "opt_out"), width="stretch", help=c["nomore"])
@@ -472,16 +565,28 @@ def _voice(survey, channel, state, key, slug, t0, rec, fresh):
             it, keys = items[state.step], vo["items"][state.step]["keypad"]
             cols = st.columns(min(len(keys), 3))
             for i, (kp, value) in enumerate(keys.items()):
-                cols[i % len(cols)].button(kp, key=f"{key}|{it['item_id']}|{value}", on_click=_do,
-                                           args=(state, "answer", it["item_id"], value), width="stretch",
-                                           help=label_for(it, value))
+                cols[i % len(cols)].button(
+                    kp,
+                    key=f"{key}|{it['item_id']}|{value}",
+                    on_click=_do,
+                    args=(state, "answer", it["item_id"], value),
+                    width="stretch",
+                    help=label_for(it, value),
+                )
     with st.container(key=f"{slug}-hang"):
-        st.button(f'📵 {c["hang"]}', key=f"{key}|hang", on_click=_do, args=(state, "hang_up"), width="stretch")
+        st.button(f"📵 {c['hang']}", key=f"{key}|hang", on_click=_do, args=(state, "hang_up"), width="stretch")
 
 
 # ------------------------------------------------------------------------------------- public
-def render_channel_preview(survey: dict, channel: str, *, key: str, send_at: str | None = None,
-                           restart: bool = False, show_restart: bool = True) -> dict | None:
+def render_channel_preview(
+    survey: dict,
+    channel: str,
+    *,
+    key: str,
+    send_at: str | None = None,
+    restart: bool = False,
+    show_restart: bool = True,
+) -> dict | None:
     """One live phone for `survey` on `channel`; see the module docstring.
     `restart=True` (e.g. the app's own Restart button on this run) puts the phone back to its first
     screen before anything is drawn; `show_restart=False` hides the preview's own Start over button."""

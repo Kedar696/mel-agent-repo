@@ -5,6 +5,7 @@ This file is the shell: the auto-reload guard, the batch every tab reads (the pa
 scheduler's gate, once), and the two tabs. Dashboard: app/dashboard.py. Survey demo: app/survey_demo.py (the phone:
 app/channel_preview.py). Shared labels and display helpers: app/common.py. Look and feel: app/theme.py.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
+
 import copy
 import sys
 from pathlib import Path
@@ -54,7 +55,7 @@ sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
 
 from app.display_time import use as use_zone
 
-use_zone(None)   # the numbers in Eastern Time; the Survey demo switches one farmer's screen to India time
+use_zone(None)  # the numbers in Eastern Time; the Survey demo switches one farmer's screen to India time
 from app import dashboard, survey_demo
 from app.common import CH_NAME, DATA_DIR, RULE_LABEL, html
 from app.theme import LOCKUP, apply_theme
@@ -72,21 +73,30 @@ def batch():
     gate, weekly cap with deferred moves, in send order), and count schema-valid files once, so later clicks stay
     fast even on the full dataset."""
     insights = load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None)
-    res = run_pipeline(insights, farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # feed send time
-                       history=True,     # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
-                       attention=True)   # activity attention: on in the app, off for scoring (same decision)
+    res = run_pipeline(
+        insights,
+        farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # feed send time
+        history=True,  # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
+        attention=True,
+    )  # activity attention: on in the app, off for scoring (same decision)
     rows = list(zip(res.insights, res.outputs))
     # Copies, because a merge edits the host hand-off, and Survey demo must keep showing the original survey.
     hs = [copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o]
-    ranker = FrequencyScheduler.from_insights(insights)        # the CLI's tie-break at the same window start
-    decided, _ = schedule_in_send_order(hs, cap=CapLedger(), opt_out=OptOutList(), relevance_threshold=RELEVANCE_THRESHOLD,
-                                        ranks={h["handoff_id"]: ranker.score(h) for h in hs})
+    ranker = FrequencyScheduler.from_insights(insights)  # the CLI's tie-break at the same window start
+    decided, _ = schedule_in_send_order(
+        hs,
+        cap=CapLedger(),
+        opt_out=OptOutList(),
+        relevance_threshold=RELEVANCE_THRESHOLD,
+        ranks={h["handoff_id"]: ranker.score(h) for h in hs},
+    )
     admits, upcoming = {}, {}  # upcoming: farmer -> [(send start, insight id)] of surveys that go out
     for hid, a in decided:
         admits[hid] = (a.decision, a.reason)
         if a.decision in ("sent", "moved"):
             upcoming.setdefault(a.handoff["survey"]["farmer_id"], []).append(
-                (a.handoff["send_window"]["not_before"], a.handoff["survey"]["source_insight_ids"][0]))
+                (a.handoff["send_window"]["not_before"], a.handoff["survey"]["source_insight_ids"][0])
+            )
     for v in upcoming.values():
         v.sort()
     surveyed = [o for _, o in rows if o["decision"].survey]
@@ -99,16 +109,25 @@ def batch():
 @st.cache_resource(show_spinner=False)
 def memory():
     """What the agent knows about each farmer (P4's FarmerMemory): earlier conversations + farmer profile."""
-    return FarmerMemory(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
-                        load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None))
+    return FarmerMemory(
+        load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
+        load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),
+    )
 
 
 rows, admits, upcoming, n_valid, n_files = batch()
-data = SimpleNamespace(rows=rows, admits=admits, upcoming=upcoming, memory=memory,
-                       insight_by_id={i.get("insight_id"): i for i, _ in rows},
-                       out_by_id={i.get("insight_id"): o for i, o in rows})
-html(f'<div class="mel-mast"><div class="mel-brand">{LOCKUP}</div>'
-     '<div class="mel-head"><h1 class="mel-title">MEL Survey Agent</h1></div></div>')
+data = SimpleNamespace(
+    rows=rows,
+    admits=admits,
+    upcoming=upcoming,
+    memory=memory,
+    insight_by_id={i.get("insight_id"): i for i, _ in rows},
+    out_by_id={i.get("insight_id"): o for i, o in rows},
+)
+html(
+    f'<div class="mel-mast"><div class="mel-brand">{LOCKUP}</div>'
+    '<div class="mel-head"><h1 class="mel-title">MEL Survey Agent</h1></div></div>'
+)
 tab_over, tab_studio = st.tabs(["Dashboard", "Survey demo"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
@@ -154,6 +173,7 @@ COUNT_UP_JS = """
 })();
 """
 
+
 @st.cache_data(show_spinner="Scoring the answer key and checking every survey in the full dataset…")
 def _evaluate(basis):
     return evaluate(basis)
@@ -166,8 +186,15 @@ def _pct(v):
 # ---------------------------------------------------------------- Dashboard (app/dashboard.py: mostly charts)
 with tab_over:
     st.html(f"<script>{COUNT_UP_JS}</script>", unsafe_allow_javascript=True)
-    dashboard.render(rows=rows, admits=admits, upcoming=upcoming, evaluate_fn=_evaluate, rule_label=RULE_LABEL,
-                     ch_name=CH_NAME, channels=CHANNELS)
+    dashboard.render(
+        rows=rows,
+        admits=admits,
+        upcoming=upcoming,
+        evaluate_fn=_evaluate,
+        rule_label=RULE_LABEL,
+        ch_name=CH_NAME,
+        channels=CHANNELS,
+    )
 
 # ---------------------------------------------------------------- Survey demo
 

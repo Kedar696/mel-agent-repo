@@ -38,7 +38,7 @@ def test_explicit_override_marks_a_channel_unreachable():
     other = next(c for c in CHANNELS if c != row["preferred_channel"])
     reach = FarmerReachability(farmers, unreachable_by_farmer={fid: {other}})
     assert reach.reachable(fid, other) is False
-    assert reach.reachable(fid, row["preferred_channel"]) is True   # preferred still reachable
+    assert reach.reachable(fid, row["preferred_channel"]) is True  # preferred still reachable
 
 
 def test_unknown_farmer_falls_back_to_all_reachable():
@@ -61,13 +61,13 @@ def test_reachable_channels_preserves_order_and_drops_unreachable():
     drop = next(c for c in order if c != row["preferred_channel"])
     reach = FarmerReachability(farmers, unreachable_by_farmer={fid: {drop}})
     kept = reach.reachable_channels(fid, order)
-    assert kept == [c for c in order if c != drop]          # order preserved, only drop removed
+    assert kept == [c for c in order if c != drop]  # order preserved, only drop removed
 
 
 def test_reachable_channels_accepts_handoff_channel_order_dicts():
     farmers = _real_farmers()
     reach = FarmerReachability(farmers)
-    s = load_scenario("4-cow-vet-escalation")               # channel_order has voice
+    s = load_scenario("4-cow-vet-escalation")  # channel_order has voice
     h = build_handoff(s["insight"], s["surveys"]["hi-IN"])
     kept = reach.reachable_channels(h["survey"]["farmer_id"], h["channel_order"])
     assert kept == [c["channel"] for c in h["channel_order"]]  # all reachable by default
@@ -77,18 +77,21 @@ def test_reachable_channels_accepts_handoff_channel_order_dicts():
 def test_scheduler_skips_unreachable_channel_but_keeps_order():
     """With reachability wired in, SeasonScheduler.step() skips a channel the farmer cannot
     be reached on and uses the next reachable channel in channel_order."""
-    s = load_scenario("4-cow-vet-escalation")               # order: voice, whatsapp
+    s = load_scenario("4-cow-vet-escalation")  # order: voice, whatsapp
     h = build_handoff(s["insight"], s["surveys"]["hi-IN"])
-    h["survey"]["self_eval"] = {"schema_valid": True, "relevance_score": 0.9,
-                                "gives_new_advice": False, "asks_personal_info": False}
+    h["survey"]["self_eval"] = {
+        "schema_valid": True,
+        "relevance_score": 0.9,
+        "gives_new_advice": False,
+        "asks_personal_info": False,
+    }
     fid = h["survey"]["farmer_id"]
     order = [c["channel"] for c in h["channel_order"]]
     first = order[0]
     # make the first channel unreachable; the step should use the next reachable one
     reach = FarmerReachability(load_farmers(), unreachable_by_farmer={fid: {first}})
-    sched = SeasonScheduler(h["send_window"]["not_before"], relevance_threshold=0.5,
-                            reachability=reach)
+    sched = SeasonScheduler(h["send_window"]["not_before"], relevance_threshold=0.5, reachability=reach)
     sched.admit_all([h])
     r = sched.step()
     assert r.kind == "sent"
-    assert r.channel != first and r.channel in order        # skipped first, used a later one
+    assert r.channel != first and r.channel in order  # skipped first, used a later one

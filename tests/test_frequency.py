@@ -9,12 +9,17 @@ Covers the acceptance criteria:
   * duplicate inputs, sparse history, out-of-order timestamps, boundary dates are deterministic
 """
 
-
 from mel.data import load_scenario
 from mel.schedule import (
-    build_handoff, CapLedger, OptOutList,
-    FrequencyMonitor, FrequencyScheduler, SeasonStageContext, ClimateContext,
-    frequency_config, topic_of,
+    build_handoff,
+    CapLedger,
+    OptOutList,
+    FrequencyMonitor,
+    FrequencyScheduler,
+    SeasonStageContext,
+    ClimateContext,
+    frequency_config,
+    topic_of,
 )
 from mel.simulator import simulate
 
@@ -23,15 +28,18 @@ THRESHOLD = 0.5
 
 
 def _ins(iid, fid, crop, concern, ts):
-    return {"insight_id": iid, "farmer_id": fid, "asset": {"name": crop},
-            "concern": concern, "created_at": ts}
+    return {"insight_id": iid, "farmer_id": fid, "asset": {"name": crop}, "concern": concern, "created_at": ts}
 
 
 def _clear_handoff(scenario="1-mustard-aphid-spray", crop="mustard"):
     s = load_scenario(scenario)
     h = build_handoff(s["insight"], s["surveys"]["hi-IN"])
-    h["survey"]["self_eval"] = {"schema_valid": True, "relevance_score": 0.8,
-                                "gives_new_advice": False, "asks_personal_info": False}
+    h["survey"]["self_eval"] = {
+        "schema_valid": True,
+        "relevance_score": 0.8,
+        "gives_new_advice": False,
+        "asks_personal_info": False,
+    }
     h["_crop"] = crop
     return h
 
@@ -58,7 +66,7 @@ def test_repeated_questions_make_a_peak():
 def test_other_topics_and_farmers_do_not_contaminate():
     hist = _busy_history("F1", crop="mustard") + [
         _ins("X", "F1", "wheat", "weed_management", "2026-12-30T09:00:00+05:30"),  # one other topic
-        _ins("Y", "F2", "mustard", "pest_disease", "2026-12-30T09:00:00+05:30"),   # other farmer
+        _ins("Y", "F2", "mustard", "pest_disease", "2026-12-30T09:00:00+05:30"),  # other farmer
     ]
     mon = FrequencyMonitor(hist)
     assert mon.peak("F1", "mustard", as_of="2026-12-31T07:00:00+05:30").is_peak
@@ -78,7 +86,7 @@ def test_sparse_history_is_not_a_peak():
 
 def test_duplicate_inputs_counted_once():
     dup = _busy_history("F1")
-    dup = dup + [dict(dup[-1])]           # same insight_id "D" again
+    dup = dup + [dict(dup[-1])]  # same insight_id "D" again
     mon = FrequencyMonitor(dup)
     assert mon.peak("F1", "mustard", as_of="2026-12-31T07:00:00+05:30").n_history == 4
 
@@ -104,14 +112,17 @@ def test_window_boundary_is_deterministic():
     as_of = "2027-01-15T09:00:00+05:30"
     from datetime import timedelta
     from mel.timing import parse_ist, fmt_ist
-    on_boundary = fmt_ist(parse_ist(as_of) - timedelta(days=days))      # exactly window start
+
+    on_boundary = fmt_ist(parse_ist(as_of) - timedelta(days=days))  # exactly window start
     inside = fmt_ist(parse_ist(as_of) - timedelta(days=days) + timedelta(seconds=1))
 
-    p_out = FrequencyMonitor(base + [_ins("B", "F1", "mustard", "pest_disease", on_boundary)]) \
-        .peak("F1", "mustard", as_of=as_of)
-    p_in = FrequencyMonitor(base + [_ins("B", "F1", "mustard", "pest_disease", inside)]) \
-        .peak("F1", "mustard", as_of=as_of)
-    assert p_in.window_count == p_out.window_count + 1   # the boundary event is excluded
+    p_out = FrequencyMonitor(base + [_ins("B", "F1", "mustard", "pest_disease", on_boundary)]).peak(
+        "F1", "mustard", as_of=as_of
+    )
+    p_in = FrequencyMonitor(base + [_ins("B", "F1", "mustard", "pest_disease", inside)]).peak(
+        "F1", "mustard", as_of=as_of
+    )
+    assert p_in.window_count == p_out.window_count + 1  # the boundary event is excluded
 
 
 def test_topic_key_prefers_crop_then_concern():
@@ -131,8 +142,10 @@ def _score(priority, history, crop="mustard"):
 def test_priority_order_preserved_without_peak():
     """With no peak, higher existing priority ranks higher -- the frequency signal adds 0."""
     fid = _clear_handoff()["survey"]["farmer_id"]
-    flat = [_ins("A", fid, "mustard", "pest_disease", "2026-12-01T09:00:00+05:30"),
-            _ins("B", fid, "mustard", "pest_disease", "2026-12-02T09:00:00+05:30")]
+    flat = [
+        _ins("A", fid, "mustard", "pest_disease", "2026-12-01T09:00:00+05:30"),
+        _ins("B", fid, "mustard", "pest_disease", "2026-12-02T09:00:00+05:30"),
+    ]
     hi = _score("high", flat).score
     no = _score("normal", flat).score
     lo = _score("low", flat).score
@@ -143,16 +156,25 @@ def test_peak_raises_score_but_keeps_signal_visible():
     fid = _clear_handoff()["survey"]["farmer_id"]
     peak_hist = _busy_history(fid)
     r_peak = _score("normal", peak_hist)
-    r_flat = _score("normal", [_ins("A", fid, "mustard", "pest_disease", "2026-12-01T09:00:00+05:30"),
-                               _ins("B", fid, "mustard", "pest_disease", "2026-12-02T09:00:00+05:30")])
-    assert r_peak.score > r_flat.score                       # a peak lifts the rank
-    assert r_peak.signals["frequency"]["is_peak"] is True    # and is explained
+    r_flat = _score(
+        "normal",
+        [
+            _ins("A", fid, "mustard", "pest_disease", "2026-12-01T09:00:00+05:30"),
+            _ins("B", fid, "mustard", "pest_disease", "2026-12-02T09:00:00+05:30"),
+        ],
+    )
+    assert r_peak.score > r_flat.score  # a peak lifts the rank
+    assert r_peak.signals["frequency"]["is_peak"] is True  # and is explained
     assert r_peak.signals["frequency_component"] > 0
 
 
 def test_ranking_is_deterministic_tie_break_by_id():
-    h1 = _clear_handoff(); h1["handoff_id"] = "H-AAA"; h1["priority"] = "normal"
-    h2 = _clear_handoff(); h2["handoff_id"] = "H-BBB"; h2["priority"] = "normal"
+    h1 = _clear_handoff()
+    h1["handoff_id"] = "H-AAA"
+    h1["priority"] = "normal"
+    h2 = _clear_handoff()
+    h2["handoff_id"] = "H-BBB"
+    h2["priority"] = "normal"
     sched = FrequencyScheduler(FrequencyMonitor([]))
     ranked = sched.rank([h2, h1], as_of="2026-12-31T07:00:00+05:30")
     assert [r.handoff_id for r in ranked] == ["H-AAA", "H-BBB"]  # equal score -> id order
@@ -162,6 +184,7 @@ def test_ranking_is_deterministic_tie_break_by_id():
 def test_season_stage_from_calendar():
     ctx = SeasonStageContext()
     from datetime import date
+
     # Mustard is flowering around 1 Jan 2027 per the crop calendar.
     assert ctx.active_stage("mustard", date(2027, 1, 10)) is not None
     # A date far outside any stage window yields None.
@@ -174,8 +197,8 @@ def test_active_season_adds_component_only_when_in_stage():
     h = _clear_handoff(crop="mustard")
     h["priority"] = "normal"
     sched = FrequencyScheduler(FrequencyMonitor([]))
-    in_stage = sched.rank([h], as_of="2027-01-10T07:00:00+05:30")[0]     # mustard flowering
-    out_stage = sched.rank([h], as_of="2030-01-10T07:00:00+05:30")[0]    # no stage
+    in_stage = sched.rank([h], as_of="2027-01-10T07:00:00+05:30")[0]  # mustard flowering
+    out_stage = sched.rank([h], as_of="2030-01-10T07:00:00+05:30")[0]  # no stage
     assert in_stage.signals["season_stage"] is not None
     assert out_stage.signals["season_stage"] is None
     assert in_stage.signals["season_component"] > out_stage.signals["season_component"]
@@ -183,28 +206,31 @@ def test_active_season_adds_component_only_when_in_stage():
 
 # ===================================================== climate context (missing + synthetic)
 def test_climate_missing_falls_back_and_is_visible():
-    h = _clear_handoff(); h["priority"] = "normal"
-    sched = FrequencyScheduler(FrequencyMonitor([]))          # default ClimateContext: unavailable
+    h = _clear_handoff()
+    h["priority"] = "normal"
+    sched = FrequencyScheduler(FrequencyMonitor([]))  # default ClimateContext: unavailable
     r = sched.rank([h], as_of="2027-01-10T07:00:00+05:30")[0]
     assert r.signals["climate_available"] is False
     assert r.signals["climate_context_missing"] is True
-    assert r.signals["climate_component"] == 0.0             # neutral: no adjustment
+    assert r.signals["climate_component"] == 0.0  # neutral: no adjustment
     assert r.signals["climate_synthetic"] is False
 
 
 def test_synthetic_climate_is_labelled_and_applied():
-    h = _clear_handoff(); h["priority"] = "normal"
-    clim = ClimateContext(synthetic_factor=1.0)              # demo-only constant
+    h = _clear_handoff()
+    h["priority"] = "normal"
+    clim = ClimateContext(synthetic_factor=1.0)  # demo-only constant
     sched = FrequencyScheduler(FrequencyMonitor([]), climate=clim)
     r = sched.rank([h], as_of="2027-01-10T07:00:00+05:30")[0]
     assert r.signals["climate_available"] is True
-    assert r.signals["climate_synthetic"] is True            # clearly labelled synthetic
+    assert r.signals["climate_synthetic"] is True  # clearly labelled synthetic
     assert r.signals["climate_component"] > 0.0
     assert r.signals["climate_context_missing"] is False
 
 
 def test_real_provider_climate_in_range():
-    h = _clear_handoff(); h["priority"] = "normal"
+    h = _clear_handoff()
+    h["priority"] = "normal"
     clim = ClimateContext(provider=lambda state, district, on: 0.5)
     sched = FrequencyScheduler(FrequencyMonitor([]), climate=clim)
     r = sched.rank([h], as_of="2027-01-10T07:00:00+05:30")[0]
@@ -224,18 +250,20 @@ def test_peak_does_not_bypass_opt_out():
 
 def test_peak_does_not_bypass_quality_gate():
     h = _clear_handoff()
-    h["survey"]["self_eval"]["relevance_score"] = 0.1        # below threshold
+    h["survey"]["self_eval"]["relevance_score"] = 0.1  # below threshold
     sched = FrequencyScheduler(FrequencyMonitor(_busy_history(h["survey"]["farmer_id"])))
     assert sched.filter_eligible([h], relevance_threshold=THRESHOLD) == []
 
 
 def test_peak_does_not_bypass_window_or_expiry():
     from mel.timing import parse_ist
+
     h = _clear_handoff()
     sched = FrequencyScheduler(FrequencyMonitor(_busy_history(h["survey"]["farmer_id"])))
     before = parse_ist(h["send_window"]["not_before"])
     # A time before the window opens -> not eligible even with a peak.
     from datetime import timedelta
+
     assert sched.filter_eligible([h], relevance_threshold=THRESHOLD, now=before - timedelta(days=1)) == []
     # A time past expiry -> not eligible.
     after = parse_ist(h["expires_at"]) + timedelta(days=1)
@@ -245,12 +273,14 @@ def test_peak_does_not_bypass_window_or_expiry():
 def test_peak_does_not_bypass_frequency_cap():
     led = CapLedger()
     h1 = _clear_handoff()
-    led.admit(h1)                                            # fill the farmer's weekly slot
+    led.admit(h1)  # fill the farmer's weekly slot
     # A second NORMAL survey to the same farmer in the same window: the cap must hold. We
     # place its window outside the first's so it can neither merge nor move -> skipped.
     from mel.timing import parse_ist, fmt_ist
     from datetime import timedelta
-    h2 = _clear_handoff(); h2["handoff_id"] = "H-2"
+
+    h2 = _clear_handoff()
+    h2["handoff_id"] = "H-2"
     h2["survey"]["source_insight_ids"] = ["I-ZZZ"]
     start = parse_ist(h1["send_window"]["not_after"]) + timedelta(days=1)
     h2["send_window"] = {"not_before": fmt_ist(start), "not_after": fmt_ist(start + timedelta(days=2))}
@@ -264,10 +294,15 @@ def test_high_priority_survey_still_passes_cap_and_ranks():
     survey with a peak is eligible and ranks above a flat normal one."""
     hi = _clear_handoff("4-cow-vet-escalation", crop="cow")
     assert hi["priority"] == "high"
-    hi["survey"]["self_eval"] = {"schema_valid": True, "relevance_score": 0.9,
-                                 "gives_new_advice": False, "asks_personal_info": False}
+    hi["survey"]["self_eval"] = {
+        "schema_valid": True,
+        "relevance_score": 0.9,
+        "gives_new_advice": False,
+        "asks_personal_info": False,
+    }
     sched = FrequencyScheduler(FrequencyMonitor([]))
     from mel.timing import parse_ist
+
     now = parse_ist(hi["send_window"]["not_before"])
     elig = sched.filter_eligible([hi], relevance_threshold=THRESHOLD, now=now)
     assert len(elig) == 1

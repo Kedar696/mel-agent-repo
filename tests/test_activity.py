@@ -4,6 +4,7 @@ Covers spec R-12 with hand-built, schema-valid farmers so the thresholds are exe
 cross-cutting guarantees: the 7-day high-promotion budget, opt-out/fatigue still win over a surge, filtered and
 full runs agree, robustness to broken rows, and the full-pack on/off invariants.
 """
+
 import datetime
 
 import pytest
@@ -28,17 +29,24 @@ def ins(iid, fid, cid, day, **kw):
     """A schema-valid insight on dataset-day `day` (int, days after BASE). why_junk() must accept it,
     otherwise the activity module treats it as junk and ignores it."""
     d = {
-        "insight_id": iid, "farmer_id": fid, "conversation_id": cid,
-        "created_at": D(day).isoformat(), "conversation_language": "en-IN",
+        "insight_id": iid,
+        "farmer_id": fid,
+        "conversation_id": cid,
+        "created_at": D(day).isoformat(),
+        "conversation_language": "en-IN",
         "location": {"country": "IN", "state": "Bihar", "district": "Patna"},
         "asset": {"name": "wheat", "category": "crop", "growth_stage": "vegetative"},
-        "concern": "pest_disease", "behavioral_intent": "diagnosing",
-        "decision_episode_type": "problem_resolution", "severity": "low",
+        "concern": "pest_disease",
+        "behavioral_intent": "diagnosing",
+        "decision_episode_type": "problem_resolution",
+        "severity": "low",
         "query_summary": "farmer asks about a pest problem in the wheat crop field and needs help",
         "advice_summary": "advised to spray a recommended fungicide as per the product label on the field",
-        "resolution_type": "direct_action", "action_window_days": 10,
+        "resolution_type": "direct_action",
+        "action_window_days": 10,
         "verification": {"needed": True, "timing": "three_to_ten_days", "method": "push"},
-        "preferred_channel": "app", "quality_flag": "clean",
+        "preferred_channel": "app",
+        "quality_flag": "clean",
     }
     d.update(kw)
     return d
@@ -54,6 +62,7 @@ def tier_of(rows, target):
 
 
 # --------------------------------------------------------------------------- the module
+
 
 def test_quiet_then_high_weight_is_surge():
     rows = [ins("Q0", "F", "C0", 0), high("QX", "F", "CX", 40)]
@@ -78,16 +87,25 @@ def test_steady_high_priority_stays_high_for_a_brief_high_survey():
     att = tier_of(heavy, heavy[-1]).as_dict()
     assert att["tier"] == "steady_high"
     # brief priority of an escalate+high insight is "high"; steady_high must leave it high
-    h = build_handoff(heavy[-1], {"survey_id": "S-1", "farmer_id": "F", "source_insight_ids": ["HX"],
-                                  "language": "en-IN", "send_window": {"not_before": D(45).isoformat(),
-                                  "not_after": D(50).isoformat()}, "items": []}, att)
+    h = build_handoff(
+        heavy[-1],
+        {
+            "survey_id": "S-1",
+            "farmer_id": "F",
+            "source_insight_ids": ["HX"],
+            "language": "en-IN",
+            "send_window": {"not_before": D(45).isoformat(), "not_after": D(50).isoformat()},
+            "items": [],
+        },
+        att,
+    )
     assert h["priority"] == "high" and h["frequency_cap"]["exempt"] is True
 
 
 def test_heavy_farmer_going_quiet_is_neutral_unchanged():
     # busy early, then silent; the insight itself is a normal (non-urgent) question.
     rows = [ins(f"H{d}", "F", f"C{d}", d) for d in range(0, 30, 3)]
-    rows.append(ins("QX", "F", "CX", 55))   # 25 days after the last chat: recent rate well below baseline
+    rows.append(ins("QX", "F", "CX", 55))  # 25 days after the last chat: recent rate well below baseline
     a = tier_of(rows, rows[-1])
     assert a.tier == "neutral"
     assert a.reason in ("declining", "none")
@@ -98,7 +116,7 @@ def test_heavy_then_quiet_then_returns_still_neutral():
     # chats fall out of the returning insight's 70->14 baseline window, so F is not "steady" any more.
     other = [ins("O", "G", "CO", 0)]
     rows = other + [ins(f"H{d}", "F", f"C{d}", d) for d in range(0, 30, 3)]
-    rows.append(ins("BACK", "F", "CBACK", 110))   # 80+ days after the last heavy chat: baseline ~0, recent low
+    rows.append(ins("BACK", "F", "CBACK", 110))  # 80+ days after the last heavy chat: baseline ~0, recent low
     a = tier_of(rows, rows[-1])
     assert a.tier == "neutral"
 
@@ -126,7 +144,7 @@ def test_adding_later_insights_never_changes_an_earlier_result():
     early = [ins("A", "F", "CA", 0), high("B", "F", "CB", 40)]
     before = tier_of(early, early[1])
     later = early + [ins("C", "F", "CC", 45), high("E", "F", "CE", 60)]
-    after = tier_of(later, later[1])     # same insight B, now with future rows present
+    after = tier_of(later, later[1])  # same insight B, now with future rows present
     assert before == after
 
 
@@ -152,15 +170,15 @@ def test_broken_rows_do_not_crash_or_count():
         "this is not even a dict",
         high("GOOD", "F", "CX", 40),
     ]
-    h = ActivityHistory(rows)              # must not raise
-    assert h.dataset_start == D(0)         # computed only from the one usable, non-junk row
+    h = ActivityHistory(rows)  # must not raise
+    assert h.dataset_start == D(0)  # computed only from the one usable, non-junk row
     a = h.attention_for(rows[-1])
     assert a.tier in ("surge", "neutral", "steady_high")
 
 
 def test_poisson_tail_edge_cases():
     assert _poisson_tail(0, 0.0) == 1.0
-    assert _poisson_tail(3, 0.0) == 0.0          # silent baseline, a 3-burst is a clear jump
+    assert _poisson_tail(3, 0.0) == 0.0  # silent baseline, a 3-burst is a clear jump
     assert 0.0 < _poisson_tail(5, 1.0) < 1.0
 
 
@@ -175,6 +193,7 @@ def test_activity_jump_fires_on_a_real_burst():
 
 
 # --------------------------------------------------------------------------- 7-day high budget (in run_pipeline)
+
 
 def test_burst_promotes_to_high_only_once_in_7_days():
     # A farmer with several activity_jump surges a few days apart. Each would promote normal->high, but only the
@@ -194,15 +213,16 @@ def test_burst_promotes_to_high_only_once_in_7_days():
         if "handoff" in out:
             prio[ins_row["insight_id"]] = out["handoff"]["priority"]
     jumps = [iid for iid in ("J55", "J58", "J61") if reason.get(iid) == "activity_jump"]
-    assert len(jumps) >= 2, reason    # need at least two jump surges to prove the budget caps them
+    assert len(jumps) >= 2, reason  # need at least two jump surges to prove the budget caps them
     promoted = [iid for iid in jumps if prio.get(iid) == "high"]
-    assert len(promoted) <= 1, prio   # at most one high within the rolling 7-day window
+    assert len(promoted) <= 1, prio  # at most one high within the rolling 7-day window
 
 
 def no_survey(iid, fid, cid, day, **kw):
     """A schema-valid insight that gets NO survey (verification not needed -> R5), brief priority normal."""
-    return ins(iid, fid, cid, day, severity="medium",
-               verification={"needed": False, "timing": "none", "method": "none"}, **kw)
+    return ins(
+        iid, fid, cid, day, severity="medium", verification={"needed": False, "timing": "none", "method": "none"}, **kw
+    )
 
 
 def test_no_survey_chat_does_not_spend_the_high_budget():
@@ -211,9 +231,9 @@ def test_no_survey_chat_does_not_spend_the_high_budget():
     # activity_jump chat consumed the slot and left the later real survey at normal; after the fix it does not,
     # so the real survey is still promoted to high.
     rows = [ins("O", "G", "CO", 0)]
-    rows += [no_survey(f"F{d}", "F", f"CF{d}", d) for d in (47, 49, 51)]   # build recent activity, no surveys
-    rows.append(no_survey("NOSURV", "F", "CNS", 55))                        # would-be activity_jump, but no survey
-    rows.append(ins("SURV", "F", "CSV", 58, severity="medium"))            # the only real survey (R8), normal brief prio
+    rows += [no_survey(f"F{d}", "F", f"CF{d}", d) for d in (47, 49, 51)]  # build recent activity, no surveys
+    rows.append(no_survey("NOSURV", "F", "CNS", 55))  # would-be activity_jump, but no survey
+    rows.append(ins("SURV", "F", "CSV", 58, severity="medium"))  # the only real survey (R8), normal brief prio
     res = run_pipeline(rows, attention=True)
     out = {i["insight_id"]: o for i, o in zip(res.insights, res.outputs)}
 
@@ -233,31 +253,45 @@ def test_no_survey_chat_does_not_spend_the_high_budget():
 def test_adjust_priority_honours_the_spent_budget():
     surge = Attention("surge", "activity_jump", 0.1, 4, 1.5, "x").as_dict()
     spent = with_high_budget_spent(Attention("surge", "activity_jump", 0.1, 4, 1.5, "x")).as_dict()
-    i = ins("I", "F", "C", 40, severity="medium")   # brief priority normal
+    i = ins("I", "F", "C", 40, severity="medium")  # brief priority normal
     assert adjust_priority("normal", i, surge) == "high"
     assert adjust_priority("normal", i, spent) == "normal"
-    assert adjust_priority("low", i, surge) == "normal"            # one step up, not to high
+    assert adjust_priority("low", i, surge) == "normal"  # one step up, not to high
     steady = Attention("steady_high", "none", 2.0, 1, 0.5, "x").as_dict()
     assert adjust_priority("normal", i, steady) == "low"
-    assert adjust_priority("high", i, steady) == "high"            # never demote a brief-high
+    assert adjust_priority("high", i, steady) == "high"  # never demote a brief-high
 
 
 # --------------------------------------------------------------------------- opt-out / fatigue still win
 
+
 def test_surge_farmer_still_shortened_by_fatigue():
     from mel.writer import FarmerMemory
     from mel.writer.compose import compose_survey
+
     # A light-user surge normally keeps up to 3 (H4 skipped), but H3 fatigue still shortens.
     mem = FarmerMemory([], {"F": {"activity_level": "light", "crops": "wheat"}})
     # three unanswered prior surveys -> H3 cuts to 1
     for n in range(3):
-        mem.record_response({"farmer_id": "F", "recorded_at": D(n).isoformat(),
-                             "status": "expired", "counts_toward_cap": True, "answers": {}})
+        mem.record_response(
+            {
+                "farmer_id": "F",
+                "recorded_at": D(n).isoformat(),
+                "status": "expired",
+                "counts_toward_cap": True,
+                "answers": {},
+            }
+        )
     i = ins("I", "F", "C", 40, resolution_type="direct_action", severity="medium")
-    s = compose_survey({"send_window": {"not_before": D(45).isoformat(), "not_after": D(50).isoformat()}},
-                       i, "en-IN", memory=mem, attention={"tier": "surge"})
-    assert len(s["items"]) == 1        # H3 fatigue wins even for a surge
-    assert not any(rule == "H4" for rule, _ in s["_history"])   # and no H4 note was emitted
+    s = compose_survey(
+        {"send_window": {"not_before": D(45).isoformat(), "not_after": D(50).isoformat()}},
+        i,
+        "en-IN",
+        memory=mem,
+        attention={"tier": "surge"},
+    )
+    assert len(s["items"]) == 1  # H3 fatigue wins even for a surge
+    assert not any(rule == "H4" for rule, _ in s["_history"])  # and no H4 note was emitted
 
 
 def test_steady_high_trim_drops_the_personalised_note_it_cut():
@@ -265,6 +299,7 @@ def test_steady_high_trim_drops_the_personalised_note_it_cut():
     from mel.writer.history import personalize
     from mel.writer.templates import build_items
     from mel.writer.compose import compose_survey
+
     # A repeat problem (same crop + concern earlier) triggers H1, which adds a personalised question as the 3rd
     # item of a direct_action survey. steady_high caps the survey at 2, cutting that H1 question -> its note
     # must be dropped so the rationale never claims a question the survey does not ask.
@@ -278,14 +313,20 @@ def test_steady_high_trim_drops_the_personalised_note_it_cut():
     assert len(items_plain) == 3
 
     # With steady_high: the survey is trimmed to 2 and the H1 note is gone.
-    items_sh, notes_sh = personalize(build_items(cur, "golden", {"tier": "steady_high"}), cur, mem,
-                                     {"tier": "steady_high"})
+    items_sh, notes_sh = personalize(
+        build_items(cur, "golden", {"tier": "steady_high"}), cur, mem, {"tier": "steady_high"}
+    )
     assert len(items_sh) == 2
     assert not any(rule in ("H1", "H2") for rule, _ in notes_sh), notes_sh
 
     # End to end: the composed survey's rationale and _history carry no H1/H2 claim.
-    s = compose_survey({"send_window": {"not_before": D(55).isoformat(), "not_after": D(60).isoformat()}},
-                       cur, "en-IN", memory=mem, attention={"tier": "steady_high"})
+    s = compose_survey(
+        {"send_window": {"not_before": D(55).isoformat(), "not_after": D(60).isoformat()}},
+        cur,
+        "en-IN",
+        memory=mem,
+        attention={"tier": "steady_high"},
+    )
     assert len(s["items"]) == 2
     assert not any(rule in ("H1", "H2") for rule, _ in s["_history"])
     assert "H1" not in s["rationale"] and "H2" not in s["rationale"]
@@ -293,15 +334,16 @@ def test_steady_high_trim_drops_the_personalised_note_it_cut():
 
 # --------------------------------------------------------------------------- filtered == full
 
+
 def test_filtered_and_full_runs_agree_for_the_same_farmer():
     rows = [ins("O0", "G", "CO0", 0)] + [ins(f"H{d}", "F", f"C{d}", d) for d in range(0, 30, 3)]
     rows.append(high("FX", "F", "CFX", 50))
     full = run_pipeline(rows, attention=True)
     only_f = run_pipeline(rows, farmer="F", attention=True)
-    full_att = {i["insight_id"]: o["decision"].attention
-                for i, o in zip(full.insights, full.outputs) if i["farmer_id"] == "F"}
-    filt_att = {i["insight_id"]: o["decision"].attention
-                for i, o in zip(only_f.insights, only_f.outputs)}
+    full_att = {
+        i["insight_id"]: o["decision"].attention for i, o in zip(full.insights, full.outputs) if i["farmer_id"] == "F"
+    }
+    filt_att = {i["insight_id"]: o["decision"].attention for i, o in zip(only_f.insights, only_f.outputs)}
     assert full_att == filt_att and full_att
     # limit must not change a kept farmer's result either
     lim = run_pipeline(rows, limit=len(rows), attention=True)
@@ -320,6 +362,7 @@ def test_input_order_does_not_change_the_result():
 
 
 # --------------------------------------------------------------------------- off == today, on is valid (full pack)
+
 
 def test_attention_off_leaves_decisions_untouched():
     rows = load_insights()
@@ -343,6 +386,7 @@ def test_full_pack_decision_and_rule_identical_on_off():
 @pytest.mark.skipif(not has_pack, reason="full participant pack not present")
 def test_full_pack_handoffs_valid_with_attention_on():
     from mel.data import errors
+
     rows = load_insights(FULL_DATA / "insights.jsonl")
     on = run_pipeline(rows, attention=True)
     bad = 0

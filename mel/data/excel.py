@@ -13,6 +13,7 @@ The ``check_*_parity`` functions prove the two sources agree and name every diff
 id and field (``I-000123 severity``) or by file name. ``openpyxl`` is imported only inside
 the functions that open a workbook, so importing ``mel.cli`` or ``mel.data`` stays light.
 """
+
 import csv
 import json
 from datetime import date, datetime
@@ -82,7 +83,7 @@ def load_insights_xlsx(path: Path) -> list[dict]:
 
 # --- golden set -------------------------------------------------------------------------
 
-_GOLDEN_TOP = {"golden_id", "insight_id"}      # columns that belong to the golden row itself
+_GOLDEN_TOP = {"golden_id", "insight_id"}  # columns that belong to the golden row itself
 _INSIGHT_NESTED = ("location", "asset", "verification")
 _INSIGHT_BOOL = {"verification.needed"}
 _INSIGHT_INT = {"action_window_days"}
@@ -107,7 +108,7 @@ def _golden_insight(flat: dict[str, Any]) -> dict[str, Any]:
     for col, raw in flat.items():
         if col in _GOLDEN_TOP or not col.startswith("insight_"):
             continue
-        name = col[len("insight_"):]            # insight_insight_id -> insight_id
+        name = col[len("insight_") :]  # insight_insight_id -> insight_id
         head, _, tail = name.partition("_")
         if head in _INSIGHT_NESTED and tail:
             key = f"{head}.{tail}"
@@ -136,8 +137,7 @@ def _golden_expected(flat: dict[str, Any]) -> dict[str, Any]:
             exp[name] = v
     start, end = flat.get("expected_send_window_start"), flat.get("expected_send_window_end")
     if not (_blank(start) and _blank(end)):
-        exp["send_window"] = {"start": None if _blank(start) else start,
-                              "end": None if _blank(end) else end}
+        exp["send_window"] = {"start": None if _blank(start) else start, "end": None if _blank(end) else end}
     items = []
     for n in (1, 2, 3):
         iid = flat.get(f"expected_items{n}_id")
@@ -171,6 +171,7 @@ def load_golden_xlsx(path: Path) -> list[dict]:
 
 
 # --- farmers and crop calendar ----------------------------------------------------------
+
 
 def _cell_text(v: Any) -> str:
     """A cell as the text the CSV reader would give for it ('' for an empty cell)."""
@@ -312,8 +313,7 @@ def check_crop_calendar_parity(xlsx_path: Path, csv_path: Path) -> list[str]:
 
 
 def _files(root: Path) -> dict[str, Path]:
-    return {p.relative_to(root).as_posix(): p for p in sorted(root.rglob("*"))
-            if p.is_file() and p.name != ".DS_Store"}
+    return {p.relative_to(root).as_posix(): p for p in sorted(root.rglob("*")) if p.is_file() and p.name != ".DS_Store"}
 
 
 def _same_file(a: Path, b: Path) -> bool:
@@ -356,8 +356,12 @@ def check_all_parity(pack: Path | None = None, repo: Path | None = None) -> list
         ("insights.xlsx", check_insights_parity, sheets / "insights.xlsx", data / "insights.jsonl"),
         ("golden_set.xlsx", check_golden_parity, sheets / "golden_set.xlsx", data / "golden_set.jsonl"),
         ("farmers.xlsx", check_farmers_parity, sheets / "farmers.xlsx", data / "farmers.csv"),
-        ("crop_calendar.xlsx", check_crop_calendar_parity, sheets / "crop_calendar.xlsx",
-         data / "crop_calendar_bihar_rabi.csv"),
+        (
+            "crop_calendar.xlsx",
+            check_crop_calendar_parity,
+            sheets / "crop_calendar.xlsx",
+            data / "crop_calendar_bihar_rabi.csv",
+        ),
     )
     problems: list[str] = []
     for label, fn, xl, other in jobs:
@@ -368,6 +372,8 @@ def check_all_parity(pack: Path | None = None, repo: Path | None = None) -> list
         else:
             problems += [f"[{label}] {d}" for d in fn(xl, other)]
     for label, mine, theirs in _DIR_PAIRS:
-        problems += [f"[{label}] {d}" if not d.startswith(label) else d
-                     for d in check_dir_parity(repo / mine, pack / theirs, label)]
+        problems += [
+            f"[{label}] {d}" if not d.startswith(label) else d
+            for d in check_dir_parity(repo / mine, pack / theirs, label)
+        ]
     return problems

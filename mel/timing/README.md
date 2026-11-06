@@ -158,7 +158,7 @@ Any of these changes only if Digital Green answers otherwise or ships a new gold
 Some advice depends on the weather. The brief's mustard example says "spray within 2 days if no rain is
 forecast", and the Vision doc asks how the send window should be set then. Today these windows are planned
 like any other, from `action_window_days` and the verification timing. The pack has no weather data (P3 found
-the same, `docs/p3_frequency_scheduling.md`), and no field says that advice depends on the weather. Only the
+the same, `docs/archive/p3_frequency_scheduling.md`), and no field says that advice depends on the weather. Only the
 free text says it (1,169 of 6,999 full-pack advice summaries mention rain, fog, frost, the forecast or the
 weather), and P2 never reads free text.
 

@@ -1,4 +1,5 @@
 """Cost tracking and the batch runner (owner: P5), with a stand-in Bedrock: nothing calls AWS."""
+
 import json
 
 import pytest
@@ -15,14 +16,16 @@ from mel.writer.templates import template_items
 def _lines(insight):
     """The English template as the compact lines a translation request carries ("" when there is no template)."""
     from mel.writer.llm import lines_from
+
     try:
         return lines_from(template_items(insight, "en-IN"))
-    except ValueError:              # no survey template for this resolution type
+    except ValueError:  # no survey template for this resolution type
         return ""
 
 
 class Runtime:
     """bedrock-runtime stand-in: answers every writing request with that insight's template items."""
+
     def __init__(self, insights):
         self.by_advice = {i["advice_summary"]: i for i in insights}
         self.calls = 0
@@ -30,14 +33,18 @@ class Runtime:
     def converse(self, **kw):
         self.calls += 1
         text = kw["messages"][0]["content"][0]["text"]
-        if "Translate" in (kw.get("system") or [{}])[0].get("text", ""):   # Hindi = a translation of the English lines
+        if "Translate" in (kw.get("system") or [{}])[0].get("text", ""):  # Hindi = a translation of the English lines
             lang = "hi-IN"
             ins = next(i for i in self.by_advice.values() if _lines(i) == text)
         else:
             lang = "hi-IN" if "Language: hi-IN" in text else "en-IN"
             ins = next(i for a, i in self.by_advice.items() if a and a in text)
-        return {"output": {"message": {"content": [{"text": json.dumps({"items": template_items(ins, lang)}, ensure_ascii=False)}]}},
-                "usage": {"inputTokens": 1000, "outputTokens": 100}}
+        return {
+            "output": {
+                "message": {"content": [{"text": json.dumps({"items": template_items(ins, lang)}, ensure_ascii=False)}]}
+            },
+            "usage": {"inputTokens": 1000, "outputTokens": 100},
+        }
 
 
 @pytest.fixture
@@ -79,10 +86,35 @@ def test_meter_reads_only_what_was_logged_after_it_started(tmp_path, monkeypatch
     monkeypatch.setenv("MEL_LLM_LOG", str(log))
     m = C.CostMeter()
     with log.open("a") as f:
-        f.write(json.dumps({"purpose": "write", "model": "w", "tag": "I-1", "input_tokens": 10, "output_tokens": 2,
-                            "cost_usd": 0.25, "ok": True, "cached": False}) + "\n")
-        f.write(json.dumps({"purpose": "judge", "model": "j", "input_tokens": 5, "output_tokens": 1,
-                            "cost_usd": 0.01, "ok": True, "cached": False}) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "purpose": "write",
+                    "model": "w",
+                    "tag": "I-1",
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                    "cost_usd": 0.25,
+                    "ok": True,
+                    "cached": False,
+                }
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps(
+                {
+                    "purpose": "judge",
+                    "model": "j",
+                    "input_tokens": 5,
+                    "output_tokens": 1,
+                    "cost_usd": 0.01,
+                    "ok": True,
+                    "cached": False,
+                }
+            )
+            + "\n"
+        )
         f.write(json.dumps({"purpose": "write", "cost_usd": 0.0, "ok": True, "cached": True}) + "\n")
     s = m.summary()
     assert s["spent_usd"] == 0.26 and s["calls"] == 2 and s["cached_calls"] == 1
@@ -102,11 +134,17 @@ def test_batch_writes_every_survey_and_prices_them(bedrock, mock):
     # the same advice (the cache). 1,000 tokens in at $0.001/1K + 100 out at $0.005/1K = $0.0015 per call
     fresh = bedrock.calls
     assert len(surveyed) < fresh <= 2 * len(surveyed) and row["calls"] == fresh
-    assert row["spent_usd"] == pytest.approx(0.0015 * fresh) and row["usd_per_survey"] == pytest.approx(0.0015 * fresh / len(surveyed), abs=1e-6)
+    assert row["spent_usd"] == pytest.approx(0.0015 * fresh) and row["usd_per_survey"] == pytest.approx(
+        0.0015 * fresh / len(surveyed), abs=1e-6
+    )
     assert row["projected_full_usd"] == pytest.approx(row["usd_per_survey"] * 2616, abs=0.01)
     assert row["sources"]["en-IN:bedrock"] == len(surveyed)
     sm = summarise(results, mock)
-    assert sm["schema_invalid_files"] == 0 and sm["surveys"] == len(surveyed) and sm["no_survey"] == len(mock) - len(surveyed)
+    assert (
+        sm["schema_invalid_files"] == 0
+        and sm["surveys"] == len(surveyed)
+        and sm["no_survey"] == len(mock) - len(surveyed)
+    )
 
 
 def test_resume_is_free(bedrock, mock):
@@ -114,18 +152,20 @@ def test_resume_is_free(bedrock, mock):
     run_batch(mock, pack, workers=2, progress=None)
     calls = bedrock.calls
     results, meter, _ = run_batch(mock, pack, workers=2, progress=None)
-    assert bedrock.calls == calls                           # all from the cache
+    assert bedrock.calls == calls  # all from the cache
     row = C.row_from_results("batch", "again", meter, results)
     assert row["spent_usd"] == 0 and row["calls"] == 0
     # cached answers are priced as when they were made, so a re-run projects the same as the fresh run
-    assert row["full_price_usd"] == pytest.approx(0.0015 * calls) and row["usd_per_survey"] == pytest.approx(0.0015 * calls / row["surveys"], abs=1e-6)
+    assert row["full_price_usd"] == pytest.approx(0.0015 * calls) and row["usd_per_survey"] == pytest.approx(
+        0.0015 * calls / row["surveys"], abs=1e-6
+    )
 
 
 def test_budget_cap_stops_new_work(bedrock, mock):
     pack = Pack(mock, {})
     results, meter, stopped = run_batch(mock, pack, workers=1, max_usd=0.004, progress=None)
     assert stopped and any(r is None for r in results)
-    assert meter.spent() < 0.004 + 2 * 0.003                # at most the in-flight work past the cap
+    assert meter.spent() < 0.004 + 2 * 0.003  # at most the in-flight work past the cap
 
 
 def test_without_bedrock_the_batch_matches_the_pipeline(mock, monkeypatch):

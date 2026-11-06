@@ -3,6 +3,7 @@
 
 Runs the real app on the mock sample (MEL_DATA_DIR set); the example conversation comes from the full pack, so on the
 mock sample the Survey demo opens on Browse, which takes the same flow."""
+
 import sys
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def _restore(saved):
 def app(monkeypatch):
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest
+
     monkeypatch.setenv("MEL_DATA_DIR", str(Path(__file__).resolve().parents[1] / "data" / "mock"))
     saved = _modules()
     at = AppTest.from_file(str(APP), default_timeout=120).run()
@@ -59,7 +61,7 @@ def test_terminal_input_moves_the_flow_and_answers(app):
         assert not app.exception, [e.message for e in app.exception]
     text = " ".join(m.value for m in app.markdown)
     assert "Reading the conversation." in text and "R8 · Survey" in text and "Sent. The survey is on the farmer" in text
-    assert app.session_state["flow|I-001253"] == 2                       # on the farmer's phone now
+    assert app.session_state["flow|I-001253"] == 2  # on the farmer's phone now
 
 
 def _to_phone(at, goat=True):
@@ -73,17 +75,17 @@ def _to_phone(at, goat=True):
 
 def test_dashboard_scores_only_on_request(app):
     text = lambda: " ".join(m.value for m in app.markdown)
-    assert "Decisions right" not in text()                               # nothing scored on load
+    assert "Decisions right" not in text()  # nothing scored on load
     _click(app, "dash_eval_run")
     assert "Decisions right" in text() and "Answer key vs agent" in text()
-    assert not [b for b in app.button if b.key == "dash_eval_run"]       # the button gives way to the results
+    assert not [b for b in app.button if b.key == "dash_eval_run"]  # the button gives way to the results
 
 
 def test_hindi_is_labelled_pending_review(app):
     """Survey demo: Hindi carries a "pending review" label until P4's review sheet is fully checked."""
     pending = lambda: [c.value for c in app.caption if c.value.startswith("Hindi pending review")]
     _to_phone(app)
-    assert not pending()                                     # English first, no label
+    assert not pending()  # English first, no label
     app.toggle(key="lang_hi").set_value(True).run()
     assert not app.exception and pending()
 
@@ -95,19 +97,23 @@ def test_demo_pick_shows_the_bedrock_written_questions(app):
     assert any(c.startswith("Questions written by Bedrock") and "recorded" in c for c in caps), caps
     assert any("Template vs Bedrock questions" in e.label for e in app.expander)
     text = " ".join(m.value for m in app.markdown)
-    assert "11/28/2026 7:00 AM IST" in text              # the farmer's send time, in India time (team decision 5 Nov)
+    assert "11/28/2026 7:00 AM IST" in text  # the farmer's send time, in India time (team decision 5 Nov)
 
 
 def test_finished_survey_says_when_the_next_one_comes(app):
     """Survey demo: once the farmer taps through, the terminal reviews the answers, judges the survey, thinks it over
     and plans the next survey."""
     import re
+
     _to_phone(app)
     keys = lambda: [b.key for b in app.button if b.key and "preview" in b.key]
-    for _ in range(12):                 # Start (chat channels only), then every question with its first option
+    for _ in range(12):  # Start (chat channels only), then every question with its first option
         ks = keys()
-        q = ([k for k in ks if k.endswith("|start")] or [k for k in ks if "|pick" in k]
-             or [k for k in ks if re.search(r"\|q\d+\|", k)])
+        q = (
+            [k for k in ks if k.endswith("|start")]
+            or [k for k in ks if "|pick" in k]
+            or [k for k in ks if re.search(r"\|q\d+\|", k)]
+        )
         if not q:
             break
         app.button(key=q[0]).click().run()
@@ -126,28 +132,38 @@ def test_own_insight_is_written_by_bedrock(tmp_path, monkeypatch):
     from app import custom_context as cc
     from mel.agent import run_agent
     from mel.writer import llm
-    for k, v in {"MEL_USE_LLM": "1", "MEL_BEDROCK_WRITE_MODEL": "test-write-model", "MEL_CACHE_DIR": str(tmp_path / "cache"),
-                 "MEL_LLM_LOG": str(tmp_path / "calls.jsonl"),
-                 "MEL_DATA_DIR": str(Path(__file__).resolve().parents[1] / "data" / "mock")}.items():
+
+    for k, v in {
+        "MEL_USE_LLM": "1",
+        "MEL_BEDROCK_WRITE_MODEL": "test-write-model",
+        "MEL_CACHE_DIR": str(tmp_path / "cache"),
+        "MEL_LLM_LOG": str(tmp_path / "calls.jsonl"),
+        "MEL_DATA_DIR": str(Path(__file__).resolve().parents[1] / "data" / "mock"),
+    }.items():
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("MEL_BEDROCK_CHECK_MODEL", raising=False)
     question = "My goat has not eaten for two days and has a fever."
     advice = "Call the government vet today and keep the goat in the shade with clean water."
-    replies = ["asset: goat\nconcern: livestock_health\nseverity: high\nadvice_type: escalate_to_expert\n"
-               "act_within_days: 1\ncheck_back: next_day\nquestions: 2",
-               "confirm | Did you call the government vet about your goat? | Yes | No*e\nscale | How is your goat's health now?",
-               "confirm | क्या आपने बकरी के लिए सरकारी पशु चिकित्सक को बुलाया? | हाँ | नहीं*e\nscale | अब आपकी बकरी की सेहत कैसी है?"]
+    replies = [
+        "asset: goat\nconcern: livestock_health\nseverity: high\nadvice_type: escalate_to_expert\n"
+        "act_within_days: 1\ncheck_back: next_day\nquestions: 2",
+        "confirm | Did you call the government vet about your goat? | Yes | No*e\nscale | How is your goat's health now?",
+        "confirm | क्या आपने बकरी के लिए सरकारी पशु चिकित्सक को बुलाया? | हाँ | नहीं*e\nscale | अब आपकी बकरी की सेहत कैसी है?",
+    ]
 
     class Runtime:
         def converse(self, **kw):
-            return {"output": {"message": {"content": [{"text": replies.pop(0)}]}}, "usage": {"inputTokens": 100, "outputTokens": 40}}
+            return {
+                "output": {"message": {"content": [{"text": replies.pop(0)}]}},
+                "usage": {"inputTokens": 100, "outputTokens": 40},
+            }
 
     llm.set_client(llm.ModelClient(runtime=Runtime(), sleep=lambda s: None))
     read = llm.read_conversation(question, advice)
     fields = cc.apply_reading({**cc.DEFAULTS, "question": question, "advice": advice}, read)
     list(run_agent(cc.build_insight(fields, cc.new_ids(1), cc.now_ist()), memory=None, n_items=read["questions"]))
     llm.set_client(None)
-    assert not replies                                                    # the three answers are on disk now
+    assert not replies  # the three answers are on disk now
     saved = _modules()
     try:
         at = AppTest.from_file(str(APP), default_timeout=120).run()
@@ -160,8 +176,10 @@ def test_own_insight_is_written_by_bedrock(tmp_path, monkeypatch):
         _to_phone(at, goat=False)
         text = " ".join(m.value for m in at.markdown) + " " + " ".join(c.value for c in at.caption)
         assert "Questions written by Bedrock just now (test-write-model)" in text
-        assert "Bedrock read the conversation as: Goat · animal health · high severity" in text and "2 questions" in text
+        assert (
+            "Bedrock read the conversation as: Goat · animal health · high severity" in text and "2 questions" in text
+        )
         assert any("Template vs Bedrock questions" in e.label for e in at.expander)
-        assert at.session_state["custom_draft"]["asset"] == "goat"          # the Details now show what the model read
+        assert at.session_state["custom_draft"]["asset"] == "goat"  # the Details now show what the model read
     finally:
         _restore(saved)

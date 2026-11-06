@@ -29,6 +29,7 @@ audit of the output and should be 0.
 It writes nothing itself: the caller persists what it wants from the returned BatchResult.
 Delivery stays simulated (mel.simulator); there is no real messaging here.
 """
+
 import copy
 from collections import Counter
 
@@ -39,13 +40,14 @@ SCHEDULED = ("sent", "moved", "merged")
 
 class BatchItem:
     """One input hand-off and what happened to it in the batch."""
+
     def __init__(self, decision, handoff, responses=None, reason="", signals=None, input_id=None):
-        self.decision = decision          # sent / moved / merged / skipped / opted_out / rejected
-        self.handoff = handoff            # the resulting hand-off (moved copy, merge host, or input)
+        self.decision = decision  # sent / moved / merged / skipped / opted_out / rejected
+        self.handoff = handoff  # the resulting hand-off (moved copy, merge host, or input)
         self.responses = responses or []  # simulated records for this send (empty if not sent)
         self.reason = reason
-        self.signals = signals            # ranking signals (when a ranker is used), else None
-        self.input_id = input_id          # the handoff_id that came in (differs from host for merged)
+        self.signals = signals  # ranking signals (when a ranker is used), else None
+        self.input_id = input_id  # the handoff_id that came in (differs from host for merged)
 
     @property
     def response(self):
@@ -62,9 +64,10 @@ class BatchItem:
 
 class BatchResult:
     """The outcome of a batch run: the per-item decisions and the P5 count breakdown."""
+
     def __init__(self, items, counts):
         self.items = items
-        self.counts = counts             # dict from actual decisions (never hard-coded)
+        self.counts = counts  # dict from actual decisions (never hard-coded)
 
     @property
     def scheduled(self):
@@ -83,19 +86,28 @@ class BatchResult:
         return [r for it in self.items for r in it.responses]
 
 
-def run_batch(handoffs, *, relevance_threshold: float, simulate: bool = False,
-              persona: str = "default", seed: int = 0, cap=None, opt_out=None,
-              reachability=None, ranker=None) -> BatchResult:
+def run_batch(
+    handoffs,
+    *,
+    relevance_threshold: float,
+    simulate: bool = False,
+    persona: str = "default",
+    seed: int = 0,
+    cap=None,
+    opt_out=None,
+    reachability=None,
+    ranker=None,
+) -> BatchResult:
     """Schedule a batch of hand-offs: opt-out, quality gate, weekly cap, in send order.
 
-      handoffs            : the hand-offs the pipeline produced (not modified).
-      relevance_threshold : P4's relevance bar, required and explicit (P3 invents none). A
-                            score equal to it passes.
-      simulate            : walk each scheduled hand-off's channel_order with the simulator.
-      persona, seed       : simulator persona and seed (deterministic).
-      cap, opt_out        : optional existing CapLedger / OptOutList (e.g. earlier opt-outs).
-      reachability        : optional FarmerReachability; unreachable channels are skipped.
-      ranker              : optional FrequencyScheduler; breaks ties at the same window start.
+    handoffs            : the hand-offs the pipeline produced (not modified).
+    relevance_threshold : P4's relevance bar, required and explicit (P3 invents none). A
+                          score equal to it passes.
+    simulate            : walk each scheduled hand-off's channel_order with the simulator.
+    persona, seed       : simulator persona and seed (deterministic).
+    cap, opt_out        : optional existing CapLedger / OptOutList (e.g. earlier opt-outs).
+    reachability        : optional FarmerReachability; unreachable channels are skipped.
+    ranker              : optional FrequencyScheduler; breaks ties at the same window start.
     """
     from mel.schedule.handoff import CapLedger, OptOutList
     from mel.simulator import simulate_handoff
@@ -123,14 +135,17 @@ def run_batch(handoffs, *, relevance_threshold: float, simulate: bool = False,
         sig = explained[hid].signals if hid in explained else None
         items.append(BatchItem(a.decision, a.handoff, recs, a.reason, sig, input_id=hid))
 
-    _, counts["duplicates"] = schedule_in_send_order(work, cap=cap, opt_out=opt_out,
-                                                     relevance_threshold=relevance_threshold,
-                                                     ranks=ranks, on_final=finalize)
+    _, counts["duplicates"] = schedule_in_send_order(
+        work, cap=cap, opt_out=opt_out, relevance_threshold=relevance_threshold, ranks=ranks, on_final=finalize
+    )
 
     # A merge adds insight IDs to its host after the host may already have been simulated. Put
     # the host's final list on the host's records, so the answer links back to every insight.
-    final_ids = {it.handoff["handoff_id"]: list(it.handoff["survey"]["source_insight_ids"])
-                 for it in items if it.decision in ("sent", "moved")}
+    final_ids = {
+        it.handoff["handoff_id"]: list(it.handoff["survey"]["source_insight_ids"])
+        for it in items
+        if it.decision in ("sent", "moved")
+    }
     for it in items:
         for r in it.responses:
             r["source_insight_ids"] = list(final_ids.get(it.handoff["handoff_id"], r["source_insight_ids"]))
@@ -142,8 +157,7 @@ def run_batch(handoffs, *, relevance_threshold: float, simulate: bool = False,
     return BatchResult(items, dict(counts))
 
 
-def schedule_in_send_order(handoffs, *, cap, opt_out, relevance_threshold: float, ranks=None,
-                           on_final=None):
+def schedule_in_send_order(handoffs, *, cap, opt_out, relevance_threshold: float, ranks=None, on_final=None):
     """Decide every hand-off in true send order and return ([(input_id, Admit), ...], duplicates).
 
     Hand-offs are taken from a priority queue keyed by `queue_key` (send-window start, then
@@ -163,10 +177,11 @@ def schedule_in_send_order(handoffs, *, cap, opt_out, relevance_threshold: float
     for h in sorted(handoffs, key=key):
         hid = h.get("handoff_id")
         if hid in seen or cap.seen(hid):
-            dups += 1          # same hand-off twice (in this input or already decided): once only
+            dups += 1  # same hand-off twice (in this input or already decided): once only
             continue
         seen.add(hid)
-        heap.append((key(h), seq, hid, h, False)); seq += 1
+        heap.append((key(h), seq, hid, h, False))
+        seq += 1
     heapq.heapify(heap)
 
     out = []
@@ -174,7 +189,8 @@ def schedule_in_send_order(handoffs, *, cap, opt_out, relevance_threshold: float
         _, _, iid, h, was_moved = heapq.heappop(heap)
         a = cap.admit_checked(h, opt_out=opt_out, relevance_threshold=relevance_threshold, defer_move=True)
         if a.decision == "moved":
-            heapq.heappush(heap, (key(a.handoff), seq, iid, a.handoff, True)); seq += 1
+            heapq.heappush(heap, (key(a.handoff), seq, iid, a.handoff, True))
+            seq += 1
             continue
         if was_moved and a.decision == "sent":
             a = Admit("moved", a.handoff, reason=f"moved to {a.handoff['send_window']['not_before']}")
@@ -191,6 +207,7 @@ def cap_violations(sent_handoffs) -> list[tuple[str, str]]:
     same farmer. High-priority hand-offs are exempt themselves but still count as the earlier
     send. Independent of CapLedger, so it checks the output rather than repeating the policy."""
     from datetime import timedelta
+
     by_key: dict[str, list] = {}
     for h in sent_handoffs:
         by_key.setdefault(h["frequency_cap"]["key"], []).append(h)

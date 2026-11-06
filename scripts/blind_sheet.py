@@ -12,6 +12,7 @@ score_A, score_B (1-5, rubric in README "Relevance rubric") and better (A, B or 
 which writes docs/results/blind_comparison.md and .json. The key (which survey is Bedrock) is in
 docs/results/blind_sheet_key.json: don't open it before scoring.
 """
+
 import csv
 import json
 import math
@@ -30,8 +31,21 @@ WRITE_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 # Pairs per advice type: every type that gets surveys, so the sample isn't all direct action.
 # (generic_information and needs_more_context never get a survey under R1-R8, so they have no pairs.)
 QUOTA = {"direct_action": 8, "plan_created": 5, "wait_and_monitor": 3, "escalate_to_expert": 2, "do_not_act": 2}
-FIELDS = ["pair", "insight_id", "crop_or_animal", "advice_type", "farmer_asked", "advice_given",
-          "survey_A", "survey_B", "score_A", "score_B", "better", "scorer", "notes"]
+FIELDS = [
+    "pair",
+    "insight_id",
+    "crop_or_animal",
+    "advice_type",
+    "farmer_asked",
+    "advice_given",
+    "survey_A",
+    "survey_B",
+    "score_A",
+    "score_B",
+    "better",
+    "scorer",
+    "notes",
+]
 
 
 def show(items: list[dict]) -> str:
@@ -88,23 +102,52 @@ def make(seed: int = 7) -> None:
         pair = len(rows) + 1
         a_is_bedrock = random.Random(seed * 1000 + pair).random() < 0.5
         a, b = (bed, tpl) if a_is_bedrock else (tpl, bed)
-        rows.append({"pair": pair, "insight_id": ins["insight_id"],
-                     "crop_or_animal": (ins.get("asset") or {}).get("name"), "advice_type": t,
-                     "farmer_asked": ins.get("query_summary"), "advice_given": ins.get("advice_summary"),
-                     "survey_A": show(a["items"]), "survey_B": show(b["items"]),
-                     "score_A": "", "score_B": "", "better": "", "scorer": "", "notes": ""})
-        key[str(pair)] = {"A": "bedrock" if a_is_bedrock else "template", "B": "template" if a_is_bedrock else "bedrock",
-                          "chars_A": chars(a["items"]), "chars_B": chars(b["items"]),
-                          "items_A": len(a["items"]), "items_B": len(b["items"])}
+        rows.append(
+            {
+                "pair": pair,
+                "insight_id": ins["insight_id"],
+                "crop_or_animal": (ins.get("asset") or {}).get("name"),
+                "advice_type": t,
+                "farmer_asked": ins.get("query_summary"),
+                "advice_given": ins.get("advice_summary"),
+                "survey_A": show(a["items"]),
+                "survey_B": show(b["items"]),
+                "score_A": "",
+                "score_B": "",
+                "better": "",
+                "scorer": "",
+                "notes": "",
+            }
+        )
+        key[str(pair)] = {
+            "A": "bedrock" if a_is_bedrock else "template",
+            "B": "template" if a_is_bedrock else "bedrock",
+            "chars_A": chars(a["items"]),
+            "chars_B": chars(b["items"]),
+            "items_A": len(a["items"]),
+            "items_B": len(b["items"]),
+        }
         if not any(need.values()):
             break
     with SHEET.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, FIELDS)
         w.writeheader()
         w.writerows(rows)
-    KEY.write_text(json.dumps({"note": "Which writer made A and B in each pair. Don't open until scoring is done.",
-                               "writer_model": WRITE_MODEL, "seed": seed, "short_of_quota": {k: v for k, v in need.items() if v},
-                               "skipped": dict(skipped), "pairs": key}, indent=2) + "\n", encoding="utf-8")
+    KEY.write_text(
+        json.dumps(
+            {
+                "note": "Which writer made A and B in each pair. Don't open until scoring is done.",
+                "writer_model": WRITE_MODEL,
+                "seed": seed,
+                "short_of_quota": {k: v for k, v in need.items() if v},
+                "skipped": dict(skipped),
+                "pairs": key,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     print(f"{len(rows)} pairs -> {SHEET.relative_to(ROOT)} (key {KEY.relative_to(ROOT)}); skipped {dict(skipped)}")
 
 
@@ -114,7 +157,7 @@ def sign_test(wins: int, losses: int) -> float:
     if not n:
         return 1.0
     k = max(wins, losses)
-    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k, n + 1)) / 2 ** n)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k, n + 1)) / 2**n)
 
 
 def score(paths: list[str]) -> dict:
@@ -150,33 +193,58 @@ def score(paths: list[str]) -> dict:
                 rows_used += 1
                 scorers.add((r.get("scorer") or Path(p).stem).strip())
     mean = {w: round(sum(v) / len(v), 2) if v else None for w, v in marks.items()}
-    out = {"files": [str(Path(p).name) for p in paths], "scorers": sorted(scorers), "rows_scored": rows_used,
-           "mean_score": mean, "n_scores": {w: len(v) for w, v in marks.items()},
-           "preferred": dict(prefs), "p_value_sign_test": round(sign_test(prefs["bedrock"], prefs["template"]), 3),
-           "longer_survey": dict(longer), "by_advice_type": {t: dict(c) for t, c in sorted(by_type.items())},
-           "avg_survey_chars": {w: round(sum(k["chars_A"] if k["A"] == w else k["chars_B"] for k in key.values())
-                                         / max(1, len(key)), 1) for w in ("bedrock", "template")}}
+    out = {
+        "files": [str(Path(p).name) for p in paths],
+        "scorers": sorted(scorers),
+        "rows_scored": rows_used,
+        "mean_score": mean,
+        "n_scores": {w: len(v) for w, v in marks.items()},
+        "preferred": dict(prefs),
+        "p_value_sign_test": round(sign_test(prefs["bedrock"], prefs["template"]), 3),
+        "longer_survey": dict(longer),
+        "by_advice_type": {t: dict(c) for t, c in sorted(by_type.items())},
+        "avg_survey_chars": {
+            w: round(sum(k["chars_A"] if k["A"] == w else k["chars_B"] for k in key.values()) / max(1, len(key)), 1)
+            for w in ("bedrock", "template")
+        },
+    }
     decided = prefs["bedrock"] + prefs["template"]
-    verdict = ("not enough answers yet" if decided < 10 else
-               "people prefer Bedrock" if prefs["bedrock"] > prefs["template"] and out["p_value_sign_test"] < 0.05 else
-               "people prefer the templates" if prefs["template"] > prefs["bedrock"] and out["p_value_sign_test"] < 0.05 else
-               "no clear winner")
+    verdict = (
+        "not enough answers yet"
+        if decided < 10
+        else "people prefer Bedrock"
+        if prefs["bedrock"] > prefs["template"] and out["p_value_sign_test"] < 0.05
+        else "people prefer the templates"
+        if prefs["template"] > prefs["bedrock"] and out["p_value_sign_test"] < 0.05
+        else "no clear winner"
+    )
     out["verdict"] = verdict
     lw, sw = longer["longer won"], longer["shorter won"]
-    lines = ["# Blind comparison: Bedrock writer vs templates (people's scores)", "",
-             f"Scorers: {', '.join(out['scorers']) or 'none yet'} · rows scored: {rows_used} · sheet: `docs/results/blind_sheet.csv`", "",
-             f"**Verdict: {verdict}.**", "",
-             "| | Bedrock (Claude Haiku 4.5) | Templates |", "|---|---|---|",
-             f"| Mean score (1-5) | {mean.get('bedrock')} ({len(marks['bedrock'])} scores) | {mean.get('template')} ({len(marks['template'])} scores) |",
-             f"| Picked as better | {prefs['bedrock']} | {prefs['template']} |",
-             f"| Survey length (characters of question text) | {out['avg_survey_chars']['bedrock']} | {out['avg_survey_chars']['template']} |", "",
-             f"\"Same\": {prefs['same']}. Sign test on better/worse picks: p = {out['p_value_sign_test']} "
-             "(below 0.05 means the split is unlikely to be chance).", "",
-             f"**Does the longer survey just win?** Longer won {lw}, shorter won {sw}"
-             + (f" ({round(100 * lw / (lw + sw))}% longer)." if lw + sw else "."), "",
-             "By advice type (picks): " + "; ".join(f"{t} {dict(c)}" for t, c in out["by_advice_type"].items())]
+    lines = [
+        "# Blind comparison: Bedrock writer vs templates (people's scores)",
+        "",
+        f"Scorers: {', '.join(out['scorers']) or 'none yet'} · rows scored: {rows_used} · sheet: `docs/results/blind_sheet.csv`",
+        "",
+        f"**Verdict: {verdict}.**",
+        "",
+        "| | Bedrock (Claude Haiku 4.5) | Templates |",
+        "|---|---|---|",
+        f"| Mean score (1-5) | {mean.get('bedrock')} ({len(marks['bedrock'])} scores) | {mean.get('template')} ({len(marks['template'])} scores) |",
+        f"| Picked as better | {prefs['bedrock']} | {prefs['template']} |",
+        f"| Survey length (characters of question text) | {out['avg_survey_chars']['bedrock']} | {out['avg_survey_chars']['template']} |",
+        "",
+        f'"Same": {prefs["same"]}. Sign test on better/worse picks: p = {out["p_value_sign_test"]} '
+        "(below 0.05 means the split is unlikely to be chance).",
+        "",
+        f"**Does the longer survey just win?** Longer won {lw}, shorter won {sw}"
+        + (f" ({round(100 * lw / (lw + sw))}% longer)." if lw + sw else "."),
+        "",
+        "By advice type (picks): " + "; ".join(f"{t} {dict(c)}" for t, c in out["by_advice_type"].items()),
+    ]
     (RESULTS / "blind_comparison.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    (RESULTS / "blind_comparison.json").write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (RESULTS / "blind_comparison.json").write_text(
+        json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     print("\n".join(lines))
     return out
 
