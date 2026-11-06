@@ -3,7 +3,7 @@
 Every number is computed live: the batch the rest of the app uses (the pack through run_pipeline with history
 and attention on, then P3's weekly limit) and mel.evaluation (answer key, scorecard, the committed judge files).
 Charts follow the dataviz method: one hero figure, stat tiles, ranked bars instead of pies, validated colours,
-a tooltip on every mark, and the numbers behind every chart in the details at the bottom.
+and a tooltip on every mark.
 """
 from collections import Counter
 from datetime import datetime, timedelta
@@ -30,28 +30,6 @@ SEVERITY = ["#EF9583", "#E5533D", "#B83A25", "#7A2416"]
 PALE = "#BFE8CC"  # the context bars beside the one bar that matters
 INK, MUTED, LINE = "#09090B", "#52525C", "#E4E4E7"
 RULES = ("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8")
-
-# Feather icons (MIT), drawn with the current text colour.
-_ICONS = {
-    "zap": '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-    "target": '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-    "check": '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
-    "shield": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
-    "clock": '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-    "users": '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
-             '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
-    "award": '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
-    "message": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-    "filter": '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
-    "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
-    "dollar": '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
-}
-
-
-def icon(name: str) -> str:
-    return ('<svg class="mel-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-            f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{_ICONS[name]}</svg>')
-
 
 def _html(s: str):
     st.markdown(s, unsafe_allow_html=True)
@@ -112,50 +90,17 @@ def _pct(v) -> str:
     return "—" if v is None else f"{v:.1%}".replace(".0%", "%")
 
 
-def _tile(ic: str, v: str, label: str, note: str, share=None) -> str:
-    """One stat tile: icon, value (smaller type when it is long), label, note, and an optional share meter."""
-    return (f'<div class="mel-d-tile">{icon(ic)}<div class="v{" sm" if len(v) > 9 else ""}"><span class="mel-count">'
-            f'{escape(v)}</span></div><div class="l">{escape(label)}</div><div class="n">{escape(note)}</div>'
-            + (f'<div class="mel-d-meter"><i style="width:{share * 100:.1f}%"></i></div>' if share is not None else "")
-            + "</div>")
+def _kpis(cells: list, cls: str = "", title: str = "") -> str:
+    """A KPI strip (one panel, cells split by hairlines): label on top, the value, a one-line note under it.
+    `title` heads the panel; cls "funnel" puts an arrow between cells (each one is a subset of the one before)."""
+    return (f'<div class="mel-kpis {cls}">' + (f'<div class="h">{escape(title)}</div>' if title else "") + "".join(
+        f'<div class="k"><div class="l">{escape(label)}</div><div class="v"><span class="mel-count">{escape(v)}</span></div>'
+        f'<div class="n">{escape(note)}</div></div>' for label, v, note in cells) + "</div>")
 
 
-# ------------------------------------------------------------------------------------------------ sections
-def _headline(n, surveyed, card, src, adapted, jrun):
-    secs, ms = card["batch_seconds"], card["s_per_survey"] * 1000
-    right = round(src["decision_acc"] * src["n"])
-    files = card["n_survey_files"]
-    worst = min(card["format_pass"], card["safety_pass"], card["timeliness_pass"])
-    # The three pass/fail gates as one measured count (all three are exact on this run), next to the two graded
-    # scores that are not pass/fail: the AI judge's 1-5 relevance and P4's 0-1 relevance score.
-    checks = ((f"{files:,} / {files:,}", "pass every check") if worst == 1 else (_pct(worst), "pass the strictest check"))
-    tiles = [
-        ("target", _pct(src["decision_acc"]), "decisions right", f"{right} of {src['n']} answer-key cases", src["decision_acc"]),
-        ("check", *checks, "format, safety and timing, Hindi and English", worst),
-        ("shield", f"{jrun['judge_relevance']:.2f} / 5", "relevance, AI judge",
-         f"Gemma 3 12B on Amazon Bedrock, {jrun['n']} surveys", jrun["judge_relevance"] / 5) if jrun else
-        ("shield", f"{card['safety_pass']:.0%}", "safe", "no new advice, no personal data", card["safety_pass"]),
-        ("clock", f"{card['relevance_avg']:.2f}", "relevance score", "P4's 0 to 1 check on every survey", card["relevance_avg"]),
-        ("users", f"{adapted:,}", "personalized", "by the farmer's own history", adapted / max(len(surveyed), 1)),
-        ("award", f"{card['failed_but_scheduled']}", "failing surveys scheduled", "a survey that fails a check is held back", None),
-    ]
-    tile_html = "".join(_tile(*t) for t in tiles)
-    _html(f'<div class="mel-d-top"><div class="mel-d-hero">{icon("zap")}'
-          f'<div><div class="mel-d-fig"><span class="mel-count">{secs:.0f}</span><small>s</small></div>'
-          f'<div class="mel-d-cap">to read {n:,} conversations and write {len(surveyed):,} surveys</div>'
-          f'<div class="mel-d-sub">{ms:.1f} ms per survey, Hindi and English</div></div></div>'
-          f'<div class="mel-d-tiles">{tile_html}</div></div>')
-
-
-def _flow(n, surveyed, lim):
-    out = lim.get("sent", 0) + lim.get("moved", 0)
-    steps = [("message", f"{n:,}", "conversations read"),
-             ("filter", f"{len(surveyed):,}", f"worth a follow-up ({len(surveyed) / n:.0%})"),
-             ("send", f"{out:,}", "go out within the weekly limit")]
-    arrow = '<div class="mel-d-arrow">→</div>'
-    _html('<div class="mel-d-flow">' + arrow.join(
-        f'<div class="mel-d-step">{icon(ic)}<div><div class="v"><span class="mel-count">{v}</span></div>'
-        f'<div class="l">{escape(label)}</div></div></div>' for ic, v, label in steps) + "</div>")
+def _section(where, title: str, meta: str = ""):
+    where.markdown(f'<div class="mel-dsec"><b>{escape(title)}</b>{f"<span>{escape(meta)}</span>" if meta else ""}</div>',
+                   unsafe_allow_html=True)
 
 
 def _weekly(upcoming) -> alt.Chart:
@@ -310,44 +255,56 @@ def _models(sweep) -> tuple[alt.Chart | None, dict | None]:
     return others + pick + label, next((m for m in ok if m["model_id"] == pick_id), None)
 
 
-def _costs(ledger: list, full: dict | None):
-    """What writing with Bedrock costs (P5's ledger, mel.evaluation.costs): the latest priced run as tiles, the
-    full-dataset run if one was recorded, and cost per survey run by run. Nothing shows until a paid run is logged."""
-    from mel.evaluation.costs import FULL_SET_SURVEYS
-    if not ledger:
+def _costs(ledger: list, full: dict | None, n_conv: int, share: float):
+    """A Bedrock cost calculator priced only from measured runs (P5's ledger, mel.evaluation.costs): pick how many
+    conversations, the share that get a survey (default: the batch's own), the measured run to price from, and
+    whether the AI judge counts; then cost per 1,000 surveys run by run. Nothing shows until a paid run is logged."""
+    priced = [r for r in ledger if r.get("usd_per_survey") is not None and r.get("kind") in ("batch", "pilot", "partial")]
+    if not priced:
         return
-    priced = [r for r in ledger if r.get("usd_per_survey") is not None]
-    latest = next((r for r in reversed(priced) if r.get("kind") in ("batch", "pilot", "partial")), priced[-1] if priced else None)
-    tiles = []
-    if latest:
-        tiles += [("dollar", f"${latest['usd_per_survey']:.4f}", "cost per survey",
-                   f"{latest.get('writer') or 'templates'}, {latest['kind']} run {latest['run']}"),
-                  ("send", f"${latest['usd_per_1000_surveys']:.2f}", "per 1,000 surveys", "Hindi and English, checks included"),
-                  ("target", f"${latest['projected_full_usd']:.2f}", "projected, full dataset", f"{FULL_SET_SURVEYS:,} surveys")]
-    if full:
-        spent = (full.get("cost") or {}).get("spent_usd") or 0
-        tiles.append(("clock", f"${spent:.2f}", "full run, actual",
-                      f"{full['surveys']:,} surveys in {full['seconds'] / 60:.0f} min"
-                      + (", stopped at the cap" if full.get("stopped_at_cap") else "")))
-    else:
-        tiles.append(("clock", "Not run yet", "full run, actual", "python -m mel.agent.batch"))
-    _html(f'<div class="mel-d-tiles four">{"".join(_tile(*t) for t in tiles)}</div>')
+    c = _card("cost", "Bedrock cost calculator", "Priced from measured runs: writing, checking and judging; cached answers cost nothing")
+    k = c.columns([1.1, 1, 1.9, 0.9], vertical_alignment="bottom")
+    conv = k[0].number_input("Farmer conversations", 0, 100_000_000, n_conv, 1000, key="calc_conv",
+                             help=f"Default: this season's pack, {n_conv:,} conversations")
+    pct = k[1].slider("Share that get a survey", 0, 100, round(share * 100), key="calc_share", format="%d%%",
+                      help=f"Default: what the agent decided on the pack ({share:.0%})")
+    by_run = {r["run"]: r for r in priced}
+    run = k[2].selectbox("Price from", list(reversed(by_run)), key="calc_basis",
+                         format_func=lambda x: f"Run {x} · {by_run[x]['label'].split(':')[-1].strip()[:46]} · "
+                                               f"${by_run[x]['usd_per_1000_surveys']:.2f} / 1,000",
+                         help="Each measured run's full price per survey (cache hits priced from the tokens they took). "
+                              "Run 2 had Bedrock Guardrails and the check model; the compact-writer runs did not.")
+    judge = k[3].toggle("AI judge", value=True, key="calc_judge", help="Quality scoring with the AI judge (Gemma 3 12B)")
+    r = by_run[run]
+    parts = {p_: (v or {}).get("usd", 0) for p_, v in (r.get("by_purpose") or {}).items()}
+    per = r["usd_per_survey"] * (1 - (0 if judge else parts.get("judge", 0) / (sum(parts.values()) or 1)))
+    surveys = round(conv * pct / 100)
+    cost = surveys * per
+    money = lambda v: f"${v:,.2f}" if v >= 1 or v == 0 else f"${v:.4f}"
+    c.markdown(_kpis([("Surveys written", f"{surveys:,}", f"{pct}% of {conv:,} conversations"),
+                      ("Bedrock cost", money(cost), "Hindi and English, checks included"),
+                      ("Per 1,000 conversations", money(cost / conv * 1000) if conv else "—", "the price of listening at scale"),
+                      ("Per survey", f"${per:.4f}", f"run {run}, {r['surveys']:,} surveys measured")], "flat"),
+               unsafe_allow_html=True)
+    at = lambda n: money(n * pct / 100 * per)
+    actual = (f"Full run, actual: <b>${(full.get('cost') or {}).get('spent_usd') or 0:.2f}</b> for {full['surveys']:,} surveys in "
+              f"{full['seconds'] / 60:.0f} min" + (", stopped at the cap" if full.get("stopped_at_cap") else "") if full
+              else "Full run: not run yet (python -m mel.agent.batch)")
+    c.markdown(f'<div class="mel-d-body">At this rate: 100,000 conversations ≈ <b>{at(100_000)}</b> · 1 million ≈ '
+               f'<b>{at(1_000_000)}</b>. {actual}. Basis: run {run}, ${r["usd_per_1000_surveys"]:.2f} per 1,000 surveys.</div>',
+               unsafe_allow_html=True)
     if len(priced) >= 2:
-        df = pd.DataFrame([{"run": f"Run {r['run']}", "what": r.get("label") or r.get("kind"), "v": r["usd_per_1000_surveys"],
-                            "per": r["usd_per_survey"], "writer": r.get("writer") or "templates"} for r in priced])
+        df = pd.DataFrame([{"run": f"Run {x['run']}", "what": x.get("label") or x.get("kind"), "v": x["usd_per_1000_surveys"],
+                            "per": x["usd_per_survey"], "pick": x["run"] == run} for x in priced])
         base = alt.Chart(df).encode(
             x=alt.X("run:N", sort=list(df["run"]), title=None, axis=alt.Axis(labelAngle=0, domain=False, ticks=False)),
             y=alt.Y("v:Q", title=None, axis=alt.Axis(format="$,.2f", tickCount=4, domain=False, ticks=False)))
-        tip = [alt.Tooltip("run:N", title="Run"), alt.Tooltip("what:N", title="What"), alt.Tooltip("writer:N", title="Writer"),
+        tip = [alt.Tooltip("run:N", title="Run"), alt.Tooltip("what:N", title="What"),
                alt.Tooltip("v:Q", title="Per 1,000 surveys", format="$,.2f"), alt.Tooltip("per:Q", title="Per survey", format="$,.5f")]
-        c = _card("cost", "Cost per 1,000 surveys, run by run", "Real Bedrock spend: writing, checking and judging; cached answers cost nothing")
-        _show(c, base.mark_line(strokeWidth=2.5, color=DEEP)
-              + base.mark_circle(size=110, color=DEEP, stroke="#FFFFFF", strokeWidth=2, opacity=1).encode(tooltip=tip), 220)
-    if full:
-        _html(f'<div class="mel-d-note">Full run: {full.get("revisions")} revisions on {full.get("surveys_revised")} surveys, '
-              f'{sum((full.get("fallbacks") or {}).values())} template fallbacks, {full.get("schema_invalid_files", 0)} '
-              'schema-invalid files' + (f', AI judge relevance {full["judge_relevance"]}' if full.get("judge_relevance") else "")
-              + '.</div>')
+        c.markdown('<div class="mel-d-lab">Cost per 1,000 surveys, run by run (the run priced from is larger)</div>',
+                   unsafe_allow_html=True)
+        _show(c, base.mark_line(strokeWidth=2, color=DEEP) + base.mark_circle(color=DEEP, stroke="#FFFFFF", strokeWidth=2, opacity=1)
+              .encode(size=alt.condition("datum.pick", alt.value(170), alt.value(80)), tooltip=tip), 150)
 
 
 def _surges(rows):
@@ -364,118 +321,19 @@ def _surges(rows):
 
 
 # ------------------------------------------------------------------------------------------------ the tab
-def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label, ch_name, channels, table, short):
+def render(*, rows, admits, upcoming, evaluate_fn, rule_label, ch_name, channels):
+    """Overview first: only the batch the app already ran, so it costs nothing. The golden-set evaluation
+    (answer key + checks on every survey, both send-time rules) runs only when someone presses Run evaluation."""
     n = len(rows)
     surveyed = [(i, o) for i, o in rows if o["decision"].survey]
     rules = Counter(o["decision"].rule for _, o in rows)
     lim = Counter(d for d, _ in admits.values())
-    ev, ak = evaluate_fn("brief"), evaluate_fn("answer_key")
-    src, card = ev["full"] or ev["mock"], ev["card"]
-    ak_src, ak_card = ak["full"] or ak["mock"], ak["card"]
+    out = lim.get("sent", 0) + lim.get("moved", 0)
     adapted = sum(any(s.get("_history") for s in o["surveys"].values()) for _, o in surveyed)
-
-    # 1. Speed and quality at a glance, then the flow from conversation to farmer
-    _headline(n, surveyed, card, src, adapted, load_summary().get("run"))
-    _flow(n, surveyed, lim)
-
-    # 2. What it decided and where the surveys go
-    a, b = st.columns([1.3, 1], gap="medium")
-    with a:
-        c = _card("rules", "Why a survey, or not", f"Every one of the {n:,} conversations, by the rule that decided it")
-        df = pd.DataFrame([{"rule": f"{r}  {rule_label[r]}", "n": rules.get(r, 0), "share": rules.get(r, 0) / n,
-                            "g": "Survey" if r == "R8" else "No survey"} for r in rule_label])
-        color = alt.Color("g:N", scale=alt.Scale(domain=["Survey", "No survey"], range=[BRIGHT, DEEP]), legend=None)
-        _show(c, _ranked(df, "rule", "n", color, [alt.Tooltip("rule:N", title="Rule"), alt.Tooltip("n:Q", title="Conversations", format=","),
-                                                  alt.Tooltip("share:Q", title="Share", format=".1%")]), 300)
-    with b:
-        c = _card("limit", "One survey per farmer per week", f"What the weekly limit did with the {len(surveyed):,} surveys")
-        c.markdown(_segmented([("Sent as planned", lim.get("sent", 0)), ("Moved to a later week", lim.get("moved", 0)),
-                               ("Merged into another survey", lim.get("merged", 0)), ("Skipped", lim.get("skipped", 0))], ORDINAL),
-                   unsafe_allow_html=True)
-        high = sum(o["handoff"]["priority"] == "high" for _, o in surveyed)
-        c.markdown(f'<div class="mel-d-note"><b class="mel-count">{high:,}</b> high-priority surveys skip the limit</div>',
-                   unsafe_allow_html=True)
-        c2 = _card("channel", "First channel tried")
-        ch = Counter(o["handoff"]["channel_order"][0]["channel"] for _, o in surveyed)
-        chdf = pd.DataFrame([{"channel": ch_name[x], "n": ch.get(x, 0)} for x in channels])
-        _show(c2, _ranked(chdf, "channel", "n", alt.value(DEEP), [alt.Tooltip("channel:N", title="Channel"),
-                                                                  alt.Tooltip("n:Q", title="Surveys", format=",")]), 170)
-
-    c = _card("weekly", "Surveys going out, week by week", "Rabi season, after the weekly limit")
-    _show(c, _weekly(upcoming), 240)
-
-    a, b, d = st.columns(3, gap="medium")
-    with a:
-        c = _card("crops", "Top crops and animals")
-        crops = Counter((i.get("asset") or {}).get("name") for i, _ in rows if (i.get("asset") or {}).get("name"))
-        cdf = pd.DataFrame([{"crop": str(k).title(), "n": v} for k, v in crops.most_common(8)])
-        _show(c, _ranked(cdf, "crop", "n", alt.value(DEEP), [alt.Tooltip("crop:N", title="Crop or animal"),
-                                                             alt.Tooltip("n:Q", title="Conversations", format=",")]), 260)
-    with b:
-        c = _card("people", "Who the farmers are")
-        lang = Counter(i.get("conversation_language") for i, _ in rows)
-        sev = Counter(str(i.get("severity") or "") for i, _ in rows)
-        c.markdown('<div class="mel-d-lab">Language</div>' + _segmented(
-            [("Hindi", lang.get("hi-IN", 0)), ("English", lang.get("en-IN", 0))], [DEEP, BLUE]), unsafe_allow_html=True)
-        c.markdown('<div class="mel-d-lab">How serious</div>' + _segmented(
-            [("Low", sev.get("low", 0)), ("Medium", sev.get("medium", 0)), ("High", sev.get("high", 0)),
-             ("Critical", sev.get("critical", 0))], SEVERITY), unsafe_allow_html=True)
-    with d:
-        c = _card("attention", "Rising farmers get attention first")
-        tiers = Counter((getattr(o["decision"], "attention", None) or {}).get("tier") for _, o in surveyed)
-        c.markdown(_segmented([("Neutral", tiers.get("neutral", 0)), ("Steady-high, stepped down", tiers.get("steady_high", 0)),
-                               ("Surge, rising", tiers.get("surge", 0))], [DEEP, BLUE, GOLD]), unsafe_allow_html=True)
-        surges = _surges(rows)
-        c.markdown(f'<div class="mel-d-big"><span class="mel-count">{len(surges):,}</span>'
-                   f'<small>farmers on the rise this season</small></div>', unsafe_allow_html=True)
-
-    # 3. Proof: the answer key, the timing choice, the hill-climb, the AI judge
-    st.header("How we know it works")
-    a, b = st.columns([1.1, 1], gap="medium")
-    with a:
-        right = round(src["decision_acc"] * src["n"])
-        c = _card("confusion", f"{right} of {src['n']} answer-key decisions right", "The answer key down, the agent across")
-        _show(c, _confusion(src), 300)
-    with b:
-        c = _card("timing", f"{card['timeliness_pass']:.0%} on time with the brief's timing",
-                  f"The answer key's own send times are on time for only {_pct(ak_card['timeliness_pass'])} of surveys")
-        tdf = pd.DataFrame([
-            {"metric": "On time", "series": "Brief timing (ours)", "v": card["timeliness_pass"]},
-            {"metric": "On time", "series": "Answer-key timing", "v": ak_card["timeliness_pass"]},
-            {"metric": "Same window as the key", "series": "Brief timing (ours)", "v": src["window_acc"]},
-            {"metric": "Same window as the key", "series": "Answer-key timing", "v": ak_src["window_acc"]}])
-        _show(c, _paired(tdf, ["Brief timing (ours)", "Answer-key timing"], [DEEP, BLUE], "metric"), 260)
-
-    a, b = st.columns([1.3, 1], gap="medium")
-    with a:
-        hist = _history()
-        if hist is not None:
-            runs = [r for r in load_history() if r.get("timing_basis") == "brief"]
-            c = _card("history", f"Every change measured: {_pct(runs[0]['decision_acc'])} → {_pct(runs[-1]['decision_acc'])} decisions right",
-                      "Each recorded run on the answer key; hover a dot for what changed")
-            _show(c, hist, 260)
-    judge = load_summary()
-    cal = judge.get("calibration")
-    with b:
-        if cal:
-            c = _card("judge", "The AI judge agrees with people more than people agree with each other",
-                      "Share of the 20 hand-scored surveys within 1 point of a person")
-            _show(c, _judge_bars(cal), 150)
-            jrun = judge.get("run") or {}
-            if jrun:
-                c.markdown(f'<div class="mel-d-big"><span class="mel-count">{jrun["judge_relevance"]:.2f}</span><small>/ 5 average '
-                           f'relevance on all {jrun["n"]} answer-key surveys</small></div>', unsafe_allow_html=True)
-
-    sweep = load_models()
-    chart, pick = _models(sweep)
-    if chart is not None:
-        n_ok = sum(1 for m in sweep.get("models", []) if m.get("rank"))
-        title = (f"Best value of {n_ok} Bedrock models: {pick['provider']} {pick['name']}, ${pick['usd_per_1000_surveys']:.2f} per 1,000 surveys"
-                 if pick else f"{n_ok} Bedrock models tried as the judge")
-        c = _card("models", title, "Up is closer to the team's own scores, left is cheaper")
-        _show(c, chart, 300)
-
-    _blind()
+    high = sum(o["handoff"]["priority"] == "high" for _, o in surveyed)
+    surges = _surges(rows)
+    tiers = Counter((getattr(o["decision"], "attention", None) or {}).get("tier") for _, o in surveyed)
+    share = lambda k: f"{k / max(len(surveyed), 1):.0%} of planned"
 
     from mel.evaluation.costs import load_costs
     ledger = load_costs()     # docs/results/cost_history.jsonl: one row per run that wrote surveys with Bedrock
@@ -484,86 +342,139 @@ def render(*, rows, admits, upcoming, n_valid, n_files, evaluate_fn, rule_label,
                           .read_text(encoding="utf-8"))
     except (OSError, ValueError):
         full = None
-    _costs(ledger, full)
 
-    # 4. The numbers behind the charts
-    st.header("Details")
-    with st.expander(f"Highlighted farmers ({len(surges):,})"):
-        reason = {"quiet_then_high_weight": "Quiet, then urgent", "activity_jump": "Activity jump"}
-        if surges:
-            table(pd.DataFrame([{
-                "Farmer": i.get("farmer_id"), "Crop / animal": (i.get("asset") or {}).get("name"),
-                "Why": reason.get(o["decision"].attention["reason"], o["decision"].attention["reason"]),
-                "Weight": o["decision"].attention["weight"], "What we noticed": o["decision"].attention["explanation"],
-                "When": short(i["created_at"]) if i.get("created_at") else "—"} for i, o in surges[:50]]),
-                width="stretch", hide_index=True, height=260)
-        else:
-            st.caption("No surge farmers in this run.")
-    with st.expander(f"Answer-key misses ({len(src['misses'])})"):
-        if src["misses"]:
-            table(pd.DataFrame(src["misses"]), width="stretch", hide_index=True)
-        else:
-            st.caption("No misses: every decision and rule matches.")
-    with st.expander("Numbers behind the charts"):
-        table(pd.DataFrame([{"Rule": r, "What it means": rule_label[r], "Conversations": rules.get(r, 0),
-                             "Share": _pct(rules.get(r, 0) / n)} for r in rule_label]), width="stretch", hide_index=True)
-        table(pd.DataFrame([{"Check": k, "Brief timing (ours)": a_, "Answer-key timing": b_} for k, a_, b_ in (
-            ("Decisions right", _pct(src["decision_acc"]), _pct(ak_src["decision_acc"])),
-            ("Rule right", _pct(src["rule_acc"]), _pct(ak_src["rule_acc"])),
-            ("First channel right", _pct(src["channel_acc"]), _pct(ak_src["channel_acc"])),
-            ("Same window as the key", _pct(src["window_acc"]), _pct(ak_src["window_acc"])),
-            ("Questions match the key", f"{src['item_similarity_avg']:.2f}", f"{ak_src['item_similarity_avg']:.2f}"),
-            ("Well-formed", _pct(card["format_pass"]), _pct(ak_card["format_pass"])),
-            ("Safe", _pct(card["safety_pass"]), _pct(ak_card["safety_pass"])),
-            ("On time", _pct(card["timeliness_pass"]), _pct(ak_card["timeliness_pass"])),
-            ("Relevance (P4 score, 0 to 1)", f"{card['relevance_avg']:.2f}", f"{ak_card['relevance_avg']:.2f}"),
-            ("Surveys", f"{card['n_surveyed']:,}", f"{ak_card['n_surveyed']:,}"),
-            ("Schema-valid files", f"{n_valid:,} / {n_files:,}", ""))]), width="stretch", hide_index=True)
-    hist_rows = load_history()
-    if hist_rows:
-        with st.expander(f"All recorded runs ({len(hist_rows)})"):
-            table(pd.DataFrame(hist_rows), width="stretch", hide_index=True)
-    if sweep.get("models"):
-        with st.expander(f"All judge models ({len(sweep['models'])})"):
-            table(pd.DataFrame([{"Rank": m.get("rank") or "—", "Provider": m["provider"], "Model": m["name"],
-                                 "Ranking match (r)": m.get("rank_r"), "Within 1 point": _pct(m.get("within_1")),
-                                 "Average gap": m.get("mean_abs_diff"), "USD per 1,000 surveys": m.get("usd_per_1000_surveys"),
-                                 "Seconds per survey": m.get("seconds_per_call"), "Result": m.get("status")} for m in sweep["models"]]),
-                  width="stretch", hide_index=True)
-    if ledger:
-        with st.expander(f"All {len(ledger)} cost runs"):
-            table(pd.DataFrame([{
-                "Run": r["run"], "When": r["at"], "What": r.get("label"), "Writer": r.get("writer") or "templates",
-                "Surveys": r.get("surveys"), "Model calls": r.get("calls"), "From cache": r.get("cached_calls"),
-                "Spent": f"${r.get('spent_usd') or 0:.4f}",
-                "Write / check / judge": " / ".join(f"${(r.get('by_purpose') or {}).get(p, {}).get('usd', 0):.4f}"
-                                                    for p in ("write", "check", "judge")),
-                "Per survey": f"${r['usd_per_survey']:.5f}" if r.get("usd_per_survey") is not None else "—",
-                "Projected full set": f"${r['projected_full_usd']:.2f}" if r.get("projected_full_usd") is not None else "—",
-                "Revisions": r.get("revisions"), "Fallbacks": sum((r.get("fallbacks") or {}).values())}
-                for r in reversed(ledger)]), width="stretch", hide_index=True)
-    if cal:
-        with st.expander("How to read the AI judge numbers"):
-            st.markdown(
-                f"- A judge that always said 5 would be within 1 point {_pct(cal['always_5']['within_1'])} of the time, because "
-                "people mostly gave 4s and 5s. The stronger sign is the ranking: the AI follows the team's average "
-                f"(r = {cal.get('rank_r', 0):.2f}) more closely than any one of us does.\n"
-                "- Small sample: 20 surveys scored by hand. Details in `docs/results/judge_calibration.md`.")
-    att_json = Path(__file__).resolve().parents[1] / "docs" / "results" / "activity_attention.json"
-    if att_json.exists():
-        am = json.loads(att_json.read_text(encoding="utf-8"))
-        with st.expander("Activity attention, off vs on"):
-            pdf = pd.DataFrame([{"priority": p.title(), "series": s, "v": am[k].get(p, 0)}
-                                for p in ("high", "normal", "low") for s, k in (("Attention off", "priority_off"), ("Attention on", "priority_on"))])
-            top = float(pdf["v"].max() or 1)
-            _show(st, _paired(pdf, ["Attention off", "Attention on"], [BLUE, DEEP], "priority", fmt=",", domain=(0, top * 1.15)), 220)
-            st.caption(am["reason"] + ". Decision, rule and send window are identical with attention off and on; only "
-                       "priority, question count and the send moment change.")
-    if src.get("item_similarities"):
-        with st.expander(f"Question match per answer-key case (average {src['item_similarity_avg']:.2f})"):
-            table(pd.DataFrame(src["item_similarities"]), width="stretch", hide_index=True)
-    for title, ex in (("Surveys that failed format or safety", card.get("examples")),
-                      ("Send windows that failed timeliness", card.get("timeliness_examples"))):
-        if ex:
-            with st.expander(f"{title} ({len(ex)})"):
-                table(pd.DataFrame(ex), width="stretch", hide_index=True)
+    # ---- Overview
+    _section(st, "Overview")
+    # Left: a funnel, each step a subset of the one before. Right: traits of the planned surveys (same unit: surveys).
+    _html('<div class="mel-kpi-row">' + _kpis([
+        ("Conversations read", f"{n:,}", "every insight in the pack"),
+        ("Surveys planned", f"{len(surveyed):,}", f"{len(surveyed) / max(n, 1):.0%} of conversations"),
+        ("Going out", f"{out:,}", f"{out / max(len(surveyed), 1):.0%} of planned, after the weekly limit"),
+    ], "funnel", "From conversation to survey") + _kpis([
+        ("High priority", f"{high:,}", f"{share(high)} · skip the weekly limit"),
+        ("Personalized", f"{adapted:,}", f"{share(adapted)} · use the farmer's history"),
+        ("Rising activity", f"{tiers.get('surge', 0):,}", f"{share(tiers.get('surge', 0))} · from {len(surges):,} farmers on the rise"),
+    ], title=f"Of the {len(surveyed):,} planned surveys") + "</div>")
+
+    a, b = st.columns([2, 1], gap="small")
+    with a:
+        c = _card("weekly", "Surveys going out per week", "After the weekly limit")
+        _show(c, _weekly(upcoming), 232)
+    with b:
+        c = _card("limit", "Weekly limit", f"What happened to the {len(surveyed):,} planned surveys")
+        c.markdown(_segmented([("Sent as planned", lim.get("sent", 0)), ("Moved to a later week", lim.get("moved", 0)),
+                               ("Merged into another", lim.get("merged", 0)), ("Skipped", lim.get("skipped", 0))], ORDINAL),
+                   unsafe_allow_html=True)
+
+    a, b = st.columns(2, gap="small")
+    with a:
+        c = _card("rules", "Survey decision by rule", f"All {n:,} conversations, by the rule that decided")
+        df = pd.DataFrame([{"rule": f"{r}  {rule_label[r]}", "n": rules.get(r, 0), "share": rules.get(r, 0) / n,
+                            "g": "Survey" if r == "R8" else "No survey"} for r in rule_label])
+        color = alt.Color("g:N", scale=alt.Scale(domain=["Survey", "No survey"], range=[BRIGHT, DEEP]), legend=None)
+        _show(c, _ranked(df, "rule", "n", color, [alt.Tooltip("rule:N", title="Rule"), alt.Tooltip("n:Q", title="Conversations", format=","),
+                                                  alt.Tooltip("share:Q", title="Share", format=".1%")]), 270)
+    with b:
+        c = _card("crops", "Top crops and animals", "Conversations per crop or animal")
+        crops = Counter((i.get("asset") or {}).get("name") for i, _ in rows if (i.get("asset") or {}).get("name"))
+        cdf = pd.DataFrame([{"crop": str(k).title(), "n": v} for k, v in crops.most_common(8)])
+        _show(c, _ranked(cdf, "crop", "n", alt.value(DEEP), [alt.Tooltip("crop:N", title="Crop or animal"),
+                                                             alt.Tooltip("n:Q", title="Conversations", format=",")]), 270)
+
+    a, b, d = st.columns(3, gap="small")
+    with a:
+        c = _card("channel", "First channel tried", "Surveys by the channel tried first")
+        ch = Counter(o["handoff"]["channel_order"][0]["channel"] for _, o in surveyed)
+        chdf = pd.DataFrame([{"channel": ch_name[x], "n": ch.get(x, 0)} for x in channels])
+        _show(c, _ranked(chdf, "channel", "n", alt.value(DEEP), [alt.Tooltip("channel:N", title="Channel"),
+                                                                 alt.Tooltip("n:Q", title="Surveys", format=",")]), 180)
+    with b:
+        c = _card("people", "Farmers", "Language and how serious the problem was")
+        lang = Counter(i.get("conversation_language") for i, _ in rows)
+        sev = Counter(str(i.get("severity") or "") for i, _ in rows)
+        c.markdown('<div class="mel-d-lab">Language</div>' + _segmented(
+            [("Hindi", lang.get("hi-IN", 0)), ("English", lang.get("en-IN", 0))], [DEEP, BLUE]), unsafe_allow_html=True)
+        c.markdown('<div class="mel-d-lab">Severity</div>' + _segmented(
+            [("Low", sev.get("low", 0)), ("Medium", sev.get("medium", 0)), ("High", sev.get("high", 0)),
+             ("Critical", sev.get("critical", 0))], SEVERITY), unsafe_allow_html=True)
+    with d:
+        c = _card("attention", "Activity attention", "Planned surveys by the farmer's activity trend")
+        c.markdown(_segmented([("Neutral", tiers.get("neutral", 0)), ("Steady-high, stepped down", tiers.get("steady_high", 0)),
+                               ("Surge, rising", tiers.get("surge", 0))], [DEEP, BLUE, GOLD]), unsafe_allow_html=True)
+
+    _costs(ledger, full, n, len(surveyed) / max(n, 1))
+
+    # ---- Evaluation: nothing is scored until the button is pressed
+    ran = st.session_state.get("dash_eval", False)
+    _section(st, "Evaluation", "150-case answer key and checks on every survey" if ran else "Not run yet")
+    if not ran:
+        c = _card("eval_idle", "Golden-set evaluation")
+        c.markdown('<div class="mel-d-body">Scores the agent\'s decisions, rules, channels and send windows against the '
+                   f"150-case answer key and checks all {len(surveyed):,} surveys for format, safety and timing under both "
+                   "send-time rules, then adds the AI judge, the judge model sweep and the people's blind comparison. "
+                   "Nothing is scored until you run it.</div>", unsafe_allow_html=True)
+        c.button("Run evaluation", key="dash_eval_run", type="primary", icon=":material/play_arrow:",
+                 on_click=lambda: st.session_state.update(dash_eval=True))
+        return
+    _evaluation(evaluate_fn)
+
+
+def _evaluation(evaluate_fn):
+    ev, ak = evaluate_fn("brief"), evaluate_fn("answer_key")
+    src, card = ev["full"] or ev["mock"], ev["card"]
+    ak_src, ak_card = ak["full"] or ak["mock"], ak["card"]
+    judge = load_summary()
+    jrun, cal = judge.get("run") or {}, judge.get("calibration")
+    files, worst = card["n_survey_files"], min(card["format_pass"], card["safety_pass"], card["timeliness_pass"])
+    right = round(src["decision_acc"] * src["n"])
+    _html(_kpis([
+        ("Decisions right", _pct(src["decision_acc"]), f"{right} of {src['n']} answer-key cases"),
+        ("Checks passed", _pct(worst), f"format, safety, timing; {files:,} survey files" if worst == 1 else "the strictest of the three"),
+        ("AI judge relevance", f"{jrun['judge_relevance']:.2f} / 5" if jrun else "—",
+         f"Gemma 3 12B, {jrun['n']} surveys" if jrun else "no judge run recorded"),
+        ("Relevance score", f"{card['relevance_avg']:.2f}", "P4's 0 to 1 check, every survey"),
+        ("Failing surveys sent", f"{card['failed_but_scheduled']}", "a failing survey is held back"),
+        ("Batch time", f"{card['batch_seconds']:.0f} s", f"{card['s_per_survey'] * 1000:.1f} ms per survey"),
+    ]))
+
+    a, b = st.columns(2, gap="small")
+    with a:
+        c = _card("confusion", "Answer key vs agent", f"{right} of {src['n']} decisions right; the key down, the agent across")
+        _show(c, _confusion(src), 290)
+    with b:
+        c = _card("timing", "Send timing: brief vs answer key",
+                  f"{card['timeliness_pass']:.0%} on time with the brief's rule; the key's own times only "
+                  f"{_pct(ak_card['timeliness_pass'])}")
+        tdf = pd.DataFrame([
+            {"metric": "On time", "series": "Brief timing (ours)", "v": card["timeliness_pass"]},
+            {"metric": "On time", "series": "Answer-key timing", "v": ak_card["timeliness_pass"]},
+            {"metric": "Same window as the key", "series": "Brief timing (ours)", "v": src["window_acc"]},
+            {"metric": "Same window as the key", "series": "Answer-key timing", "v": ak_src["window_acc"]}])
+        _show(c, _paired(tdf, ["Brief timing (ours)", "Answer-key timing"], [DEEP, BLUE], "metric"), 290)
+
+    a, b = st.columns(2, gap="small")
+    with a:
+        hist = _history()
+        if hist is not None:
+            runs = [r for r in load_history() if r.get("timing_basis") == "brief"]
+            c = _card("history", "Run history",
+                      f"Decisions right {_pct(runs[0]['decision_acc'])} → {_pct(runs[-1]['decision_acc'])}; hover a dot for what changed")
+            _show(c, hist, 240)
+    with b:
+        if cal:
+            c = _card("judge", "Can we trust the AI judge?",
+                      "Share of the 20 hand-scored surveys within 1 point of a person")
+            _show(c, _judge_bars(cal), 150)
+
+    sweep = load_models()
+    chart, pick = _models(sweep)
+    a, b = st.columns([1.6, 1], gap="small")
+    if chart is not None:
+        n_ok = sum(1 for m in sweep.get("models", []) if m.get("rank"))
+        with a:
+            c = _card("models", f"Judge model sweep: {n_ok} Bedrock models",
+                      (f"Pick: {pick['provider']} {pick['name']}, ${pick['usd_per_1000_surveys']:.2f} per 1,000 surveys. " if pick else "")
+                      + "Up is closer to the team's scores, left is cheaper")
+            _show(c, chart, 280)
+    with b:
+        _blind()

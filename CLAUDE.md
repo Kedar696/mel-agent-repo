@@ -96,6 +96,17 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   Voice channel: the speaker beside Restart (tap = read the call aloud / mute, chevron = volume) plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
   in `.env`; see `.env.example`); off and silent without a key.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
+- **UI rework (5 Nov, `willF-uiux`), supersedes the tab notes above and below:** two tabs only, **Dashboard** and
+  **Survey demo**; the Season and Follow-up queue tabs are gone (their mel/ code is untouched). Dashboard
+  (`app/dashboard.py`) is a console-style widget grid: Overview KPI strip + widgets from the batch the app already runs,
+  then **Evaluation**, which scores nothing until **Run evaluation** is pressed (`st.session_state.dash_eval`); the
+  Details expanders and the full-run note are gone. Survey demo opens on one example, **I-001996** (wheat, low turned
+  high; not in the mock sample, where it opens on Browse), and is a guided flow: drag the conversation card onto the
+  terminal (`st.components.v2` component `mel_intake`, or the "Hand it to the agent" button) → the agent's steps →
+  **Send to the farmer** lights the phone and dims the terminal → when the farmer finishes, the same terminal adds
+  Review, Assess (checks, P4 relevance, recorded judge score, verdict), Thinking and Plan (next survey: when, what, its
+  first question) via `review_steps` / `plan_next`. Restart sends the flow back to the start. Tests: `tests/test_app.py`
+  (was `tests/test_season_tab.py`).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
   (`demo/p4_standalone/`) is folded into the team app: Survey demo
   shows "What the agent remembers", a "pretend survey history" demo and generic vs
@@ -133,8 +144,8 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   `docs/activity_attention_request.md`. **Uncommitted** on `lucas-p1` pending review.
 - **Terraform (P2, 5 Nov, `willF-terraform`; the only IaC since `willF-one-account`):** `infra/terraform/`
   (`agent.tf` = S3, Guardrail, AgentCore role, dashboard, budget in us-west-2; `ui.tf` = ECR, CodeBuild, ECS roles,
-  cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Not applied yet:
-  the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
+  cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Agent side applied 5 Nov
+  (`-target` on `agent.tf`); the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
   fmt + validate. Steps in `infra/README.md`.
 
 - **One path + database + answers back (Will, 5 Nov, `willF-postgres-unify`; P1, P3, P5 to review):**
@@ -242,17 +253,19 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   Details (crop or animal, problem, severity, advice type, days to act, check-back timing, 1-3 questions:
   `app/custom_context.apply_reading`), P2's rules set the window from those fields, and the agent writes and
   translates the questions (`run_agent(n_items=)`); the report says what the model read; a checkbox turns the
-  reading off. Tests in test_writer / test_agent / test_custom_context / test_season_tab.
+  reading off. Tests in test_writer / test_agent / test_custom_context / test_app.
 - **Cost tracking + full run (P5, 5 Nov, `p5-agent-orchestrator`):** `mel/evaluation/costs.py` (CostMeter reads
   `out/bedrock_calls.jsonl` from its start offset; ledger `docs/results/cost_history.jsonl`; projection x 2,616 surveys).
   `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,
   free resume via cache, files to `out/agent_batch/`, summary `docs/results/full_bedrock_run.json`. Dashboard "What it
   costs". Decided: Haiku 4.5, hi+en, history off, cap $40. **Pilot and full run not yet run** (need AWS keys).
 - **IaC + demo-day plan (P5, 5 Nov, `p5-agent-orchestrator`):** `infra/fasal-pulse.yaml` (CloudFormation, replaced by `infra/terraform/agent.tf` on 5 Nov; rules restrict to us-east-1/us-west-2): private SSE S3 bucket (HTTPS only, results expire 30 d), least-privilege AgentCore execution role, Bedrock Guardrail + version (deny personal-info requests, PII + content filters, no violence filter; v1 also denied "new agronomic advice" but it blocked "Did you follow the advice?", so v2 drops it), CloudWatch dashboard (SEARCH over `FasalPulse/Agent`), optional budget. Outputs incl. ready `--env` flags for `agentcore launch`. `tests/test_infra.py`. Steps in `docs/agentcore.md`. Hackathon rules check, stack and order of work: `docs/demo_day_plan.md`. Repo is public but has **no LICENSE** (team to pick MIT-0 or Apache-2.0). No AWS CLI on Michael's laptop: deploy via console upload or CloudShell. **Stack deployed 5 Nov in us-west-2 in P5's own sandbox, not this account** (team chose Oregon; all AgentCore/Bedrock settings now use `MEL_BEDROCK_REGION=us-west-2`); its guardrail id is not valid here (`terraform output guardrail_id` after apply). Batch runner now test-calls the guardrail before spending (and stops if it blocks a harmless question). Pilot 1 (40 surveys, us-west-2, guardrail v2): $0.22, projected full $15.41, judge 4.87, but hi-IN fell back to templates 15/40: 43 of 44 Hindi rejections were "less relevant than the template" (P4 keyword lists are the templates' own words). Fix: that comparison is now English-only (`mel/agent/orchestrator.py verify`); Hindi keeps the 0.3 send bar. P4 to review. Pilot 2: hi-IN bedrock 39/40, judge 4.90. Cost per survey now = full price of every distinct request in the run (cache hits priced from the tokens they took; `list_cost_usd` + `key` in out/bedrock_calls.jsonl, `full_price_usd` + `projection_basis` in ledger rows), so a cached re-run projects like a fresh one; pilot 2 replay: $0.0039/survey, ~$10.3 full (+ judge ~$0.25; guardrail ApplyGuardrail charges are not in the ledger). Mis-priced pilot 2 ledger row removed.
-- **Hosted link (P2, 5 Nov):** one copy of the UI, in the account, on ECS Express Mode (us-east-1, service
-  `fasal-pulse-ui`): https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ . `MEL_AGENTCORE_ARN` is not
-  set on it yet, so "Run the agent" shows the recorded runs; after `agentcore launch` in this account, roll the
-  service with the ARN (`infra/README.md`). ~$2/day: delete the service after the presentation (empty the ECR repo first).
+- **Hosted link + agent in the account (P2, 5 Nov night):** the UI on ECS Express Mode (us-east-1, service
+  `fasal-pulse-ui`, image `7a47ca8` = main): https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ .
+  `terraform apply` (agent side) + `agentcore launch` done in this account: runtime `fasal_pulse` (us-west-2),
+  guardrail from Terraform, insights in the bucket; the service has `MEL_AGENTCORE_ARN`, so "Run the agent" is live.
+  Gotcha: the toolkit reuses the repo's API `Dockerfile` unless it is moved aside (`docs/agentcore.md`).
+  ~$2/day: delete the service after the presentation (empty the ECR repo first).
 - **Deliverables check (P5, 5 Nov):** `docs/deliverables_coverage.md` maps every line of Digital Green's Vision and
   Technical documents (copied into `docs/`, git-ignored) to proof; all 7 Definition-of-Done items met; gaps in order:
   blind human scoring, Hindi review, guardrail on the $2.61 run (Will's run had none; run 2, $11.06, had v2), adoption
@@ -269,7 +282,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
   +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
   now 0.3; personas incl. P3's `sometimes_fails` (523 answers need a person); full data ~2,050 sends, ~5 s). Shows India
-  time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
+  time first (Eastern alongside). Test was `tests/test_season_tab.py`. Demo script Part 2b (optional). Tab removed 5 Nov (UI rework).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
   Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster drops a hand-off whose send window closed (`not_after`) as expired (done on `Semdon-P3`).

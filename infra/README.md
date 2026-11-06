@@ -8,10 +8,9 @@ secrets in any file.
 
 | Piece | Where | Status |
 |---|---|---|
-| Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | Definition, checked in CI (`terraform fmt -check`, `terraform validate`); apply it before `agentcore launch` |
+| Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | **Applied** in the account on 5 Nov (`terraform apply`, agent resources only); CI checks `terraform fmt -check` + `terraform validate` |
 | The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds the `Dockerfile`'s `ui` target from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
-| The **REST API** (`mel/api`): its state (surveys, hand-offs, answers, opt-outs) in **Amazon RDS for PostgreSQL**, Digital Green's database | `terraform/db.tf` (us-east-1); the API container is `docker build --target api .` and runs anywhere that reaches the database (ECS, EKS, a laptop) with `MEL_DATABASE_URL` and `MEL_API_TOKEN` | Definition, checked in CI; not applied |
-| The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | Steps in `docs/agentcore.md`. Set its ARN on the UI (`MEL_AGENTCORE_ARN`) and "Run the agent" runs live; until then the app shows the recorded runs |
+| The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | **Live**: runtime `fasal_pulse` in us-west-2 (5 Nov, `agentcore launch`, steps in `docs/agentcore.md`); the UI's `MEL_AGENTCORE_ARN` points at it, so "Run the agent" runs live |
 
 ## Terraform (`terraform/`)
 - `main.tf`: the provider and the variables. One AWS provider covers both regions, because provider 6 lets each
@@ -118,6 +117,6 @@ here:
 ## What we could and could not validate here
 - `terraform/`: `terraform fmt -check` and `terraform validate` pass (Terraform 1.17.1, AWS provider 6.72; CI
   runs both). An offline apply against a mocked AWS provider ran clean. `tests/test_infra.py` checks the bucket,
-  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. `db.tf` is only
-  validated, never applied. Not yet applied to the
-  account: the UI there was made by hand as described above, and the agent's resources are still to be applied.
+  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. Applied 5 Nov for the
+  agent side (`terraform apply` with `-target` on the `agent.tf` resources); the UI resources exist by hand under
+  the same names and are not in the state, so a full apply needs `terraform import` or another `ui_name`.
