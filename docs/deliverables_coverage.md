@@ -13,7 +13,7 @@ documents that asks for something is below, with where the proof is. ✅ done an
 | 4 | Generation time per survey and per batch | ✅ | Templates ~3 ms/survey, ~8 s for all; Bedrock full run 14 min (8 workers), ~4 s per survey on AgentCore; Dashboard "What it costs" |
 | 5 | Invalid or low-scoring surveys verified not to be scheduled | ✅ | P3's gate rejects schema, guard, `check_survey()` and relevance < 0.3 failures before the weekly slot (`tests/test_p3_completion.py`: `test_batch_rejects_ineligible_survey_before_scheduling`, `test_rejected_survey_does_not_take_the_weekly_slot`); the agent's Verifier sends a failing draft back twice, then uses the checked template |
 | 6 | Survey JSON validates against the agreed schema | ✅ | `python -m mel.cli validate`: 0 invalid; full Bedrock run 0 schema-invalid files; `parity` keeps our schemas identical to the pack's |
-| 7 | Code, IaC, evaluation harness and README in the open-source repo | ✅ | Public repo, Apache-2.0; IaC `infra/fasal-pulse.yaml` (deployed), `infra/ui-express.yaml` (live), `infra/cloudformation.yaml` + `infra/k8s/` (design), `infra/terraform/` (Terraform version of the two deployed templates, validated in CI) |
+| 7 | Code, IaC, evaluation harness and README in the open-source repo | ✅ | Public repo, Apache-2.0; IaC `infra/terraform/` (the agent's resources and the UI on ECS Express Mode, validated in CI) |
 
 ## 2. MVP Success Criteria (Vision)
 | Criterion | | Proof / gap |
@@ -56,12 +56,12 @@ Out of scope and correctly not built: NightSync/SeasonPlanner/FarmWatch, product
 | Evaluate before scheduling | ✅ | As DoD 5 |
 | Contract over framework: survey JSON + REST | ✅ | FastAPI `POST /surveys`, `GET /surveys/due`, `/healthz`; Docker image; CI smoke test |
 | Language is a parameter (BCP 47) | ✅ | `compose_survey(decision, insight, lang)`; no code per language |
-| Safety: no personal info, no new advice, no contradiction | ✅ | Format/safety 100%; P4 guards + small-model contradiction check; Bedrock Guardrail in the live agent. **Say on stage:** the $2.61 run had no guardrail (teammate's sandbox); the $11.06 run and AgentCore have guardrail v2 |
+| Safety: no personal info, no new advice, no contradiction | ✅ | Format/safety 100%; P4 guards + small-model contradiction check; Bedrock Guardrail in the live agent. **Say on stage:** the $2.61 run had no guardrail (none in the account yet); the $11.06 run and AgentCore have guardrail v2 |
 | "It didn't work" / "crop damaged" routed back, not just recorded | ✅ | Follow-up queue |
 | Python 3.12+ | ✅ | `pyproject.toml`, CI 3.12 |
 | Bedrock required; model behind an abstraction; tiering explored | ✅ | P4 `ModelClient`; Haiku 4.5 writes, a small model checks, Gemma 3 12B judges (picked from 70 models) |
 | Agent framework: ADK, Strands or other with the REST/JSON contract | ✅ | Our own Python agent loop (allowed as "Other" because the contract is met); runs on AgentCore Runtime |
-| Hosting: AgentCore or containers (EKS-ready) | ✅ | AgentCore live (us-west-2); UI on ECS Express (us-east-1); API container + k8s manifests |
+| Hosting: AgentCore or containers (EKS-ready) | ✅ | AgentCore runtime (us-west-2); UI on ECS Express Mode (us-east-1); API container (`Dockerfile`) |
 | Simulated clock with a manual trigger for every step | ✅ | Season tab |
 | Deterministic checks for format/timing; LLM judge with a rubric agreed with DG's MEL team | 🟡 | Judge calibrated against 5 people (within 1 point 97%). **The rubric is ours (v1, in README); DG hasn't confirmed one.** Asked in `docs/questions_for_digital_green.md` (P1 still has to send it) |
 | English is the evaluation baseline; Hindi reviewed by Hindi speakers | 🟡 | English baseline ✅; Hindi review 0 of 441 |
@@ -94,10 +94,10 @@ Out of scope and correctly not built: NightSync/SeasonPlanner/FarmWatch, product
    claim about Bedrock.
 2. **Hindi:** get any Hindi speaker to mark even 30-50 lines of `docs/p4/hindi_review_sheet.csv`; otherwise say
    "pending native review".
-3. **Guardrail on the cheap run (optional, ~$2-3):** re-run the full set in Michael's account with the guardrail.
+3. **Guardrail on the cheap run (optional, ~$2-3):** re-run the full set with the guardrail from `terraform apply`.
    The writing comes from the replay file for $0; only the guardrail checks and any revisions it causes are paid:
    ```
-   MEL_GUARDRAIL_ID=dh15hs1wc6uw MEL_GUARDRAIL_VERSION=2 python -m mel.agent.batch --max-usd 10 --judge --label "full set: compact writer + guardrail v2, us-west-2"
+   MEL_GUARDRAIL_ID=<guardrail_id> MEL_GUARDRAIL_VERSION=<guardrail_version> python -m mel.agent.batch --max-usd 10 --judge --label "full set: compact writer + guardrail v2, us-west-2"
    ```
    (with the usual `MEL_USE_LLM=1 MEL_BEDROCK_REGION=us-west-2 MEL_BEDROCK_WRITE_MODEL=... MEL_JUDGE_MODEL=...`).
    Then the headline number has the guardrail on and the caveat goes away.

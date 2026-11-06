@@ -183,7 +183,7 @@ in `infra/`; never put AWS keys in git or chat.
 | A shared online folder | **S3** | Data pack and our output files | P1 |
 | A locked box for keys | **Secrets Manager** | Keep keys out of the code | P1 |
 | Amazon's AI models | **Bedrock** | **Required**: the AI writer (P4) and the AI relevance judge (P5) | P4, P5 |
-| A web link for the demo | **App Runner** | Judges open a link; laptop demo stays the main plan | P5 with P1 |
+| A web link for the demo | **ECS Express Mode** | Judges open a link (`infra/README.md`); laptop demo stays the main plan | P2 |
 | Alarm clock and retry | **EventBridge / Step Functions** | *Slide only*: send at 07:00, retry on WhatsApp after 24 h | P3 notes → P5 slide |
 | Digital Green's database | **RDS for PostgreSQL** | *Slide only*: weekly limit and opt-outs in real life | P3 notes → P5 slide |
 | Automated phone calls | **Amazon Connect** | *Slide only*: real voice surveys | P3 notes → P5 slide |
