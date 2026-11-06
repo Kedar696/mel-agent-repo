@@ -7,7 +7,6 @@ Each record is kept whole as JSON text next to the few columns the API filters o
 config/schemas stay the only contract.
 """
 import json
-import os
 import sqlite3
 import threading
 from pathlib import Path
@@ -40,8 +39,8 @@ def _dumps(obj) -> str:
 
 class Store:
     def __init__(self, url: str | None = None):
-        from mel.config import OUT
-        self.url = url or os.environ.get("MEL_DATABASE_URL") or f"sqlite:///{OUT / 'mel.sqlite3'}"
+        from mel.config import OUT, env
+        self.url = url or env("MEL_DATABASE_URL") or f"sqlite:///{OUT / 'mel.sqlite3'}"
         if not self.url.startswith("sqlite://"):
             raise ValueError(f"MEL_DATABASE_URL must start with sqlite://, got {self.url!r}")
         rest = self.url[len("sqlite://"):]

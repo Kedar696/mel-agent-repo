@@ -1,16 +1,15 @@
 """Read the voice-call preview aloud with ElevenLabs text to speech. Display only: nothing is sent to a farmer.
 
-Needs ELEVENLABS_API_KEY in the environment or in the repo's .env (never committed; see .env.example). Optional
+Needs ELEVENLABS_API_KEY in the environment or in the repo's .env (mel.config.env; see .env.example). Optional
 ELEVENLABS_VOICE_ID (default: a premade voice) and ELEVENLABS_MODEL (default eleven_multilingual_v2, which speaks
 Hindi and English). Without a key, speak() returns None and the app says how to enable it. Standard library only.
 """
 import json
-import os
 import urllib.error
 import urllib.request
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from mel.config import env
+
 API = "https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128"
 DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # "George", one of ElevenLabs' own premade voices (free plans may not use
 # library voices through the API; "Rachel" 21m00Tcm4TlvDq8ikWAM is one of those). Override with ELEVENLABS_VOICE_ID.
@@ -21,21 +20,8 @@ class TTSError(Exception):
     """ElevenLabs refused or could not be reached; the message is safe to show."""
 
 
-def _env(name: str, default: str = "", root: Path | None = None) -> str:
-    value = os.environ.get(name)
-    if value:
-        return value.strip()
-    env = (root or ROOT) / ".env"  # the repo's convention: copy .env.example to .env, never commit it
-    if env.exists():
-        for line in env.read_text(encoding="utf-8").splitlines():
-            key, _, val = line.partition("=")
-            if key.strip() == name:
-                return val.strip().strip('"').strip("'")
-    return default
-
-
 def api_key() -> str:
-    return _env("ELEVENLABS_API_KEY")
+    return env("ELEVENLABS_API_KEY")
 
 
 def speak(text: str, *, key: str | None = None, voice: str | None = None, model: str | None = None) -> bytes | None:
@@ -44,8 +30,8 @@ def speak(text: str, *, key: str | None = None, voice: str | None = None, model:
     text = (text or "").strip()
     if not key or not text:
         return None
-    body = json.dumps({"text": text, "model_id": model or _env("ELEVENLABS_MODEL", DEFAULT_MODEL)}).encode()
-    req = urllib.request.Request(API.format(voice=voice or _env("ELEVENLABS_VOICE_ID", DEFAULT_VOICE)), data=body,
+    body = json.dumps({"text": text, "model_id": model or env("ELEVENLABS_MODEL", DEFAULT_MODEL)}).encode()
+    req = urllib.request.Request(API.format(voice=voice or env("ELEVENLABS_VOICE_ID", DEFAULT_VOICE)), data=body,
                                  method="POST", headers={"xi-api-key": key, "Content-Type": "application/json",
                                                          "Accept": "audio/mpeg"})
     try:

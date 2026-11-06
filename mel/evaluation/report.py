@@ -11,7 +11,7 @@ import os
 import re
 from contextlib import contextmanager
 
-from mel.config import PACK_DATA, ROOT
+from mel.config import PACK_DATA, ROOT, flag
 from mel.data import load_farmers, load_golden, load_insights
 
 from .golden import score_golden
@@ -56,7 +56,7 @@ def evaluate(basis: str = "brief", history: bool = False) -> dict:
         mock = score_golden(memory=memory)
         full = score_golden(load_golden(full_path), memory=memory) if full_path.exists() else None
         card = run_scorecard(load_insights(ins_path if ins_path.exists() else None), memory=memory)
-        if os.environ.get("MEL_JUDGE") == "1":  # AI judge on Bedrock; off by default (costs money)
+        if flag("MEL_JUDGE"):  # AI judge on Bedrock; off by default (costs money)
             from .judge import BedrockClient, golden_pairs, judge_batch
             j = judge_batch(golden_pairs(load_golden(full_path) if full_path.exists() else None), BedrockClient())
             card["judge_relevance"] = j["judge_relevance"]

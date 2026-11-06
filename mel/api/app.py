@@ -19,7 +19,6 @@ second slot.
 Run it:  MEL_API_TOKEN=... uvicorn --factory mel.api.app:create_app
 """
 import json
-import os
 import secrets
 import threading
 from datetime import datetime
@@ -28,7 +27,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from mel.agent import run_agent_to_end
-from mel.config import IST
+from mel.config import IST, env
 from mel.data import errors, load_farmers
 from mel.pipeline import clean
 from mel.schedule import Admit, CapLedger, OptOutList
@@ -87,7 +86,7 @@ def admit(store: Store, handoff: dict) -> Admit:
 def create_app(farmers: dict | None = None, store: Store | None = None, token: str | None = None) -> FastAPI:
     """`farmers` defaults to `load_farmers()`; `store` to `Store()` (MEL_DATABASE_URL); `token` to MEL_API_TOKEN.
     Tests pass an in-memory store and a token so nothing touches the environment."""
-    token = token or os.environ.get("MEL_API_TOKEN", "")
+    token = token or env("MEL_API_TOKEN")
     if not token:
         raise RuntimeError("MEL_API_TOKEN is not set; the API does not start without a bearer token")
     store = store or Store()

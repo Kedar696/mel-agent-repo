@@ -3,10 +3,9 @@
 The answer-key convention deliberately differs from the brief. See README.md in
 this directory for the conflicts and commands to evaluate both policies.
 """
-import os
 from datetime import date, datetime, time, timedelta
 
-from mel.config import IST, rules
+from mel.config import IST, env, rules
 
 
 def parse_ist(s: str) -> datetime:
@@ -50,7 +49,7 @@ None keeps the old behaviour: the window is planned from the insight's own date.
 Read the policy on each call so callers/tests can select it without reimporting.
 Public input/output shapes remain unchanged.
 """
-    basis = os.environ.get("MEL_TIMING_BASIS", "brief")
+    basis = env("MEL_TIMING_BASIS", "brief")
     if basis not in {"brief", "answer_key"}:
         raise ValueError("MEL_TIMING_BASIS must be 'brief' or 'answer_key'")
     if basis == "answer_key":

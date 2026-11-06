@@ -11,11 +11,10 @@ the hosted app (no AWS keys) can show a real Bedrock run.
 """
 import argparse
 import json
-import os
 import sys
 import time
 
-from mel.config import ROOT
+from mel.config import ROOT, env
 
 RUNS = ROOT / "docs" / "results" / "agent_runs"
 DEMO_PICKS = ["I-001253", "I-001645", "I-005625", "I-001996", "I-000291"]   # the app's Survey demo picks
@@ -28,17 +27,6 @@ def _inputs(insight_id, pack=None):
     if ins is None:
         sys.exit(f"unknown insight {insight_id}")
     return ins, pack.inputs_for(ins)
-
-
-def _extras():
-    from mel.agent import bedrock_guardrail
-    kw = {}
-    if os.environ.get("MEL_GUARDRAIL_ID"):
-        kw["guardrail"] = bedrock_guardrail(os.environ["MEL_GUARDRAIL_ID"], os.environ.get("MEL_GUARDRAIL_VERSION", "DRAFT"))
-    if os.environ.get("MEL_AGENT_JUDGE") == "1":
-        from mel.evaluation.judge import BedrockClient
-        kw["judge"] = BedrockClient()
-    return kw
 
 
 def _print(e):
@@ -61,7 +49,7 @@ def main():
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--remote", metavar="ARN")
     a = ap.parse_args()
-    from mel.agent import run_agent
+    from mel.agent import run_agent, guardrail_from_env, judge_from_env
     from mel.writer import llm
     ids = a.insight_ids or (DEMO_PICKS if a.record else [])
     if not ids:
@@ -69,13 +57,14 @@ def main():
     from mel.evaluation.costs import CostMeter, record_cost, row_from_results
     from .inputs import Pack
     pack, meter, results = Pack(), CostMeter(), []
+    extras = {"guardrail": guardrail_from_env(), "judge": judge_from_env()}
     for iid in ids:
         ins, inputs = _inputs(iid, pack)
         if a.remote:
             from mel.agent.remote import invoke
             stream = invoke(a.remote, {"insight": ins})
         else:
-            stream = run_agent(ins, memory=None, **inputs, **_extras())
+            stream = run_agent(ins, memory=None, **inputs, **extras)
         events = []
         print(f"\n=== {iid}")
         for e in stream:
@@ -85,11 +74,11 @@ def main():
             results.append(events[-1])
         if a.record:
             RUNS.mkdir(parents=True, exist_ok=True)
-            judge = os.environ.get("MEL_JUDGE_MODEL") if os.environ.get("MEL_AGENT_JUDGE") == "1" else None
             rec = {"insight_id": iid, "recorded": time.strftime("%Y-%m-%d %H:%M"),
                    "where": "agentcore" if a.remote else "local",
                    "writer": llm.write_model() if llm.enabled() else None, "checker": llm.check_model() or None,
-                   "judge": judge, "guardrail": os.environ.get("MEL_GUARDRAIL_ID") or None, "events": events}
+                   "judge": extras["judge"].model_id if extras["judge"] else None,
+                   "guardrail": env("MEL_GUARDRAIL_ID") or None, "events": events}
             (RUNS / f"{iid}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
             print(f"recorded -> {(RUNS / f'{iid}.json').relative_to(ROOT)}")
 

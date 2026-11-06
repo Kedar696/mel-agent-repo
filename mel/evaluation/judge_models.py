@@ -23,11 +23,10 @@ Region: MEL_BEDROCK_REGION, else AWS_REGION / AWS_DEFAULT_REGION, else us-east-1
 """
 import argparse
 import json
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from mel.config import ROOT
+from mel.config import ROOT, bedrock_region
 
 from . import judge as J
 
@@ -40,8 +39,7 @@ MAX_TOKENS = 1000      # room for models that think before answering; the judge'
 
 
 def region() -> str:
-    return (os.environ.get("MEL_BEDROCK_REGION") or os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1")
+    return bedrock_region() or "us-east-1"
 
 
 # ---------------------------------------------------------------- which models can we call?

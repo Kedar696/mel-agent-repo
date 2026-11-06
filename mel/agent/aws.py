@@ -3,9 +3,10 @@
 Every function is a no-op (or a local fallback) when its setting is missing, so the agent runs the same on a laptop.
 """
 import json
-import os
 import time
 from functools import lru_cache
+
+from mel.config import PACK_DATA, env
 
 
 def _s3_split(url: str) -> tuple[str, str]:
@@ -32,14 +33,13 @@ def load_insight(insight_id: str | None) -> dict | None:
     """From MEL_S3_INPUT (s3://bucket/key.jsonl) when set, else the participant pack in the image (or the mock)."""
     if not insight_id:
         return None
-    from mel.config import PACK_DATA
-    src = os.environ.get("MEL_S3_INPUT") or (str(PACK_DATA / "insights.jsonl") if (PACK_DATA / "insights.jsonl").exists() else "")
+    src = env("MEL_S3_INPUT") or (str(PACK_DATA / "insights.jsonl") if (PACK_DATA / "insights.jsonl").exists() else "")
     return _insights_by_id(src).get(insight_id)
 
 
 def save_result(result: dict, client=None) -> str | None:
     """Write the result JSON to MEL_S3_RESULTS (s3://bucket/prefix). Returns the s3:// URL, or None when off."""
-    dest = os.environ.get("MEL_S3_RESULTS", "").strip()
+    dest = env("MEL_S3_RESULTS")
     if not dest:
         return None
     b, prefix = _s3_split(dest)
@@ -74,14 +74,14 @@ def metric_data(result: dict) -> list[dict]:
 def put_metrics(result: dict, client=None) -> bool:
     """Send the run's metrics to CloudWatch (namespace MEL_METRICS_NAMESPACE, default FasalPulse/Agent).
     Off when MEL_METRICS=0. Never raises: metrics must not break a run."""
-    if os.environ.get("MEL_METRICS", "1") == "0":
+    if env("MEL_METRICS", "1") == "0":
         return False
     try:
         c = client
         if c is None:
             import boto3
             c = boto3.client("cloudwatch")
-        c.put_metric_data(Namespace=os.environ.get("MEL_METRICS_NAMESPACE", "FasalPulse/Agent"),
+        c.put_metric_data(Namespace=env("MEL_METRICS_NAMESPACE", "FasalPulse/Agent"),
                           MetricData=metric_data(result))
         return True
     except Exception:

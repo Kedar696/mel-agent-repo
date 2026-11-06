@@ -14,20 +14,19 @@ what is missing (or failed) is paid for. Needs MEL_USE_LLM=1 and the Bedrock set
 """
 import argparse
 import json
-import os
 import random
 import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 
-from mel.config import OUT, ROOT
+from mel.config import OUT, ROOT, bedrock_region
 from mel.evaluation.costs import CostMeter, record_cost, row_from_results, FULL_SET_SURVEYS
 from mel.pipeline import clean
 from mel.writer import llm
 
 from .inputs import Pack
-from .orchestrator import run_agent, MAX_REVISIONS
+from .orchestrator import run_agent, guardrail_from_env, MAX_REVISIONS
 
 FULL_SUMMARY = ROOT / "docs" / "results" / "full_bedrock_run.json"
 
@@ -163,14 +162,12 @@ def main():
     if a.judge:
         from mel.evaluation.judge import BedrockClient
         judge = BedrockClient()
-    guard = None
-    if os.environ.get("MEL_GUARDRAIL_ID"):
-        from .orchestrator import bedrock_guardrail
-        guard = bedrock_guardrail(os.environ["MEL_GUARDRAIL_ID"], os.environ.get("MEL_GUARDRAIL_VERSION", "DRAFT"))
+    guard = guardrail_from_env()
+    if guard:
         try:                                    # one cheap check before any model spend, so a wrong id fails clearly
             blocked = guard("Did you follow the advice you were given?")
         except Exception as e:
-            raise SystemExit(f"Guardrail check failed in region {llm.region() or '(none set)'}: {e}\n"
+            raise SystemExit(f"Guardrail check failed in region {bedrock_region() or '(none set)'}: {e}\n"
                              "Check that MEL_GUARDRAIL_ID / MEL_GUARDRAIL_VERSION come from `terraform output` "
                              "(infra/terraform), and that its agent_region is MEL_BEDROCK_REGION.") from e
         if blocked:                             # it would reject every survey and send all of them to the template
