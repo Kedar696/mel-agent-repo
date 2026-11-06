@@ -1,15 +1,13 @@
 """Fasal Pulse - MEL Survey Agent: the team demo. Owner: P5.  Run: streamlit run app/streamlit_app.py
 P4's standalone survey demo (demo/p4_standalone) is folded in: Survey demo shows what the agent remembers
 about the farmer and how history rules H1-H5 adapt the survey (on in the app, off for scoring).
-Tabs: Dashboard (default: overview + evaluation), Survey demo (insight | interactive channel preview | hand-off),
-Follow-up queue. Look and feel: app/theme.py. Interactive preview: app/channel_preview.py.
+Tabs: Dashboard (default: overview + evaluation), Survey demo (insight | interactive channel preview | hand-off). Look and feel: app/theme.py. Interactive preview: app/channel_preview.py.
 Every number on screen comes from the real pipeline; nothing is hard-coded."""
 import copy
 import json
 import os
 import re
 import sys
-from collections import Counter
 from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
@@ -55,9 +53,7 @@ from mel.evaluation import evaluate
 from mel.pipeline import run_pipeline, run_insight, clean
 from mel.schedule import build_handoff
 from mel.schedule.handoff import CapLedger
-from mel.schedule import SeasonScheduler
-from mel.simulator import simulate
-from mel.writer import (check_survey, write_surveys, FarmerMemory, history_notes, llm)
+from mel.writer import (check_survey, write_surveys, FarmerMemory, history_notes, llm, relevance, RELEVANCE_THRESHOLD)
 from mel.writer.templates import template_items
 
 sys.modules["mel"]._code_stamp = _MEL_STAMP  # see _reload_mel_if_changed
@@ -70,7 +66,7 @@ from app.display_time import (format_clock, format_date, format_datetime, format
 use_zone(None)   # the numbers in Eastern Time; one farmer's screen switches to India time below (Survey demo, queue)
 from app import dashboard
 from app.channel_preview import render_channel_preview
-from app.theme import LOCKUP, MASCOT, PALETTE, apply_theme
+from app.theme import LOCKUP, MASCOT, apply_theme
 
 sys.modules["app"]._code_stamp = _APP_STAMP  # see _reload_mel_if_changed
 
@@ -94,10 +90,6 @@ HINDI_SHEET = ROOT_DIR / "docs" / "p4" / "hindi_review_sheet.csv"  # P4's native
 
 def html(s: str):
     st.markdown(s, unsafe_allow_html=True)
-
-
-def badge(text, tone="green"):
-    return f'<span class="mel-badge {tone}">{escape(str(text))}</span>'
 
 
 ISO_TS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?")
@@ -186,9 +178,10 @@ def memory():
 
 rows, admits, upcoming, n_valid, n_files = batch()
 INSIGHT_BY_ID = {i.get("insight_id"): i for i, _ in rows}
+OUT_BY_ID = {i.get("insight_id"): o for i, o in rows}
 html(f'<div class="mel-mast"><div class="mel-brand">{LOCKUP}</div>'
      '<div class="mel-head"><h1 class="mel-title">MEL Survey Agent</h1></div></div>')
-tab_over, tab_studio, tab_season, tab_follow = st.tabs(["Dashboard", "Survey demo", "Season", "Follow-up queue"])
+tab_over, tab_studio = st.tabs(["Dashboard", "Survey demo"])
 
 # Dashboard motion, ported from the Success Metrics site (TSWhackUMBC site/page.html): each metric counts up from 0
 # with an ease-out cubic over 1.1 s the first time it scrolls into view and always lands on Streamlit's exact text;
@@ -245,9 +238,8 @@ def _pct(v):
 # ---------------------------------------------------------------- Dashboard (app/dashboard.py: mostly charts)
 with tab_over:
     st.html(f"<script>{COUNT_UP_JS}</script>", unsafe_allow_javascript=True)
-    dashboard.render(rows=rows, admits=admits, upcoming=upcoming, n_valid=n_valid, n_files=n_files,
-                     evaluate_fn=_evaluate, rule_label=RULE_LABEL, ch_name=CH_NAME, channels=CHANNELS,
-                     table=table, short=short)
+    dashboard.render(rows=rows, admits=admits, upcoming=upcoming, evaluate_fn=_evaluate, rule_label=RULE_LABEL,
+                     ch_name=CH_NAME, channels=CHANNELS)
 
 # ---------------------------------------------------------------- Survey demo
 labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
@@ -278,46 +270,23 @@ def _planned_next(h):
     return next(((t, iid) for t, iid in upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
 
 
-def _next_survey(h):
-    """This farmer's next survey that gets past the weekly limit, from the batch."""
-    nxt = _planned_next(h)
-    if not nxt:
-        return "None planned"
-    a = INSIGHT_BY_ID.get(nxt[1]) or {}
-    return (f'<b>{format_date(nxt[0])}</b> · {escape(str((a.get("asset") or {}).get("name") or "").title())}, '
-            f'{escape(str(a.get("concern") or "").replace("_", " "))}')
+def _why(out, d, lang):
+    """The decision's reason in plain words (the survey rationale, or the no-survey reason without its code)."""
+    return us_text(out["surveys"][lang]["rationale"].split(" Personalised:")[0] if d.survey
+                   else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
 
 
-def next_survey_note(h, rec):
-    """Once the farmer has answered: when this farmer hears from us again, by the scheduler's rules (docs/cap_policy.md).
-    A retry of this survey comes first; then the next survey already in the batch; else the earliest day the weekly
-    limit allows one (7 days after this send; a high-priority survey is exempt and may go sooner)."""
-    if rec["retry_decision"] in ("retry_same_channel", "fall_back_to_next_channel"):
-        wait = rec.get("retry_after_minutes") or 0
-        at = datetime.fromisoformat(rec["recorded_at"]) + timedelta(minutes=wait)
-        how = "same channel" if rec["retry_decision"] == "retry_same_channel" else "next channel in the farmer's order"
-        return f"<b>This survey again, {long(at)}</b> · {how}, {f'{wait} min after this attempt' if wait else 'right away'}"
-    if _planned_next(h):
-        return f"{_next_survey(h)} · already in the batch from a later conversation; it clears the weekly limit (1 survey per farmer per 7 days)"
-    if not rec["counts_toward_cap"]:
-        return "<b>As soon as a new conversation needs one</b> · this attempt does not count toward the weekly limit"
-    me, fid = h["survey"]["source_insight_ids"][0], h["survey"]["farmer_id"]
-    start = next((t for t, iid in upcoming.get(fid, []) if iid == me), h["send_window"]["not_before"])  # moved? its new day
-    gate = datetime.fromisoformat(start) + timedelta(days=7)
-    return (f"<b>Not before {format_date(gate)}</b> · 7 days after this send (weekly limit: 1 survey per farmer per 7 days); "
-            "only a high-priority case (high or critical severity, an emergency, or an expert referral) may go sooner")
-
-
-def agent_view(ins, out, d, notes, attention):
+def agent_view(ins, out, d, notes, attention, review=None, chat=(), shown=0) -> int:
     """The agent at work, styled like a Claude Code session (William's ask): one "⏺ Tool(args)" step per stage with
     an indented "⎿" result on a dark terminal, a spinner status line that ticks seconds and tokens and ends as
     "✻ <verb> for Ns", then the mascot. CSS-only motion: Streamlit keeps this HTML in place while the farmer taps,
-    so it plays once per case, not on every tap."""
+    so it plays once per case, not on every tap. `review` = (steps, line) from review_steps once the farmer has
+    answered, `chat` = what the viewer typed in the terminal and the answers. The first `shown` steps were played
+    on an earlier run and stay still; only the new ones play. Returns the step count (the next `shown`)."""
     a, loc = ins.get("asset") or {}, ins.get("location") or {}
     sev = ins.get("severity") or "n/a"
     fid = escape(str(ins.get("farmer_id")))
-    why = us_text(out["surveys"][ins["conversation_language"]]["rationale"].split(" Personalised:")[0] if d.survey
-                  else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
+    why = _why(out, d, ins["conversation_language"])
 
     def kv(pairs):
         return '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in pairs) + "</dl>"
@@ -344,50 +313,153 @@ def agent_view(ins, out, d, notes, attention):
                                                            + (f' · ✕ {escape(", ".join(failed))}' if failed else ""))])))
         decision, reason = admits.get(h["handoff_id"], ("sent", ""))
         held = "" if decision == "sent" else f' · {escape(decision.replace("_", " "))} by weekly limit: {escape(us_text(reason))}'
-        steps.append(("Schedule", "hand-off", kv([("Sends", f'<b>{long(d.send_time["send_at"])}</b><br>{_route(h)}{held}'),
-                                                  ("Next survey", _next_survey(h))])))
+        steps.append(("Schedule", "hand-off", kv([("Sends", f'<b>{long(d.send_time["send_at"])}</b><br>{_route(h)}{held}')])))
         say = "Survey ready. Handed to the scheduler."
     else:
         say = "No survey. A person calls this farmer instead." if d.rule == "R2" else f"No survey: {RULE_LABEL[d.rule].lower()}."
-    body = "".join(f'<div class="step" style="--i:{k}"><div class="call"><i>⏺</i><b>{name}</b>(<em>{escape(arg)}</em>)</div>'
-                   f'<div class="res"><span class="elbow">⎿</span>{res}</div></div>' for k, (name, arg, res) in enumerate(steps))
-    t = 0.3 + 0.6 * len(steps)  # when the last step is in: the status turns to "✻ … for Ns", the mascot smiles
+    lines = lambda at: [("Ask", c["q"], c["a"]) for c in chat if c.get("at") == at]
+    steps = lines("top") + steps + lines("agent")
+    if review:
+        steps, say = steps + review[0], review[1]
+    steps += lines("review")
+    first = min(shown, len(steps))
+
+    def step(k, name, arg, res):
+        cls = "step" + (" done" if k < first else "") + {"Think": " think", "Ask": " ask"}.get(name, "")
+        call = ('<i>✻</i><em>Thinking…</em>' if name == "Think" else f'<i>❯</i><span>{escape(arg)}</span>' if name == "Ask"
+                else f'<i>⏺</i><b>{name}</b>(<em>{escape(arg)}</em>)')
+        return (f'<div class="{cls}" style="--i:{k - first}"><div class="call">{call}</div>'
+                f'<div class="res"><span class="elbow">⎿</span><div>{res}</div></div></div>')
+    body = "".join(step(k, *s_) for k, s_ in enumerate(steps))
+    t = 0.3 + 0.6 * (len(steps) - first)  # when the last new step is in: the status turns to "✻ … for Ns", the mascot smiles
     verb, done = AGENT_VERBS[sum(map(ord, str(ins.get("insight_id")))) % len(AGENT_VERBS)]
     secs, tokens = max(1, round(t)), len(re.sub(r"<[^>]+>", "", body)) // 3 + 380
     html(f'<div class="mel-agent" style="--t:{t:.2f}s;--secs:{secs};--toks:{tokens};--spins:{max(1, round(t / .8))};'
-         f'--m:{max(1, round(t))}">{body}'
+         f'--m:{max(1, round(t))}"><div class="scroll" tabindex="0" aria-label="Agent log"><div class="log">{body}'
          f'<div class="status"><span class="spin"></span><span class="run">{verb}… <em>(<i class="sec"></i>s · ↓ '
          f'<i class="tok"></i> tokens · thinking some more with max effort)</em></span>'
-         f'<span class="fin">{done} for {secs}s</span></div>'
+         f'<span class="fin">{done} for {secs}s</span></div></div></div>'
          f'<div class="foot">{MASCOT}<div class="bubble">{escape(say)}</div></div></div>')
+    return len(steps)
 
 
-SOURCE_NAME = {"template": "Template", "llm": "Claude"}
-FU_LABEL = {"advice_did_not_work": "advice didn't work", "crop_or_animal_damaged": "crop / animal damaged",
-            "could_not_get_input": "couldn't get inputs", "could_not_reach_expert": "couldn't reach expert"}
-STATUS_TONE = {"completed": "green", "partial": "amber", "negative_outcome": "red"}
+FU_LABEL = {"advice_did_not_work": "the advice didn't work", "crop_or_animal_damaged": "the crop or animal was damaged",
+            "could_not_get_input": "they couldn't get the inputs", "could_not_reach_expert": "they couldn't reach the expert"}
+FU_ACTION = {"advice_did_not_work": "a person re-checks the advice and calls with a corrected recommendation",
+             "crop_or_animal_damaged": "a person assesses the damage and connects the farmer to a vet or extension worker",
+             "could_not_get_input": "a person shares the nearest input supplier or a subsidy",
+             "could_not_reach_expert": "a person books a call with the nearest agriculture expert"}
+RETRY = ("retry_same_channel", "fall_back_to_next_channel")
 
 
-def record_card(rec, h):
-    """What the preview's real taps produced (P3's simulator builds the record; no answer is invented), then when
-    this farmer is surveyed next. The record is shown, not stored: the Follow-up queue tab is built separately."""
-    html(f'''<div class="mel-card"><div><b>Answer record</b>
-{badge(rec["status"].replace("_", " ").capitalize(), STATUS_TONE.get(rec["status"], "slate"))}</div><br><div class="mel-strip">
-<div><div class="mel-k">Counts toward weekly limit</div><b>{"Yes" if rec["counts_toward_cap"] else "No"}</b></div>
-<div><div class="mel-k">Next step</div><b>{escape(str(rec["retry_decision"]).replace("_", " ").capitalize())}</b></div></div>
-<div style="margin-top:.6rem"><div class="mel-k">Next survey for this farmer</div>{next_survey_note(h, rec)}</div></div>''')
-    if rec["needs_follow_up"]:
-        st.error("Requires follow-up: " + ", ".join(FU_LABEL.get(r, r) for r in rec["follow_up_reasons"]))
-    if rec["failure_code"]:
-        st.warning(f"Failure: {rec['failure_code']}")
+def _answer_label(item, value):
+    if item["type"] == "survey-scale":
+        return f"{value} / {item.get('scale_max', '?')}"
+    return next((o["label"] for o in item.get("options", []) if o["value"] == value), str(value))
 
 
-# The sketch's five demo cases, in its order; the first one is the default.
-# 4 (empty): no survey at all. 5 (abnormal): F-000208 reported wheat drying in patches on 12/08 (low); four days
-# later the same problem is high (history rule H5 asks whether the earlier advice was followed).
-DEMO_PICKS = {"I-001253": "1 · High: goat, vet follow-up", "I-001645": "2 · Medium: lentil nutrient care",
-              "I-005625": "3 · Low: stored mustard", "I-000291": "4 · Edge, empty: no survey (critical cow)",
-              "I-001996": "5 · Edge, abnormal: low turned high (wheat)"}
+def _judge_score(insight_id):
+    """The AI judge's 1-5 score for the recorded Bedrock survey of this conversation, if one was recorded."""
+    run = _recorded_run(insight_id) or {}
+    scores = [(e.get("data") or {}).get("judge") for e in run.get("events", []) if e.get("step") == "verifier"]
+    return next((x for x in reversed(scores) if x is not None), None)
+
+
+def plan_next(h, rec, lang):
+    """The agent's next step once the farmer has answered, by the scheduler's rules (docs/cap_policy.md): a retry of
+    this survey first; then the next survey already in the batch; else the earliest day the weekly limit allows one.
+    -> (another survey?, [(label, html)], one line for the thinking)."""
+    if rec["status"] == "declined":
+        return False, [("Next survey", "<b>No</b> · the farmer opted out; we never ask again")], \
+            "The farmer opted out, so the only right move is to stop."
+    if rec["retry_decision"] in RETRY:
+        wait = rec.get("retry_after_minutes") or 0
+        at = datetime.fromisoformat(rec["recorded_at"]) + timedelta(minutes=wait)
+        how = "same channel" if rec["retry_decision"] == "retry_same_channel" else "the next channel in the farmer's order"
+        return True, [("Next survey", "<b>Yes, this one again</b> · it did not get through"),
+                      ("When", f"<b>{long(at)}</b>"), ("Channel", how)], \
+            "The survey did not get through, so the same questions go out again before anything new."
+    nxt = _planned_next(h)
+    if nxt:
+        a, o = INSIGHT_BY_ID.get(nxt[1]) or {}, OUT_BY_ID.get(nxt[1]) or {}
+        sv = (o.get("surveys") or {}).get(lang) or next(iter((o.get("surveys") or {}).values()), None)
+        topic = f'{str((a.get("asset") or {}).get("name") or "").title()} · {str(a.get("concern") or "").replace("_", " ")}'
+        rows_ = [("Next survey", "<b>Yes</b>"), ("When", f"<b>{long(nxt[0])}</b>"),
+                 ("What", f"{escape(topic)} <small>(their conversation of {format_date(a['created_at'])})</small>"
+                  if a.get("created_at") else escape(topic))]
+        if sv:
+            rows_.append(("Opens with", f"“{escape(sv['items'][0]['prompt'])}”"))
+        if o.get("handoff"):
+            rows_.append(("Channel", _route(o["handoff"])))
+        about = f'{(a.get("asset") or {}).get("name") or "the crop"} ({str(a.get("concern") or "").replace("_", " ")})'
+        return True, rows_, (f"This farmer has since asked about {escape(about)}. That survey is already planned for "
+                             f"{format_date(nxt[0])}, 7 days after this one, so it respects the weekly limit.")
+    if not rec["counts_toward_cap"]:
+        return False, [("Next survey", "<b>Only when needed</b> · this attempt does not count toward the weekly limit")], \
+            "Nothing else from this farmer needs checking yet."
+    me, fid = h["survey"]["source_insight_ids"][0], h["survey"]["farmer_id"]
+    start = next((t for t, iid in upcoming.get(fid, []) if iid == me), h["send_window"]["not_before"])  # moved? its new day
+    gate = datetime.fromisoformat(start) + timedelta(days=7)
+    return False, [("Next survey", "<b>Not yet</b> · only when a new conversation needs one"),
+                   ("Earliest", f"<b>{format_date(gate)}</b> · 7 days after this send (weekly limit)")], \
+        "Nothing else from this farmer needs checking, and the weekly limit holds the next survey for 7 days."
+
+
+def review_steps(ins, out, h, sv, rec, lang, ch):
+    """What the agent does once the farmer's conversation ends: read the answers, judge the survey, think it over,
+    and plan the next step. -> (steps for agent_view, the mascot's line). Every fact comes from the record P3's
+    simulator built from the real taps, the checks, and the batch; nothing is invented."""
+    got = {e["item_id"]: e for e in rec["items"]}
+    answered = [it for it in sv["items"] if got.get(it["item_id"], {}).get("result") == "answered"]
+    qa = "".join(f'<div class="qa"><span>{escape(it["prompt"])}</span><b>'
+                 + (escape(_answer_label(it, got[it["item_id"]]["value"])) if it in answered else "<small>no answer</small>")
+                 + "</b></div>" for it in sv["items"])
+    status = rec["status"].replace("_", " ").capitalize()
+    flags = [FU_LABEL.get(r, r.replace("_", " ")) for r in rec["follow_up_reasons"]]
+    steps = [("Review", f"answers from {CH_NAME.get(ch, ch)}", f'<dl class="kv"><dt>Status</dt><dd><b>{escape(status)}</b> · '
+              f'{len(answered)} of {len(sv["items"])} answered · {short(rec["recorded_at"])}</dd>'
+              f'<dt>Answers</dt><dd>{qa}</dd>'
+              + (f'<dt>Flag</dt><dd><span class="fail">⚑ {escape("; ".join(flags))}</span></dd>' if flags else "") + "</dl>")]
+
+    ok, total, failed = guard_checks(out["surveys"])
+    rel = relevance(sv, ins)
+    judge = _judge_score(ins["insight_id"]) if out["surveys"][lang].get("_source") == "bedrock" else None
+    full = len(answered) == len(sv["items"])
+    good = not failed and rel >= RELEVANCE_THRESHOLD and full
+    verdict = ("Good survey" if good else "Usable, with gaps" if not failed and answered else "Weak survey")
+    why = ("safe, on topic and every question answered" if good else
+           f"{len(sv['items']) - len(answered)} question(s) unanswered" if not failed and answered else
+           "it failed a check" if failed else "the farmer answered nothing")
+    steps.append(("Assess", "survey quality", f'<dl class="kv"><dt>Checks</dt><dd><span class="{"fail" if failed else "pass"}">'
+                  f'{ok} / {total} passed</span>' + (f' · ✕ {escape(", ".join(failed))}' if failed else "")
+                  + f'</dd><dt>Relevance</dt><dd><b>{rel:.2f}</b> <small>(0 to 1; the send bar is {RELEVANCE_THRESHOLD})</small></dd>'
+                  + (f'<dt>AI judge</dt><dd><b>{judge} / 5</b> <small>(Gemma 3 12B, recorded run)</small></dd>' if judge else "")
+                  + f'<dt>Verdict</dt><dd><span class="{"pass" if good else "warn"}">{verdict}</span> · {why}</dd></dl>'))
+
+    again, plan, plan_thought = plan_next(h, rec, lang)
+    thoughts = [f"The farmer says {escape(' and '.join(flags))}. A person should call before we ask anything else: "
+                f"{escape('; '.join(FU_ACTION.get(r, 'a person follows up') for r in rec['follow_up_reasons']))}."
+                if flags else
+                "Every answer is in and none of them points to trouble, so the advice looks like it is working."
+                if full else
+                f"Only {len(answered)} of {len(sv['items'])} answers came back; the record keeps what we got and we do not chase the rest."
+                if answered else "No answers came back; the record says why."]
+    thoughts.append(f"The questions stayed on topic (relevance {rel:.2f}) and short enough to answer in about a minute."
+                    if not failed and rel >= RELEVANCE_THRESHOLD else "The survey itself needs work before it is reused.")
+    thoughts.append(plan_thought)
+    steps.append(("Think", "", "".join(f"<p>{t}</p>" for t in thoughts)))
+    steps.append(("Plan", "next step", '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in plan) + "</dl>"))
+    when = next((v for k, v in plan if k == "When"), "")
+    say = ("A person should call this farmer first." if flags else
+           f"{verdict}. Next one {re.sub(r'<[^>]+>', '', when)}." if again and when else
+           f"{verdict}. Nothing else to ask yet.")
+    return steps, say
+
+
+# One strong example (William, 5 Nov): F-000208 reported wheat drying in patches on 12/08 (low); four days later the
+# same problem is high. The agent remembers the first report (H5), Bedrock wrote the survey (judge 5/5, recorded from
+# AgentCore), and the batch already holds this farmer's next survey, so the closing plan is concrete.
+EXAMPLE = {"I-001996": "Wheat drying in patches: low turned high"}
 BROWSE = "Browse all conversations"
 PRETEND = ["none", "said the input was not available nearby", "said it was too costly", "ignored the last 3 surveys"]
 PRETEND_ATT = {
@@ -760,10 +832,205 @@ def agentcore_stream(arn, ins):
     yield from invoke(arn, {"insight": ins})
 
 
+def _set_stage(flow: str, stage: int):
+    st.session_state[flow] = stage
+
+
+def _restart_flow(flow: str):
+    st.session_state.update({flow: 0, f"{flow}|fresh": True,   # the phone starts from its first screen next time
+                             f"{flow}|chat": [], f"{flow}|shown": 0})
+
+
+COMMANDS = {"start": "start", "read": "start", "go": "start", "run": "start", "send": "send", "restart": "restart",
+            "reset": "restart", "help": "help"}
+QUESTIONS = (("why", ("why", "decid", "rule", "reason")), ("quality", ("quality", "good", "score", "check", "judge", "relevan")),
+             ("next", ("next", "when", "again", "plan", "follow")), ("history", ("history", "remember", "before", "memory", "earlier")),
+             ("help", ("help", "what can", "?")))
+ASK_HINT = "Ask why, quality, next or history. Commands: start, send, restart."
+
+
+def _intent(text: str) -> str:
+    """A one-word command (start, send, restart, help), else the question the text is about, by keyword."""
+    w = text.lower().strip().strip("/!.? ")
+    return COMMANDS.get(w) or next((name for name, keys in QUESTIONS if any(k in w for k in keys)), "unknown")
+
+
+def _ask(flow: str):
+    """The terminal's input (runs before the script): a command moves the flow now; the answer is written during the
+    run, when the case's facts are at hand."""
+    q = (st.session_state.get(f"ask|{flow}") or "").strip()
+    if not q:
+        return
+    cmd, stage = _intent(q), st.session_state.get(flow, 0)
+    if cmd == "restart":
+        return _restart_flow(flow)
+    if cmd == "start" and stage == 0:
+        st.session_state[flow] = 1
+    elif cmd == "send" and stage == 1 and st.session_state.get(f"{flow}|survey"):
+        st.session_state[flow] = 2
+    st.session_state.setdefault(f"{flow}|chat", []).append({"q": q, "cmd": cmd, "stage": stage})
+
+
+def answer(c, ins, out, d, notes, sv, rec, h, lang) -> str:
+    """The agent's reply to one line typed in the terminal, from this case's facts only (HTML)."""
+    cmd, stage = c["cmd"], c["stage"]
+    if cmd == "start":
+        return "Reading the conversation." if stage == 0 else "I already have this conversation."
+    if cmd == "send":
+        if not d.survey:
+            return f"There is no survey to send: {escape(RULE_LABEL[d.rule].lower())}."
+        return ("Hand me the conversation first: drag it in, or type <b>start</b>." if stage == 0 else
+                "Sent. The survey is on the farmer's phone." if stage == 1 else "It is already on the farmer's phone.")
+    if cmd == "why":
+        return f'<b>{d.rule} · {"Survey" if d.survey else escape(RULE_LABEL[d.rule])}</b> · {escape(_why(out, d, lang or ins["conversation_language"]))}'
+    if cmd == "history":
+        return ("; ".join(f"<b>{r}</b> {escape(w)}" for r, w in notes) or
+                "Nothing earlier from this farmer changes this survey.")
+    if cmd == "quality":
+        if not d.survey:
+            return "No survey was written, so there is nothing to grade."
+        ok, total, failed = guard_checks(out["surveys"])
+        judge = _judge_score(ins["insight_id"]) if out["surveys"][lang].get("_source") == "bedrock" else None
+        return (f'Checks <span class="{"fail" if failed else "pass"}">{ok} / {total}</span> · relevance '
+                f'<b>{relevance(sv, ins):.2f}</b> (send bar {RELEVANCE_THRESHOLD})' + (f" · AI judge <b>{judge} / 5</b>" if judge else "")
+                + (". The answers are graded above." if rec else ". I grade the answers once the farmer replies."))
+    if cmd == "next":
+        if not d.survey:
+            return "No survey for this conversation, so nothing to follow up."
+        if rec:
+            return " · ".join(f"{k}: {v}" for k, v in plan_next(h, rec, lang)[1])
+        return (f'It goes out <b>{long(d.send_time["send_at"])}</b> via {_route(h)}. Once the farmer answers, '
+                "I decide on the next survey.")
+    return ASK_HINT
+
+
+FLOW_STEPS = (("The agent reads the conversation", "Drag the conversation onto the terminal", "Survey ready: press Send to the farmer"),
+              ("The farmer answers", "Answer on the phone as the farmer would", ""),
+              ("The agent reviews and plans", "How good was the survey, and what comes next", ""))
+
+
+def flow_steps(stage: int, survey: bool, answered: bool) -> str:
+    """The three-step strip above the two views; the current step is lit and says what to do now."""
+    now = 0 if stage < 2 else (2 if answered else 1)
+    out = []
+    for k, (title_, cue0, cue1) in enumerate(FLOW_STEPS):
+        if not survey and k and stage >= 1:
+            state, cue = "skip", "No survey for this conversation"
+        else:
+            state = "done" if k < now or (k == 2 and answered) else "now" if k == now else ""
+            cue = (cue1 if k == 0 and stage == 1 else cue0) if state == "now" or (k == 2 and answered) else ""
+        out.append(f'<div class="s {state}"><b>{"✓" if state == "done" and k < 2 else k + 1}</b><div><span>{title_}</span>'
+                   + (f"<small>{escape(cue)}</small>" if cue else "") + "</div></div>")
+    return f'<div class="mel-steps">{"".join(out)}</div>'
+
+
+INTAKE_CSS = """
+.intake{display:flex;flex-direction:column;gap:14px}
+.card{background:#fff;border:1.5px solid #00C950;border-radius:16px;padding:14px 16px;cursor:grab;touch-action:none;
+  user-select:none;-webkit-user-select:none;box-shadow:0 6px 18px rgba(0,130,54,.14);position:relative;z-index:2;
+  transition:box-shadow .2s,transform .3s cubic-bezier(.2,.7,.2,1)}
+.card:focus-visible{outline:3px solid #00832B;outline-offset:3px}
+.card.drag{cursor:grabbing;transition:box-shadow .2s;box-shadow:0 20px 44px rgba(3,46,21,.3)}
+.card.in{transition:transform .5s cubic-bezier(.5,0,.75,0),opacity .5s ease;opacity:0}
+.head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:#52525C;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase}
+.sev{border-radius:999px;padding:2px 9px;letter-spacing:.02em}
+.sev.high,.sev.critical{background:#FCE7E3;color:#9B2C1A}.sev.medium{background:#FFF4D6;color:#7A5200}.sev.low{background:#E3F6E8;color:#0B4524}
+.topic{font-size:18px;font-weight:700;color:#09090B;margin-top:8px}
+.meta{font-size:13px;color:#52525C;margin-top:2px}
+.q{font-size:14.5px;color:#3F3F46;margin-top:10px;line-height:1.45}
+.grip{margin-top:12px;font-size:13px;font-weight:600;color:#00832B}
+.term{background:#1A1A19;border-radius:16px 16px 0 0;min-height:500px;padding:16px 18px;display:flex;flex-direction:column;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#C9C7BE;transition:box-shadow .2s}
+.line{color:#F2F1EC}.line i{font-style:normal;color:#4EBA65;margin-right:8px}
+.caret{display:inline-block;width:8px;height:15px;background:#C9C7BE;vertical-align:-3px;margin-left:4px;animation:blink 1s steps(1) infinite}
+.hint{margin:auto;text-align:center;color:#8A887F;border:1.5px dashed #4A4944;border-radius:12px;padding:28px 22px;
+  max-width:300px;line-height:1.5;transition:border-color .2s,color .2s,opacity .3s}
+.term.hot{box-shadow:0 0 0 3px #00C950}.term.hot .hint{border-color:#00C950;color:#F2F1EC}.term.got .hint{opacity:0}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.caret{animation:none}.card,.card.in,.card.drag{transition:none}}
+"""
+
+INTAKE_JS = """
+export default function ({ parentElement, data, setTriggerValue }) {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text; return e; };
+  parentElement.querySelector('.intake')?.remove();
+  const root = el('div', 'intake');
+  const card = el('div', 'card');
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `Conversation ${data.conv}: drag it onto the terminal, or press Enter, to hand it to the agent`);
+  const head = el('div', 'head');
+  head.append(el('span', '', `FarmerChat conversation · ${data.conv}`), el('span', `sev ${data.sevc}`, data.sev));
+  card.append(head, el('div', 'topic', data.topic), el('div', 'meta', data.meta), el('div', 'q', `“${data.asked}”`),
+              el('div', 'grip', '⠿  Drag this onto the terminal'));
+  const term = el('div', 'term');
+  const line = el('div', 'line');
+  line.append(el('i', '', '❯'), document.createTextNode('mel agent'), el('span', 'caret'));
+  term.append(line, el('div', 'hint', 'Drop the conversation here. The agent reads it, decides, and writes the survey.'));
+  root.append(card, term);
+  parentElement.append(root);
+
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let sx = 0, sy = 0, dx = 0, dy = 0, dragging = false, moved = false, done = false;
+  const over = (x, y) => { const r = term.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
+  const hand = () => {
+    if (done) return;
+    done = true;
+    term.classList.add('hot', 'got');
+    const c = card.getBoundingClientRect(), t = term.getBoundingClientRect();
+    card.classList.add('in');
+    card.style.transform = `translate(${dx + t.left + t.width / 2 - (c.left + c.width / 2)}px,` +
+                           `${dy + t.top + 90 - (c.top + c.height / 2)}px) scale(.3)`;
+    setTimeout(() => setTriggerValue('dropped', data.id), still ? 0 : 520);
+  };
+  card.addEventListener('pointerdown', e => {
+    if (done || e.button > 0) return;
+    dragging = true; moved = false; sx = e.clientX; sy = e.clientY; dx = dy = 0;
+    card.setPointerCapture(e.pointerId); card.classList.add('drag');
+  });
+  card.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    dx = e.clientX - sx; dy = e.clientY - sy;
+    if (Math.abs(dx) + Math.abs(dy) > 5) moved = true;
+    card.style.transform = `translate(${dx}px,${dy}px) rotate(${Math.max(-4, Math.min(4, dx / 40))}deg)`;
+    term.classList.toggle('hot', over(e.clientX, e.clientY));
+  });
+  card.addEventListener('pointerup', e => {
+    if (!dragging) return;
+    dragging = false; card.classList.remove('drag');
+    if (!moved || over(e.clientX, e.clientY)) return hand();   // a plain click hands it over too
+    dx = dy = 0; card.style.transform = ''; term.classList.remove('hot');
+  });
+  card.addEventListener('pointercancel', () => {
+    dragging = false; dx = dy = 0; card.classList.remove('drag'); card.style.transform = ''; term.classList.remove('hot');
+  });
+  card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); hand(); } });
+}
+"""
+
+_INTAKE = st.components.v2.component("mel_intake", css=INTAKE_CSS, js=INTAKE_JS)
+
+
+def intake_card(ins, flow: str):
+    """The conversation as a card the viewer drags onto the empty terminal (or clicks, or presses Enter on). Dropping it
+    sends a trigger back to Python, which starts the agent (stage 1)."""
+    a, loc, sev = ins.get("asset") or {}, ins.get("location") or {}, str(ins.get("severity") or "n/a")
+    _INTAKE(data={"id": ins["insight_id"], "conv": ins.get("conversation_id") or ins["insight_id"],
+                  "sev": sev.title(), "sevc": sev,
+                  "topic": f'{str(a.get("name") or "—").title()} · {str(ins.get("concern") or "").replace("_", " ")}',
+                  "meta": f'Farmer {ins.get("farmer_id")} · {loc.get("district") or "—"}, {loc.get("state") or ""} · '
+                          f'speaks {LANG_NAME.get(ins.get("conversation_language"), "—")} · {short(ins["created_at"])}',
+                  "asked": ins.get("query_summary") or "—"},
+            key=f"intake|{ins['insight_id']}", on_dropped_change=lambda: _set_stage(flow, 1))
+
+
 use_zone("india")   # one farmer's screen: the phone, the send time and the dates are in India time
 with tab_studio:
     by_id = {i.get("insight_id"): (i, o) for i, o in rows}
-    picks = {k: v for k, v in DEMO_PICKS.items() if k in by_id}
+    picks = {k: v for k, v in EXAMPLE.items() if k in by_id}
     st.session_state.setdefault("studio_source", "demo")
     st.session_state.setdefault("editor_open", False)
     draft = _sync_draft()
@@ -789,8 +1056,14 @@ with tab_studio:
     else:
         # The picker's widget key is dropped while own mode hides it; last_pick (plain state) brings it back.
         st.session_state.setdefault("studio_pick", st.session_state.get("last_pick", next(iter(picks), BROWSE)))
-        pick = bar[0].selectbox("Demo case", [*picks, BROWSE], key="studio_pick", format_func=lambda k: picks.get(k, k))
+        pick = bar[0].selectbox("Conversation", [*picks, BROWSE], key="studio_pick",
+                                format_func=lambda k: f"Example: {picks[k]}" if k in picks else k,
+                                on_change=lambda: st.session_state.update(browse_pop=st.session_state.studio_pick == BROWSE))
         st.session_state["last_pick"] = pick
+        # Browse: the filters and the conversation list sit behind one Search button; picking a conversation folds it
+        # away (the popover's key holds its open state). Its widgets still run while it is closed, so they keep values.
+        search = (acts.popover("Search", icon=":material/search:", key="browse_pop", on_change="rerun")
+                  if pick == BROWSE else None)
         if sub:
             acts.button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own)
         acts.button("Add your own insight", key="own_add", icon=":material/add:", on_click=_open_own)
@@ -811,28 +1084,39 @@ with tab_studio:
         ins, out = by_id[pick]
         kicker, title = "Demo insight", picks[pick]
     else:
-        f = st.columns(4)
-        f_dec = f[0].selectbox("Decision", ["All", "Survey", "No survey"])
-        f_rule = f[1].selectbox("Rule", ["All", *RULE_LABEL], format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}")
-        f_res = f[2].selectbox("Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in rows})])
-        f_asset = f[3].selectbox("Crop / animal", ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in rows})])
+        search.markdown("**Search conversations**")
+        f = search.columns(2)
+        f_dec = f[0].selectbox("Decision", ["All", "Survey", "No survey"], key="f_dec")
+        f_rule = f[1].selectbox("Rule", ["All", *RULE_LABEL], key="f_rule",
+                                format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}")
+        f = search.columns(2)
+        f_res = f[0].selectbox("Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in rows})], key="f_res")
+        f_asset = f[1].selectbox("Crop / animal", ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in rows})],
+                                 key="f_asset")
         shown = [k for k, (i, o) in labels.items()
                  if (f_dec == "All" or (f_dec == "Survey") == o["decision"].survey)
                  and (f_rule == "All" or o["decision"].rule == f_rule)
                  and (f_res == "All" or str(i.get("resolution_type")) == f_res)
                  and (f_asset == "All" or str((i.get("asset") or {}).get("name")) == f_asset)]
         if not shown:  # never st.stop() here: it would also stop the tabs after this one
-            st.warning("No conversations match these filters; showing all.")
+            search.warning("No conversations match these filters; showing all.")
             shown = list(labels)
-        key = st.selectbox(f"Conversation ({len(shown):,} match; type to search)", shown)
+        key = search.selectbox(f"Conversation ({len(shown):,} match; type to search)", shown, key="browse_conv",
+                               on_change=lambda: st.session_state.update(browse_pop=False))
         ins, out = labels[key]
         a0 = ins.get("asset") or {}
         kicker, title = "Browsed insight", f"{str(a0.get('name') or '').title()}: {str(ins.get('concern') or '').replace('_', ' ')} ({ins.get('insight_id')})"
     if ins is not None:
-        if kicker != "Demo insight":  # a demo pick is already named in the selector; no repeated heading
+        if kicker != "Demo insight":  # the example is already named in the selector; no repeated heading
             report_strip(kicker, title, note)
         d = out["decision"]
-        mem, pretend, restart, notes = None, "none", False, []
+        # The guided flow (William, 5 Nov) leads the eye: 0 the conversation is handed to the agent (drag it onto the
+        # terminal), 1 the agent works in the terminal, 2 the survey is on the farmer's phone; once the farmer
+        # finishes, the same terminal reviews the answers, judges the survey and plans the next one.
+        flow = f"flow|{ins['insight_id']}"
+        stage = st.session_state.get(flow, 0)
+        steps_slot = st.empty()
+        mem, pretend, notes, lang, ch, h, sv = None, "none", [], None, None, None, None
         # The attention the batch computed for this insight (the app runs with attention on). "What if…" can
         # override it with a made-up tier, because the pack's activity is flat with no designed surges.
         attention, pretend_att = getattr(d, "attention", None), next(iter(PRETEND_ATT))
@@ -857,8 +1141,8 @@ with tab_studio:
             langs = list(out["surveys"])
             lang = "hi-IN" if hindi and "hi-IN" in langs else ("en-IN" if "en-IN" in langs else langs[0])
             # Icon-only: the label is the accessible name, hidden visually by app/theme.py (.st-key-studio_restart).
-            restart = tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:",
-                                   width="content", help="Restart survey")
+            tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:", width="content",
+                         help="Start over: hand the conversation to the agent again", on_click=_restart_flow, args=(flow,))
             # Icon-only like Restart: the label stays as the accessible name, clipped off screen by app/theme.py.
             with head.popover("What if…", icon=":material/tune:", key="studio_whatif",
                               help="What if… pretend a different history or activity for this farmer (demo only)"):
@@ -897,25 +1181,20 @@ with tab_studio:
             if ch == "voice":
                 sound_button(tools)
             notes = [(r, us_text(w)) for r, w in history_notes(ins, mem, attention)]
+            sv = clean(out["surveys"][lang])
         else:
             bar[1].selectbox("Channel", ["—"], disabled=True, help="No survey, so there is nothing to preview.")
-        with col_a:
-            agent_view(ins, out, d, notes, attention)
-        if not d.survey:
-            with col_f:
-                who = "A person calls this farmer instead." if d.rule == "R2" else "Nothing is sent to this farmer."
-                html(f'<div class="mel-empty"><b>No survey</b>{escape(who)}<br>{d.rule} · {escape(RULE_LABEL[d.rule])}</div>')
-                with st.expander("Developer details: no-survey record (JSON)"):
-                    st.json(out["no_survey"])
-        else:
-            surveys = out["surveys"]
-            sv = clean(surveys[lang])
-            with col_f:
-                # restart=True resets the phone before it is drawn; show_restart=False hides the phone's own
-                # "Start over", so the Restart icon above the agent's view is the only reset control.
+
+        agent_box, phone_box = col_a.container(key="flow_agent"), col_f.container(key="flow_phone")
+        st.session_state[f"{flow}|survey"] = d.survey
+        chat = st.session_state.get(f"{flow}|chat", [])
+        rec = None
+        with phone_box:  # the farmer's side first: the agent's review needs the record the phone returns
+            if d.survey and stage >= 2:
+                # The Restart icon above is the only reset control; it sends the flow back to the start.
                 pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"
                 rec = render_channel_preview(sv, ch, key=pkey, send_at=d.send_time["send_at"] if ch == first_ch else None,
-                                             restart=restart, show_restart=False)
+                                             restart=st.session_state.pop(f"{flow}|fresh", False), show_restart=False)
                 if ch == "voice":
                     voice_readout(sv, pkey, rec)
                 # Provenance lines go under the phone so its top lines up with the agent's view in the other column.
@@ -926,11 +1205,49 @@ with tab_studio:
                     done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
                     if done < len(sheet):
                         st.caption(f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker")
-            with col_a:
-                if rec is None:
-                    st.caption("The farmer's answers appear here when the conversation ends.")
+                html('<i class="mel-dim"></i>' if rec else '<i class="mel-lit"></i>')
+            elif not d.survey and stage >= 1:
+                who = "A person calls this farmer instead." if d.rule == "R2" else "Nothing is sent to this farmer."
+                html(f'<div class="mel-empty"><b>No survey</b>{escape(who)}<br>{d.rule} · {escape(RULE_LABEL[d.rule])}</div>')
+                with st.expander("Developer details: no-survey record (JSON)"):
+                    st.json(out["no_survey"])
+            else:
+                html('<i class="mel-dim"></i><div class="mel-phone-wait"><b>The farmer\'s phone</b>'
+                     f'<span>{"Waiting for the agent to write the survey" if stage == 0 else "Survey ready. Waiting for Send to the farmer"}</span></div>')
+        for c in chat:   # answered once, with the facts of that moment; placed in the log where it was typed
+            c.setdefault("a", answer(c, ins, out, d, notes, sv, rec, h, lang))
+            c.setdefault("at", "review" if rec else "agent" if c["stage"] else "top")
+        with agent_box:
+            html('<i class="mel-dim"></i>' if stage >= 2 and d.survey and rec is None else '<i class="mel-lit"></i>')
+            term = st.container(key="term_box", gap=None)   # the terminal and its input line, one block
+            with term:
+                if stage == 0:
+                    intake_card(ins, flow)
                 else:
-                    record_card(rec, h)
+                    st.session_state[f"{flow}|shown"] = agent_view(
+                        ins, out, d, notes, attention, review_steps(ins, out, h, sv, rec, lang, ch) if rec else None,
+                        chat, st.session_state.get(f"{flow}|shown", 0))
+                st.chat_input("Ask the agent: why, quality, next… or type send",
+                              key=f"ask|{flow}", on_submit=_ask, args=(flow,))
+            if stage == 0:
+                st.button("Hand it to the agent", key="flow_hand", type="tertiary", icon=":material/south:",
+                          on_click=_set_stage, args=(flow, 1), help="Does the same as dragging the card onto the terminal")
+            elif stage == 1 and d.survey:
+                st.button("Send to the farmer", key="flow_send", type="primary", icon=":material/send:",
+                          width="stretch", on_click=_set_stage, args=(flow, 2))
+        steps_slot.markdown(flow_steps(stage, d.survey, rec is not None), unsafe_allow_html=True)
+        focus = ("phone" if stage >= 2 and d.survey and rec is None else "review" if rec else "agent") if stage else ""
+        if st.session_state.get(f"{flow}|focus", "") != focus:
+            st.session_state[f"{flow}|focus"] = focus
+            target = {"agent": (".st-key-flow_agent", "start"), "phone": (".st-key-flow_phone", "center"),
+                      "review": (".st-key-flow_agent", "start")}.get(focus)
+            if target:
+                st.html(f"""<script>setTimeout(() => document.querySelector('{target[0]}')?.scrollIntoView({{block: '{target[1]}',
+  behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'}}), 400);</script>""",
+                        unsafe_allow_javascript=True)
+
+        if d.survey and stage >= 1:
+            surveys = out["surveys"]
             if surveys[lang].get("_history"):
                 generic = template_items(ins, lang)      # never a model call: the comparison is with the plain template
                 with st.expander(f"Generic vs adapted questions ({LANG_NAME.get(lang, lang)})"):
@@ -960,302 +1277,11 @@ with tab_studio:
                 st.caption("Scheduler hand-off")
                 st.json(h, expanded=False)
                 if rec is None:
-                    st.caption("Answer record: not yet (the preview is still open)")
+                    st.caption("Answer record: not yet (the farmer has not finished)")
                 else:
                     bad = errors("response", rec)
                     st.caption("Answer record " + ("passes the response schema ✓" if not bad else f"FAILS the response schema: {bad[:2]}"))
                     st.json(rec, expanded=False)
-
-# ---------------------------------------------------------------- Follow-up queue
-# A ⚑ answer means the advice failed, harm happened, or the farmer couldn't act on it. Those answers
-# don't just get recorded — they route back to FarmerChat so staff can follow up with the farmer.
-# Owner: P5. Mock data only flags q1 on a few surveys, so each survey is simulated with its first ⚑
-# answer forced (other questions held to a safe answer) to show the full queue the system can produce.
-FU_REASON = {
-    "advice_did_not_work": "Advice didn't work",
-    "crop_or_animal_damaged": "Crop / animal damaged",
-    "could_not_get_input": "Couldn't get inputs",
-    "could_not_reach_expert": "Couldn't reach expert",
-}
-FU_ACTION = {
-    "advice_did_not_work": "Re-check the advice and send a corrected recommendation.",
-    "crop_or_animal_damaged": "Assess the damage; connect the farmer to a vet or extension worker.",
-    "could_not_get_input": "Share the nearest input supplier or an available subsidy.",
-    "could_not_reach_expert": "Book a call with the nearest agriculture expert.",
-}
-
-
-def _answer_label(item_def, value):
-    if item_def["type"] == "survey-scale":
-        return f"{value}/{item_def.get('scale_max', '?')}"
-    return next((o["label"] for o in item_def.get("options", []) if o["value"] == value), str(value))
-
-
-def _safe_value(item_def):
-    """A non-follow-up answer, so a ticket stays focused on the one flagged answer."""
-    if item_def["type"] == "survey-scale":
-        return item_def.get("scale_max", 5)
-    for o in item_def.get("options", []):
-        if not o.get("follow_up"):
-            return o["value"]
-    return item_def.get("options", [{}])[0].get("value")
-
-
-def _first_trigger(survey):
-    """First (item_id, value, reason) that flags follow-up, scanning questions in order."""
-    for it in survey["items"]:
-        if it["type"] == "survey-scale":
-            lim = it.get("follow_up_at_or_below")
-            if lim is not None:
-                return it["item_id"], lim, it.get("follow_up_reason")
-        else:
-            for o in it.get("options", []):
-                if o.get("follow_up"):
-                    return it["item_id"], o["value"], o["follow_up"]
-    return None
-
-
-@st.cache_data(show_spinner="Building follow-up queue…")
-def _follow_queue():
-    """One follow-up ticket per survey: force the survey's first ⚑ answer (others kept safe), so the
-    queue shows every trouble answer the system routes back to FarmerChat. Deterministic: seed 0."""
-    tickets = []
-    for ins, out in rows:
-        if not (out["decision"].survey and "handoff" in out):
-            continue
-        h, survey = out["handoff"], out["handoff"]["survey"]
-        ch = h["channel_order"][0]["channel"]
-        trig = _first_trigger(survey)
-        if not trig:
-            continue
-        t_item, t_val, t_reason = trig
-        answers = {it["item_id"]: t_val if it["item_id"] == t_item else _safe_value(it)
-                   for it in survey["items"]}
-        rec = simulate(survey, ch, "completed", seed=0, answers=answers, send_at=out["decision"].send_time["send_at"])
-        if not rec["needs_follow_up"]:
-            continue
-        t_def = next(it for it in survey["items"] if it["item_id"] == t_item)
-        a = ins.get("asset") or {}
-        att = getattr(out["decision"], "attention", None) or {}
-        tickets.append({
-            "response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
-            "asset": a.get("name"), "concern": ins.get("concern"),
-            "survey_id": rec["survey_id"], "channel": ch, "recorded_at": rec["recorded_at"],
-            "reason": t_reason, "item_id": t_item, "prompt": t_def.get("prompt", ""),
-            "answer": _answer_label(t_def, t_val), "rec": rec, "insight": ins, "survey": survey,
-            "weight": att.get("weight", 1.0), "tier": att.get("tier", "neutral"),
-        })
-    return tickets
-
-
-def ticket_card(t):
-    """One farmer's follow-up: the next step, then the conversation log it came from (the insight's summaries,
-    then the survey questions and the answers in the record; the flagged answer is marked)."""
-    ins, a, rec = t["insight"], t["insight"].get("asset") or {}, t["rec"]
-    what = f'{str(a.get("name") or "—").title()}, {str(ins.get("concern") or "").replace("_", " ")}'
-    html(f'''<div class="mel-card"><p>{badge("⚑ " + FU_REASON[t["reason"]], "red")}</p>
-<div class="mel-k">Next step</div><div class="mel-lead">{escape(FU_ACTION[t["reason"]])}</div>
-<div class="mel-note">Farmer {escape(t["farmer_id"])}, {escape(what)}. Survey <span class="mel-id">{t["survey_id"]}</span>
-on {CH_NAME.get(t["channel"], t["channel"])}.</div></div>''')
-    st.markdown(f"**Conversation log** ({zone_label()})")
-    got = {e["item_id"]: e["value"] for e in rec["items"] if e["result"] == "answered"}
-    with st.chat_message("user"):
-        st.caption(f"{short(ins['created_at'])}. The farmer asked (summary):")
-        st.write(ins.get("query_summary") or "—")
-    with st.chat_message("assistant"):
-        st.caption("FarmerChat advised (summary):")
-        st.write(ins.get("advice_summary") or "—")
-        st.caption(f"Survey sent {short(rec['timestamps']['sent'])} on {CH_NAME.get(t['channel'], t['channel'])}.")
-    for it in t["survey"]["items"]:
-        with st.chat_message("assistant"):
-            st.write(it["prompt"])
-        if it["item_id"] in got:
-            with st.chat_message("user"):
-                flag = f" ⚑ {FU_REASON[t['reason']]}" if it["item_id"] == t["item_id"] else ""
-                st.markdown(f"**{_answer_label(it, got[it['item_id']])}**{flag}")
-    st.caption(f"Answer recorded {short(t['recorded_at'])}.")
-    with st.expander("Full answer record (JSON)"):
-        st.json(rec)
-
-
-use_zone("india")   # the conversation log of one farmer, as above
-with tab_follow:
-    # Rising-activity farmers first (activity attention), then a normal queue: oldest answer first.
-    tickets = sorted(_follow_queue(), key=lambda t: (-t["weight"], t["recorded_at"]))
-    st.caption("Farmers whose answer says the advice failed, the crop or animal was harmed, or they could not act "
-               "on it. Pick one with the circle at the start of its row to see the next step and the conversation. "
-               "Simulated: one trouble answer per survey.")
-    if not tickets:
-        st.info("No survey in this run can produce a follow-up flag.")
-    else:
-        rc = Counter(t["reason"] for t in tickets)
-        present = {t["channel"] for t in tickets}
-        f1, f2 = st.columns([3, 2])
-        reason = f1.segmented_control(
-            "Why they need a follow-up", ["all", *[k for k in FU_REASON if rc.get(k)]], default="all", required=True, wrap=True,
-            format_func=lambda k: f"All ({len(tickets):,})" if k == "all" else f"{FU_REASON[k]} ({rc.get(k, 0):,})")
-        chan = f2.segmented_control("Channel", ["all", *[c for c in CHANNELS if c in present]], default="all",
-                                    required=True, wrap=True, format_func=lambda c: CH_NAME.get(c, "All"))
-        view = [t for t in tickets if reason in ("all", t["reason"]) and chan in ("all", t["channel"])]
-        if not view:
-            st.warning("No farmer has this reason on this channel. Pick All on one of the filters.")
-        else:
-            left, right = st.columns([1.35, 1], gap="medium")
-            with left:
-                ev = table(pd.DataFrame([{
-                    "Weight": t["weight"],
-                    "Farmer": t["farmer_id"],
-                    "Crop / animal": str(t["asset"] or "—").title(),
-                    "Why": FU_REASON.get(t["reason"], t["reason"]),
-                    "Answer": t["answer"],
-                    "Channel": CH_NAME.get(t["channel"], t["channel"]),
-                    "Answered": t["recorded_at"],
-                } for t in view]), width="stretch", hide_index=True, height=460, on_select="rerun",
-                    selection_mode="single-row-required", key=f"fu_rows|{reason}|{chan}")  # new filter, first row
-                st.caption(f"{len(view):,} farmers, rising activity first, then oldest answer first.")
-            picked = ev.selection.rows
-            with right:
-                ticket_card(view[picked[0]] if picked and picked[0] < len(view) else view[0])
-
-# ---------------------------------------------------------------- Season (P3's shared simulated clock)
-# The contract's "simulated clock moving through the season": one SimClock shared by the scheduler (weekly limit,
-# opt-outs) and the broadcaster (send window, send hours, quality check), with a manual trigger per step.
-# P3's API: docs/p3_season_screen_api.md. Nothing is sent; every delivery is P3's simulator.
-PERSONA_LABEL = {
-    "default": "Responsive: answers on the first channel",
-    "app_push_dead": "App notifications never arrive: falls back to the next channel",
-    "never_answers": "Never answers: the survey expires",
-    "opts_out_first": "Opts out on the first message",
-    "no_voice": "Cannot take phone calls",
-    "sometimes_fails": "Sometimes says the advice didn't work (about 1 in 4)",
-}
-STATUS_LABEL = {"completed": "Answered", "delivery_failed": "Not delivered", "expired": "Expired, no answer",
-                "declined": "Opted out", "partial": "Partly answered"}
-from mel.writer import RELEVANCE_THRESHOLD as SEASON_THRESHOLD   # the agreed send bar (0.3, P4 + P5, 4 Nov)
-
-
-def _india(ts: str) -> str:
-    """India time in the app's US style, e.g. "11/02/2026 7:00 AM IST". The season runs on India time, so this page
-    shows it first (Eastern alongside), or 07:00 on 1 November would read as the evening of 31 October."""
-    d = datetime.fromisoformat(ts)
-    return f"{d:%m/%d/%Y} {d.hour % 12 or 12}:{d.minute:02d} {'AM' if d.hour < 12 else 'PM'} IST"
-
-
-def _new_season(threshold: float, persona: str) -> dict:
-    sched = SeasonScheduler(relevance_threshold=threshold, persona=persona)
-    # Copies: admit() edits the hand-off it merges into, and the other tabs keep showing the originals.
-    admitted = sched.admit_all([copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o])
-    return {"sched": sched, "key": (threshold, persona), "log": [], "days": Counter(),
-            "admits": Counter(a.decision for a in admitted)}
-
-
-def _season_send(state: dict, one: bool = False) -> list:
-    """Fire one due step (the manual trigger) or every step due now, and log what happened."""
-    sched = state["sched"]
-    results = [sched.step()] if one else sched.run_due(max_steps=10000)
-    sent = [r for r in results if r.kind == "sent"]
-    ins_of = {i.get("insight_id"): i for i, _ in rows}
-    for r in sent:
-        rec = r.record
-        ins = ins_of.get((rec.get("source_insight_ids") or [None])[0]) or {}
-        state["log"].append({"when": _india(sched.now_ist()), "survey": rec["survey_id"], "farmer": rec["farmer_id"],
-                             "crop or animal": (ins.get("asset") or {}).get("name", ""),
-                             "channel": CH_NAME.get(r.channel, r.channel),
-                             "result": STATUS_LABEL.get(rec["status"], rec["status"]),
-                             "next": {"none": "done", "give_up": "stop", "fall_back_to_next_channel": "try next channel"}
-                             .get(rec["retry_decision"], rec["retry_decision"]),
-                             "needs a person": "yes" if rec.get("needs_follow_up") else ""})
-        state["days"][sched.now_ist()[:10]] += 1
-    return results
-
-
-def _season_advance(state: dict, days: int, send: bool) -> None:
-    """Move the shared clock a day at a time, sending what falls due each morning when `send` is on."""
-    sched = state["sched"]
-    for _ in range(days):
-        if sched.is_season_over():
-            break
-        if send:
-            _season_send(state)
-        sched.advance(1)
-    if send:
-        _season_send(state)
-
-
-use_zone(None)      # the Season tab shows India time first by itself, with Eastern alongside
-with tab_season:
-    st.subheader("The season, on a simulated clock")
-    st.caption("One shared clock drives the scheduler (weekly limit, opt-outs) and the broadcaster (send window, "
-               "send hours, quality check) from 1 November to 31 March. Move it a day, a week, or to the end of the "
-               "season, or send one step at a time. Delivery and answers are simulated; nothing is sent.")
-    cfg = st.columns([1.2, 1.6, 0.8], vertical_alignment="bottom")
-    threshold = cfg[0].slider("Relevance needed to send", 0.0, 1.0, SEASON_THRESHOLD, 0.05,
-                              help="P3's quality check blocks any survey whose relevance score (P4's, 0–1) is below "
-                                   f"this. The agreed bar is {SEASON_THRESHOLD}: it blocks only surveys that name neither the "
-                                   "crop, the problem nor the advice. Slide it to see the trade-off.")
-    persona = cfg[1].selectbox("How farmers respond", list(PERSONA_LABEL), format_func=PERSONA_LABEL.get,
-                               help="P3's simulated farmers. Pick one to see fall-back, expiry and opt-out.")
-    reset = cfg[2].button("Restart season", width="stretch")
-    if reset or st.session_state.get("season", {}).get("key") != (threshold, persona):
-        st.session_state.season = _new_season(threshold, persona)
-    season = st.session_state.season
-    sched = season["sched"]
-
-    ctl = st.columns(5)
-    auto = st.toggle("Send what falls due while the clock moves", value=True,
-                     help="Off: the clock moves and work piles up; then use the send buttons by hand.")
-    over = sched.is_season_over()
-    if ctl[0].button("Send next step", width="stretch", disabled=over,
-                     help="The manual trigger: one channel attempt for the next due survey."):
-        r = _season_send(season, one=True)[0]
-        if r.kind == "nothing":
-            st.toast("Nothing is due right now. Move the clock forward.")
-    if ctl[1].button("Send all due now", width="stretch", disabled=over):
-        _season_send(season)
-    if ctl[2].button("+1 day", width="stretch", disabled=over):
-        _season_advance(season, 1, auto)
-    if ctl[3].button("+1 week", width="stretch", disabled=over):
-        _season_advance(season, 7, auto)
-    if ctl[4].button("To end of March", width="stretch", disabled=over, type="primary"):
-        _season_advance(season, 400, auto)
-
-    start, end, now = sched.season.start, sched.season.end, sched.now()
-    total = (end - start).total_seconds()
-    done = min(1.0, max(0.0, (now - start).total_seconds() / total)) if total else 1.0
-    st.progress(done, text=f"Simulated time: {_india(sched.now_ist())} ({long(sched.now_ist())}) · day {(now - start).days + 1} of "
-                           f"{(end - start).days + 1}" + (" · season over" if sched.is_season_over() else ""))
-
-    log, adm, drops = season["log"], season["admits"], sched.broadcaster.counts()
-    res_count = Counter(e["result"] for e in log)
-    m = st.columns(6)
-    m[0].metric("Waiting to send", f"{len(sched.pending):,}", "queued, in send-window order", delta_color="off", delta_arrow="off")
-    m[1].metric("Messages sent", f"{len(log):,}", "channel attempts", delta_color="off", delta_arrow="off")
-    m[2].metric("Answered", f"{res_count.get('Answered', 0):,}", delta_color="off", delta_arrow="off")
-    m[3].metric("No answer or not delivered", f"{res_count.get('Expired, no answer', 0) + res_count.get('Not delivered', 0):,}",
-                delta_color="off", delta_arrow="off")
-    m[4].metric("Opted out", f"{res_count.get('Opted out', 0):,}", "never asked again", delta_color="off", delta_arrow="off")
-    m[5].metric("Blocked by quality check", f"{drops['rejected']:,}", f"relevance below {threshold:.2f}",
-                delta_color="off", delta_arrow="off")
-    st.caption(f"Weekly limit at the start of the season: {adm.get('sent', 0):,} on time, {adm.get('moved', 0):,} moved "
-               f"to a later week, {adm.get('merged', 0):,} merged into an earlier survey, {adm.get('skipped', 0):,} "
-               f"skipped. {drops['expired']:,} expired in the queue. "
-               f"{sum(1 for e in log if e['needs a person']):,} answers need a person to follow up.")
-
-    if season["days"]:
-        weeks = Counter()
-        for day, n in season["days"].items():
-            d = datetime.fromisoformat(day)
-            weeks[(d - timedelta(days=d.weekday())).date().isoformat()] += n
-        wk = pd.DataFrame({"week of": [format_date(w) for w in sorted(weeks)],
-                           "messages sent": [weeks[w] for w in sorted(weeks)]}).set_index("week of")
-        st.markdown("**Messages sent per week**")
-        st.bar_chart(wk, color=PALETTE["green"], height=220, sort=False)
-        st.markdown(f"**Latest sends** (newest first, {min(len(log), 50)} of {len(log):,})")
-        table(pd.DataFrame(log[-50:][::-1]), width="stretch", hide_index=True)
-    else:
-        first = min((h["send_window"]["not_before"] for h in sched.pending), default=None)
-        st.info("Nothing sent yet." + (f" The first send window opens {_india(first)}." if first else "")
-                + " Press +1 day, +1 week, or To end of March.")
 
 # ---------------------------------------------------------------- footer (farmer.chat's forest band)
 html(f'<div class="mel-foot">{LOCKUP}<div>MEL Survey Agent</div></div>')

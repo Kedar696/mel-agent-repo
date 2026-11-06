@@ -261,7 +261,15 @@ a{color:var(--mel-green)}
    replays while the farmer taps). Titles are larger and bolder than the text, as William asked. ---------- */
 @property --mel-s{syntax:"<integer>";inherits:false;initial-value:0}
 @property --mel-k{syntax:"<integer>";inherits:false;initial-value:0}
-.mel-agent{background:#1A1A19;color:#C9C7BE;border-radius:16px;padding:16px 18px 12px;font-family:var(--mel-mono);font-size:12.5px;line-height:1.55}
+.mel-agent{background:#1A1A19;color:#C9C7BE;border-radius:16px;padding:16px 8px 12px 18px;font-family:var(--mel-mono);font-size:12.5px;line-height:1.55;
+  height:700px;display:flex;flex-direction:column}
+/* one fixed height, like a real terminal: column-reverse keeps the log pinned to its newest line while steps stream in;
+   the auto margin keeps a short log at the top (and, unlike justify-content, never makes overflow unreachable) */
+.mel-agent .scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column-reverse;padding-right:10px;
+  scrollbar-width:thin;scrollbar-color:#4A4944 transparent}
+.mel-agent .scroll:focus-visible{outline:2px solid #4EBA65;outline-offset:2px;border-radius:6px}
+.mel-agent .log{margin-bottom:auto}
+.mel-agent .foot{flex:none}
 .mel-agent .step{overflow:hidden;max-height:0;opacity:0;animation:mel-grow .5s var(--mel-ease) forwards;animation-delay:calc(var(--i) * .6s + .2s)}
 .mel-agent .call{color:#F2F1EC;font-size:13px}
 .mel-agent .call i{font-style:normal;color:#4EBA65;margin-right:8px}
@@ -346,54 +354,80 @@ a{color:var(--mel-green)}
 }
 @media (max-width:760px){.mel-agent .kv{grid-template-columns:1fr;gap:0}.mel-lede h2{font-size:26px}}
 
-/* ---- Dashboard (app/dashboard.py): hero figure, stat tiles, flow, chart cards ---------------------- */
-.mel-ico{display:inline-block;vertical-align:middle;flex:none}
-.mel-d-top{display:grid;grid-template-columns:minmax(250px,1fr) 2.3fr;gap:14px;margin:6px 0 14px}
-.mel-d-hero{background:radial-gradient(ellipse 80% 70% at 85% 0%,rgba(0,201,80,.22),rgba(0,201,80,0) 60%),linear-gradient(160deg,#08361B,#032E15);
-  color:#fff;border-radius:var(--mel-r-card);padding:22px 24px;display:flex;flex-direction:column;justify-content:space-between;gap:18px;
-  animation:mel-rise .4s var(--mel-ease) both}
-.mel-d-hero .mel-ico{width:30px;height:30px;color:var(--mel-bright)}
-.mel-d-fig{font-size:84px;font-weight:700;letter-spacing:-.045em;line-height:.95}
-.mel-d-fig small{font-size:34px;font-weight:600;margin-left:6px;letter-spacing:-.02em;color:var(--mel-bright)}
-.mel-d-cap{font-size:19px;font-weight:600;line-height:1.3;margin-top:12px;max-width:22ch}
-.mel-d-sub{font-size:14px;color:rgba(255,255,255,.72);margin-top:8px}
-.mel-d-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.mel-d-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr));margin:4px 0 14px}
-.mel-d-tile,.mel-d-step{background:var(--mel-paper);border-radius:20px;box-shadow:0 4px 13px rgba(0,130,54,.08);animation:mel-rise .4s var(--mel-ease) both}
-.mel-d-tile{padding:16px 18px}
-.mel-d-tile .mel-ico{width:22px;height:22px;color:var(--mel-green)}
-.mel-d-tile .v{font-size:36px;font-weight:700;letter-spacing:-.035em;line-height:1.05;margin-top:8px;color:var(--mel-ink)}
-.mel-d-tile .v.sm{font-size:26px;line-height:1.45}
-.mel-d-tile .l{font-size:15px;font-weight:700;color:var(--mel-ink);margin-top:2px}
-.mel-d-tile .n{font-size:12.5px;color:var(--mel-muted);margin-top:2px;line-height:1.35}
-.mel-d-meter{height:6px;border-radius:6px;background:#D9F5E2;margin-top:10px;overflow:hidden}
-.mel-d-meter i{display:block;height:100%;border-radius:6px;background:var(--mel-bright)}
-.mel-d-flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:12px;margin:0 0 16px}
-.mel-d-step{display:flex;gap:14px;align-items:center;padding:16px 18px}
-.mel-d-step .mel-ico{width:44px;height:44px;padding:10px;border-radius:50%;background:var(--mel-green-soft);color:var(--mel-green)}
-.mel-d-step .v{font-size:32px;font-weight:700;letter-spacing:-.035em;line-height:1;color:var(--mel-ink)}
-.mel-d-step .l{font-size:14px;color:var(--mel-muted);margin-top:4px}
-.mel-d-arrow{color:var(--mel-bright);font-size:28px;font-weight:700}
-[class*="st-key-dcard_"]{background:var(--mel-paper);border-radius:20px;box-shadow:0 4px 13px rgba(0,130,54,.08);padding:16px 18px 10px;margin-bottom:14px;gap:6px}
-.mel-dh{font-size:18px;font-weight:700;letter-spacing:-.02em;line-height:1.3;color:var(--mel-ink)}
-[class*="st-key-dcard_"] [data-testid="stMarkdownContainer"]{margin-bottom:0}  /* Streamlit's -1rem would pull the chart over the subtitle */
-.mel-dh small{display:block;font-size:13.5px;font-weight:400;color:var(--mel-muted);letter-spacing:0;margin-top:3px}
-.mel-d-lab{font-size:13px;font-weight:700;color:var(--mel-ink-soft);margin-top:10px}
+/* ---- Survey demo guided flow: the step strip, one lit view at a time, the phone before the survey is sent ---- */
+.mel-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:2px 0 14px}
+.mel-steps .s{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:14px;background:var(--mel-paper);
+  border:1px solid var(--mel-line);transition:border-color .3s,box-shadow .3s,opacity .3s}
+.mel-steps .s>b{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;
+  background:var(--mel-slate-soft);color:var(--mel-muted)}
+.mel-steps .s span{display:block;font-weight:600;font-size:14px;line-height:1.35;color:var(--mel-ink-soft);padding-top:3px}
+.mel-steps .s small{display:block;font-size:12.5px;color:var(--mel-green);margin-top:2px}
+.mel-steps .s.now{border-color:var(--mel-bright);box-shadow:0 0 0 3px rgba(0,201,80,.18)}
+.mel-steps .s.now>b{background:var(--mel-bright);color:#fff}
+.mel-steps .s.done>b{background:var(--mel-green-soft);color:var(--mel-green)}
+.mel-steps .s.skip{opacity:.5}
+.mel-dim,.mel-lit{display:none}
+[data-testid="stPopoverBody"]:has(.st-key-f_dec){width:min(560px,92vw)}  /* the Browse search panel: room for 2 filters a row */
+.st-key-flow_agent,.st-key-flow_phone{transition:opacity .45s var(--mel-ease),filter .45s var(--mel-ease)}
+.st-key-flow_agent:has(.mel-dim),.st-key-flow_phone:has(.mel-dim){opacity:.38;filter:saturate(.35)}
+.st-key-term_box{border-radius:16px;transition:box-shadow .3s}
+.st-key-flow_agent:has(.mel-lit) .st-key-term_box{box-shadow:0 0 0 3px var(--mel-bright),0 14px 34px rgba(0,201,80,.22)}
+.st-key-term_box .mel-agent{border-radius:16px 16px 0 0}
+/* the terminal's input line: Streamlit's chat input, dressed as the bottom row of the same terminal */
+.st-key-term_box [data-testid="stChatInput"]{background:#1A1A19;border-radius:0 0 16px 16px;padding:0 10px 10px;margin:0}
+.st-key-term_box [data-testid="stChatInput"]>div{background:#242422;border:1px solid #3A3935;border-radius:10px;box-shadow:none}
+.st-key-term_box [data-testid="stChatInput"]>div:focus-within{border-color:#4EBA65}
+.st-key-term_box [data-testid="stChatInput"] textarea{font-family:var(--mel-mono);font-size:13px;color:#F2F1EC;caret-color:#4EBA65;background:transparent}
+.st-key-term_box [data-testid="stChatInput"] textarea::placeholder{color:#8A887F;opacity:1}
+.st-key-term_box [data-testid="stChatInput"] button{background:transparent;color:#4EBA65}
+.mel-agent .ask .call{color:#F2F1EC}.mel-agent .ask .call i{color:#D97757}
+.mel-phone-wait{width:350px;max-width:100%;height:700px;margin:0 auto;border-radius:46px;border:9px solid #1A1A19;background:linear-gradient(180deg,#F4F4F5,#E6EAE7);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:24px;color:var(--mel-muted)}
+.mel-phone-wait b{color:var(--mel-ink-soft);font-size:15px}
+.mel-phone-wait span{font-size:13.5px;max-width:24ch}
+.mel-agent .step.done{animation:none;max-height:none;opacity:1}
+.mel-agent .think .call,.mel-agent .think .call i,.mel-agent .think .call em{color:#D97757;font-style:italic}
+.mel-agent .think p{margin:0 0 5px;color:#A8A69D;font-style:italic;font-size:12.5px;line-height:1.5}
+.mel-agent .qa{display:flex;justify-content:space-between;gap:12px;padding:2px 0 3px;border-bottom:1px dashed #3A3935}
+.mel-agent .qa:last-child{border-bottom:0}
+.mel-agent .qa span{color:#B9B7AE}.mel-agent .qa b{color:#F2F1EC;white-space:nowrap}
+.mel-agent .warn{color:#F2C14E;font-weight:700}
+@media (max-width:760px){.mel-steps{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.st-key-flow_agent,.st-key-flow_phone,.mel-steps .s{transition:none}}
+
+/* ---- Dashboard (app/dashboard.py): a security-console layout. Section bars, KPI strips split by hairlines,
+   flat white widgets with a title bar, rows of equal height. ------------------------------------------------- */
+.mel-dsec{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin:14px 0 4px;padding-bottom:8px;border-bottom:1px solid var(--mel-line-strong)}
+.mel-dsec b{font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.2;color:var(--mel-ink)}
+.mel-dsec span{font-size:13px;color:var(--mel-muted)}
+.mel-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));background:var(--mel-paper);border:1px solid var(--mel-line);
+  border-radius:10px;overflow:hidden;margin:0 0 4px}
+.mel-kpis .k{padding:14px 18px 12px;box-shadow:-1px 0 0 var(--mel-line),0 -1px 0 var(--mel-line)}  /* hairlines; the outer ones are clipped */
+.mel-kpis .l{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mel-muted)}
+.mel-kpis .v{font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1.15;margin-top:6px;color:var(--mel-ink);font-variant-numeric:tabular-nums}
+.mel-kpis .n{font-size:12.5px;color:var(--mel-muted);margin-top:2px;line-height:1.35}
+.mel-kpis .h{grid-column:1/-1;padding:9px 18px 8px;font-size:12.5px;font-weight:700;color:var(--mel-ink-soft)}
+.mel-kpi-row{display:grid;grid-template-columns:1.2fr 1fr;gap:12px;margin:0 0 4px}
+.mel-kpi-row .mel-kpis{margin:0}
+.mel-kpis.funnel .k{position:relative}
+.mel-kpis.funnel .k+.k::before{content:"→";position:absolute;left:-12px;top:50%;width:22px;height:22px;margin-top:-11px;
+  border-radius:50%;background:var(--mel-paper);border:1px solid var(--mel-line);display:grid;place-items:center;font-size:12px;
+  font-weight:700;color:var(--mel-green);z-index:1}
+@media (max-width:1100px){.mel-kpi-row{grid-template-columns:1fr}}
+.mel-kpis.flat{border:0;border-radius:0;margin:0 -16px}
+.mel-kpis.flat .v{font-size:24px}
+[data-testid="stLayoutWrapper"]:has(>[class*="st-key-dcard_"]):last-child{flex:1 1 auto}  /* last widget fills its column: rows line up */
+[class*="st-key-dcard_"]{background:var(--mel-paper);border:1px solid var(--mel-line);border-radius:10px;padding:0 16px 10px;gap:8px;flex:1 1 auto}
+[class*="st-key-dcard_"] [data-testid="stMarkdownContainer"]{margin-bottom:0}  /* Streamlit's -1rem would pull the chart over the title */
+.mel-dh{font-size:14px;font-weight:700;color:var(--mel-ink);margin:0 -16px;padding:11px 16px 10px;border-bottom:1px solid var(--mel-line);line-height:1.35}
+.mel-dh small{display:block;font-size:12.5px;font-weight:400;color:var(--mel-muted);margin-top:2px}
+.mel-d-body{font-size:14px;line-height:1.5;color:var(--mel-ink-soft);padding-top:4px;max-width:90ch}
+.mel-d-lab{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mel-muted);margin-top:8px}
 .mel-d-seg{display:flex;gap:2px;height:28px;margin:8px 0 10px}
 .mel-d-seg>div{border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:13px;font-weight:700;min-width:0;overflow:visible}
 .mel-d-key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13.5px;color:var(--mel-ink-soft)}
 .mel-d-key i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .mel-d-key b{color:var(--mel-ink);margin-left:6px}
-.mel-d-note{font-size:14px;color:var(--mel-muted);margin:6px 0 2px}.mel-d-note b{font-size:20px;color:var(--mel-ink);margin-right:6px}
-.mel-d-big{display:flex;align-items:baseline;gap:10px;margin:12px 0 4px}
-.mel-d-big span{font-size:40px;font-weight:700;letter-spacing:-.035em;color:var(--mel-ink);line-height:1}
-.mel-d-big small{font-size:14px;color:var(--mel-muted);line-height:1.35}
-@media (max-width:900px){
-  .mel-d-top{grid-template-columns:1fr}.mel-d-tiles,.mel-d-tiles.four{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .mel-d-flow{grid-template-columns:1fr}.mel-d-arrow{transform:rotate(90deg);justify-self:center;line-height:1}
-  .mel-d-fig{font-size:64px}.mel-d-tile .v{font-size:30px;line-height:1.26}.mel-d-tile .v.sm{font-size:20px;line-height:1.9}
-}
-@media (prefers-reduced-motion:reduce){.mel-d-hero,.mel-d-tile,.mel-d-step{animation:none}}
 
 /* ---- motion -------------------------------------------------------------- */
 @keyframes mel-rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
