@@ -1,14 +1,12 @@
-.venv/
-.git/
-out/
-v0-sketch/
+# Build context for every target in Dockerfile. The api and agent targets copy only what they import;
+# the ui target copies everything that is left (app/, the pack, docs/results for the recorded runs).
+.git
+.venv
+out
 .env
 .env.*
-**/__pycache__/
-.pytest_cache/
-app/
-tests/
-demo/
-mel-survey-agent-participant-pack/participant-pack/json/
-mel-survey-agent-participant-pack/participant-pack/excel/
-mel-survey-agent-participant-pack/participant-pack/*.html
+**/__pycache__
+.pytest_cache
+tests
+v0-sketch
+demo

@@ -1,9 +1,0 @@
-# Runtime dependencies for the REST API image (mel/api), kept small on purpose.
-# What the running container actually imports: FastAPI (the app), uvicorn (the server) and
-# jsonschema (mel.data validates surveys/hand-offs against config/schemas). FastAPI pulls in
-# starlette and pydantic; uvicorn pulls in its own ASGI bits. The API does NOT import pandas,
-# openpyxl, anthropic, boto3 or streamlit, so none of those are here (confirmed by import:
-# `import mel.api.app` loads none of them).
-fastapi>=0.115
-uvicorn>=0.30
-jsonschema>=4.23

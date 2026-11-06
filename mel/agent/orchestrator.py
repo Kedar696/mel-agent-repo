@@ -195,10 +195,12 @@ def run_agent(insight: dict, farmer: dict | None = None, history_hours=(), memor
     start = time.perf_counter()
     before = llm.usage_summary()
 
-    # Evidence Extractor
+    # Evidence Extractor. The decision comes first (decide() is pure): a no-survey insight has no template, so
+    # its history notes are not computed; the Analyst reports the same decision below.
     t0 = time.perf_counter()
     a = insight.get("asset") or {}
-    notes = history_notes(insight, memory, attention)
+    d = decide(insight, farmer, history_hours, attention)
+    notes = history_notes(insight, memory, attention) if d.survey else []
     evidence = {"crop_or_animal": a.get("name"), "growth_stage": a.get("growth_stage"),
                 "concern": insight.get("concern"), "severity": insight.get("severity"),
                 "advice_type": insight.get("resolution_type"), "farmer_asked": insight.get("query_summary"),
@@ -213,7 +215,6 @@ def run_agent(insight: dict, farmer: dict | None = None, history_hours=(), memor
 
     # Analyst: survey or not, and when
     t0 = time.perf_counter()
-    d = decide(insight, farmer, history_hours, attention)
     if not d.survey:
         rec = d.no_survey_record(insight)
         yield _event("analyst", "ok", "Analyst decides: no survey", rec["reason"], t0, decision=_decision_dict(d))

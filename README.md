@@ -20,7 +20,7 @@ Activate the virtual environment (pick your OS):
 source .venv/bin/activate
 ```
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 pytest -q
 python -m mel.cli run --simulate --clean   # writes out/{surveys,handoffs,no_survey,responses} + run_summary.json + junk_report.csv
 python -m mel.cli validate                 # schema-checks everything in out/ (fails if there is nothing to check)
@@ -82,43 +82,54 @@ which should be 0).
 The full policy, with the exact move/merge/skip rules, is in [docs/cap_policy.md](docs/cap_policy.md).
 
 ## REST API
-A thin FastAPI front over the same pipeline and scheduler, in `mel/api/`. It reuses the decision,
-cap and quality logic unchanged; it adds no new rules. Install the API deps and run it:
+A thin FastAPI front in `mel/api/`. `POST /surveys` runs the same agent as the CLI and AgentCore
+(`mel.agent.run_agent`: decide, write with Bedrock or the templates, verify, hand off) and admits the
+result with P3's opt-out, quality and weekly-cap rules unchanged. Everything that must outlive a process
+(surveys, hand-offs, answers, opt-outs) is in one SQLite file, so a restart loses nothing.
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `MEL_API_TOKEN` | the bearer token every call but `/healthz` must send. The API refuses to start without one. | none |
+| `MEL_DATABASE_URL` | `sqlite:///path` (a file) or `sqlite://` (in memory) | `sqlite:///<MEL_OUT_DIR>/mel.sqlite3` |
+
 ```bash
-pip install -r requirements-api.txt
-uvicorn mel.api.app:app
+pip install -e ".[api]"
+MEL_API_TOKEN=change-me uvicorn --factory mel.api.app:create_app
 ```
 It listens on `http://127.0.0.1:8000`. The interactive API reference is at `http://127.0.0.1:8000/docs`.
 
-**State is in memory.** One scheduler (the weekly-cap ledger, the opt-out list and the queue of
-hand-offs) lives in the process and is **lost when it restarts**. There is no database, no real
-messaging and no AWS calls; delivery stays simulated. For more than one copy, keep it to a single
-replica (see `infra/`).
-
 | Method & path | What it does |
 |---|---|
-| `GET /healthz` | liveness check for the container |
-| `POST /surveys` | run one insight. A survey returns `201` and is admitted to the scheduler (cap + opt-outs + quality gate); no survey returns `200`; junk input returns the R1 no-survey result (not an error); a body that is not a JSON object returns `422`. |
-| `GET /surveys/due` | read-only list of the hand-offs the scheduler would send at an instant, each returned in full as a schema-valid `schedule_handoff`. Optional `at` (ISO 8601 with a timezone offset; default: the scheduler's simulated clock) and `limit`. It never sends, dequeues or advances anything. |
+| `GET /healthz` | liveness check for the container (no token) |
+| `POST /surveys` | run one insight. A survey returns `201` and is admitted (opt-outs, the quality gate, then the weekly cap decided from that farmer's stored hand-offs); no survey returns `200`; junk input returns the R1 no-survey result (not an error); a body that is not a JSON object returns `422`. The same insight again returns its first admission and takes no second weekly slot. |
+| `GET /surveys/due` | read-only list of the hand-offs a sender should send at an instant, each a full schema-valid `schedule_handoff`. Optional `at` (ISO 8601 with a timezone offset; default: now) and `limit`. |
+| `GET /v1/surveys/{flow_id}` | the survey registered under a FarmerChat flow id (`farmerchat_flow.flow_id` on the hand-off). Static registration: the id is derived from the survey id, not requested from FarmerChat yet. |
+| `POST /v1/surveys/{flow_id}/responses` | FarmerChat's answer path. One `response` record (checked against `response.schema.json`) in; `201` when new, `200` when the same `response_key` was seen before. A `farmer_opted_out` record puts the farmer on the opt-out list; `needs_follow_up` puts the record in the follow-up queue. |
+| `GET /follow-ups` | answer records that need a person, oldest first. Optional `limit`. |
 
 > **Windows PowerShell users:** `curl` is an alias for `Invoke-WebRequest` there, which takes
 > different arguments. Type `curl.exe` instead to use the real curl shown below.
 
-Health:
+Health (no token):
 ```bash
 curl http://127.0.0.1:8000/healthz
 ```
 Submit an insight (here, the first mock insight; swap in your own JSON object):
 ```bash
 curl -X POST http://127.0.0.1:8000/surveys \
-  -H 'content-type: application/json' \
+  -H "authorization: Bearer $MEL_API_TOKEN" -H 'content-type: application/json' \
   -d "$(head -n 1 data/mock/insights.jsonl)"
 ```
-List what is due at a given instant. A literal `+` in the offset works, as does the
-percent-encoded `%2B`:
+List what is due at a given instant. A literal `+` in the offset works, as does the percent-encoded `%2B`:
 ```bash
-curl "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00+05:30"
-curl "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00%2B05:30&limit=5"
+curl -H "authorization: Bearer $MEL_API_TOKEN" "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00+05:30"
+```
+Send an answer back (the flow id is `handoff.farmerchat_flow.flow_id` in the `POST /surveys` reply; the record is
+one of the pack's answer records with the survey's ids):
+```bash
+curl -X POST "http://127.0.0.1:8000/v1/surveys/$FLOW_ID/responses" \
+  -H "authorization: Bearer $MEL_API_TOKEN" -H 'content-type: application/json' -d @answer.json
+curl -H "authorization: Bearer $MEL_API_TOKEN" http://127.0.0.1:8000/follow-ups
 ```
 
 ## Command reference

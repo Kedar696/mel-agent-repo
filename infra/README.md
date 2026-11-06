@@ -9,7 +9,7 @@ secrets in any file.
 | Piece | Where | Status |
 |---|---|---|
 | Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | **Applied** in the account on 5 Nov (`terraform apply`, agent resources only); CI checks `terraform fmt -check` + `terraform validate` |
-| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings); runs main `7a47ca8` with `MEL_AGENTCORE_ARN` set |
+| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds the `Dockerfile`'s `ui` target from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
 | The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | **Live**: runtime `fasal_pulse` in us-west-2 (5 Nov, `agentcore launch`, steps in `docs/agentcore.md`); the UI's `MEL_AGENTCORE_ARN` points at it, so "Run the agent" runs live |
 
 ## Terraform (`terraform/`)
@@ -40,10 +40,10 @@ second apply, with that SHA, creates the service, and `terraform output ui_url` 
 ARNs); a team sharing one setup would add an S3 backend.
 
 ## The Streamlit UI on ECS Express Mode (live since 5 Nov)
-`ui.Dockerfile` at the repo root packages `app/streamlit_app.py` with the participant pack and the
-recorded agent runs; `ui.Dockerfile.dockerignore` next to it decides what is copied in (Docker uses
-`<Dockerfile>.dockerignore` when it exists; `.dockerignore` belongs to the API image). CI builds the
-image and checks `/_stcore/health`. `terraform/ui.tf` is the same setup as infrastructure-as-code.
+The `ui` target of the one `Dockerfile` at the repo root packages `app/streamlit_app.py` with the
+participant pack and the recorded agent runs (`.dockerignore` decides what is copied in; the `api` and
+`agent` targets copy only what they import). CI builds the image and checks `/_stcore/health`.
+`terraform/ui.tf` is the same setup as infrastructure-as-code.
 
 Why Express Mode: App Runner stopped taking new customers on 30 April 2026, and Express Mode is the
 replacement AWS points to. One container image in; ECS creates the Fargate service, the HTTPS load
@@ -61,7 +61,7 @@ because Streamlit keeps each visitor's session inside the process. The task role
    in `terraform/ui.tf`).
 3. CodeBuild project `fasal-pulse-ui-build` with the same buildspec, then
    `aws codebuild start-build --project-name fasal-pulse-ui-build`: it clones GitHub, builds
-   `ui.Dockerfile` on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
+   the `ui` target on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
 4. `aws ecs create-cluster --cluster-name default`, then
    ```bash
    aws ecs create-express-gateway-service --service-name fasal-pulse-ui \
@@ -86,11 +86,12 @@ AccessDenied error and the recorded runs are still there.
 To stop paying: `aws ecs delete-express-gateway-service --service-arn <arn>` (and empty the registry).
 Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
 
-### Why one copy only
-The REST API (`mel/api`, `Dockerfile`) and the UI keep their scheduler state (the weekly-cap ledger, the opt-out
-list and the queue of hand-offs) **in memory**. Two copies would each hold a different, out-of-step state and
-would disagree about what is due, so the service runs a single task. Running more than one needs a shared store
-(see "Production design" below); that is not built.
+### Why one copy
+The UI keeps each visitor's Streamlit session in its process, so the service runs a single task. The REST API
+(`mel/api`, `docker build --target api .`) keeps surveys, hand-offs, answer records and opt-outs in the SQLite file
+`MEL_DATABASE_URL` names, and decides the weekly cap per request from that farmer's stored hand-offs, so a restart
+of the process loses nothing. One copy per file; a shared database is the upgrade if a second copy is ever needed.
+Every call but `/healthz` needs `Authorization: Bearer <MEL_API_TOKEN>`; pass it to the container as a secret.
 
 ### IAM action names (so no one copies the wrong ones)
 The agent's execution role allows exactly `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`,
@@ -105,8 +106,8 @@ system, not this hackathon build. They are **slide-only**; there is no code or t
 here:
 - **EventBridge / Step Functions** — the real "alarm clock": send at the right time, retry on
   WhatsApp after 24 h. In this project the simulated clock does that deterministically.
-- **RDS for PostgreSQL** — the shared database that would hold the weekly limit and opt-outs
-  across restarts and across more than one instance. Here that state is in memory.
+- **RDS for PostgreSQL** — the shared database more than one API copy would need. Here the API keeps a SQLite
+  file (`mel/store.py`).
 - **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
 
 ## What we could and could not validate here

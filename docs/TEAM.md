@@ -203,6 +203,6 @@ in `infra/`; never put AWS keys in git or chat.
 - `main` always works. Branch per task: `p<N>-<topic>` (for example `p2-brief-rule`).
 - PRs reviewed by a downstream owner, usually your buddy. Tests and `mel.cli validate` must pass.
 - Never edit another owner's package without their OK (see `.github/CODEOWNERS`).
-- Changing a shared shape (function signature, schema, `requirements.txt`): post in chat first.
+- Changing a shared shape (function signature, schema, the dependencies in `pyproject.toml`): post in chat first.
 - Every question for Digital Green goes through P1.
 - Give teammates shell commands without trailing `# comments` (zsh passes them as arguments).
