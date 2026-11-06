@@ -40,14 +40,15 @@ def test_dashboard_matches_agent_metrics():
     assert shown and shown <= _sent_metrics(), shown - _sent_metrics()
 
 
-def test_outputs_feed_the_agent_settings():
-    env = AGENT.split('output "agentcore_launch_env"', 1)[1]
+def test_runtime_gets_the_agent_settings():
+    env = AGENT.split("environment_variables = {", 1)[1].split("\n  }\n", 1)[0]
     for name in (
         "MEL_S3_INPUT",
         "MEL_S3_RESULTS",
         "MEL_GUARDRAIL_ID",
         "MEL_GUARDRAIL_VERSION",
         "MEL_METRICS_NAMESPACE",
+        "MEL_BEDROCK_WRITE_MODEL",
     ):
         assert re.search(rf"^\s+{name}\s+=", env, flags=re.M), name
 

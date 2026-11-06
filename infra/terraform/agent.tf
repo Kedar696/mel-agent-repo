@@ -1,6 +1,6 @@
-# The AWS resources around the AgentCore agent. Nothing here runs or costs
-# money when idle. The runtime itself is still built with `agentcore launch` (docs/agentcore.md), using the
-# outputs below.
+# The AgentCore agent and everything around it: data bucket, Guardrail, execution role, dashboard, budget, the
+# agent's image registry and build, and the runtime itself (agentcore_app.py in the Dockerfile's `agent` target).
+# Nothing here costs money when idle: the runtime is billed per call.
 
 # ---- S3: input + results (private, encrypted, HTTPS only) ---------------------------------------
 resource "aws_s3_bucket" "data" {
@@ -166,7 +166,7 @@ resource "aws_iam_role_policy" "agent" {
         Sid      = "ContainerImagePull"
         Effect   = "Allow"
         Action   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
-        Resource = "${local.arn}:ecr:${local.region}:${local.account}:repository/bedrock-agentcore-*"
+        Resource = [aws_ecr_repository.agent.arn, "${local.arn}:ecr:${local.region}:${local.account}:repository/bedrock-agentcore-*"]
       },
       { Sid = "ContainerRegistryToken", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" }, # no resource ARN
       {
@@ -190,6 +190,138 @@ resource "aws_iam_role_policy" "agent" {
       },
     ]
   })
+}
+
+# ---- The agent's image: registry + CodeBuild on ARM (AgentCore runs linux/arm64 images) ---------------
+resource "aws_ecr_repository" "agent" {
+  name = "${var.project_name}-agent"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "agent" {
+  repository = aws_ecr_repository.agent.name
+  policy = jsonencode({ rules = [{
+    rulePriority = 1
+    description  = "Keep only the last 10 images"
+    selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 10 }
+    action       = { type = "expire" }
+  }] })
+}
+
+resource "aws_iam_role" "agent_build" {
+  name               = "${var.project_name}-agent-codebuild"
+  assume_role_policy = jsonencode(local.trust["codebuild"])
+}
+
+resource "aws_iam_role_policy" "agent_build" {
+  name = "build-and-push"
+  role = aws_iam_role.agent_build.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${local.arn}:logs:${local.region}:${local.account}:log-group:/aws/codebuild/${var.project_name}-agent*"
+      },
+      { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" }, # ECR accepts no narrower resource
+      {
+        Effect = "Allow"
+        Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+        Resource = aws_ecr_repository.agent.arn
+      },
+    ]
+  })
+}
+
+resource "aws_codebuild_project" "agent" {
+  name          = "${var.project_name}-agent-build"
+  description   = "Builds the Dockerfile's agent target (linux/arm64) from GitHub and pushes it to the agent registry."
+  service_role  = aws_iam_role.agent_build.arn
+  build_timeout = 30
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      status     = "ENABLED"
+      group_name = "/aws/codebuild/${var.project_name}-agent-build"
+    }
+  }
+
+  environment {
+    type            = "ARM_CONTAINER"
+    compute_type    = "BUILD_GENERAL1_MEDIUM"
+    image           = "aws/codebuild/amazonlinux2-aarch64-standard:3.0"
+    privileged_mode = true # docker build
+    environment_variable {
+      name  = "REPO_URL"
+      value = var.repo_url
+    }
+    environment_variable {
+      name  = "GIT_REF"
+      value = var.git_ref
+    }
+    environment_variable {
+      name  = "ECR_URI"
+      value = aws_ecr_repository.agent.repository_url
+    }
+    environment_variable {
+      name  = "TARGET"
+      value = "agent"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = local.buildspec
+  }
+}
+
+# ---- The runtime ------------------------------------------------------------------------------
+locals {
+  agent_image = var.agent_image != "" ? var.agent_image : (var.agent_image_tag != "" ? "${aws_ecr_repository.agent.repository_url}:${var.agent_image_tag}" : "")
+}
+
+resource "aws_bedrockagentcore_agent_runtime" "agent" {
+  count              = local.agent_image == "" ? 0 : 1
+  agent_runtime_name = replace(var.project_name, "-", "_") # letters, digits and underscores only
+  role_arn           = aws_iam_role.agent.arn
+
+  agent_runtime_artifact {
+    container_configuration {
+      container_uri = local.agent_image
+    }
+  }
+  network_configuration {
+    network_mode = "PUBLIC"
+  }
+  protocol_configuration {
+    server_protocol = "HTTP"
+  }
+  lifecycle_configuration {
+    idle_runtime_session_timeout = 900
+    max_lifetime                 = 28800
+  }
+  # The agent's settings (mel/config.py env). Credentials come from the execution role, never from here.
+  environment_variables = {
+    MEL_USE_LLM             = "1"
+    MEL_BEDROCK_REGION      = local.region
+    MEL_BEDROCK_WRITE_MODEL = var.write_model
+    MEL_AGENT_JUDGE         = "1"
+    MEL_JUDGE_MODEL         = var.judge_model
+    MEL_BEDROCK_PRICES      = var.bedrock_prices
+    MEL_GUARDRAIL_ID        = aws_bedrock_guardrail.survey.guardrail_id
+    MEL_GUARDRAIL_VERSION   = aws_bedrock_guardrail_version.survey.version
+    MEL_S3_INPUT            = "s3://${aws_s3_bucket.data.id}/input/insights.jsonl"
+    MEL_S3_RESULTS          = "s3://${aws_s3_bucket.data.id}/results"
+    MEL_METRICS_NAMESPACE   = var.metrics_namespace
+  }
 }
 
 # ---- CloudWatch dashboard -----------------------------------------------------------------------
@@ -272,21 +404,28 @@ output "guardrail_version" {
 }
 
 output "execution_role_arn" {
-  description = "Pass to `agentcore configure --execution-role`."
-  value       = aws_iam_role.agent.arn
+  value = aws_iam_role.agent.arn
+}
+
+output "agent_build_project" {
+  description = "Run `aws codebuild start-build --project-name <this> --region <agent_region>` to build and push the agent image."
+  value       = aws_codebuild_project.agent.name
+}
+
+output "agent_repository_url" {
+  value = aws_ecr_repository.agent.repository_url
+}
+
+output "agentcore_arn" {
+  description = "The runtime the UI calls (after an apply with agent_image_tag). `python -m mel.agent --remote <this> I-001253` runs one conversation on it."
+  value       = try(aws_bedrockagentcore_agent_runtime.agent[0].agent_runtime_arn, null)
 }
 
 output "dashboard_url" {
   value = "https://${local.region}.console.aws.amazon.com/cloudwatch/home?region=${local.region}#dashboards/dashboard/${aws_cloudwatch_dashboard.agent.dashboard_name}"
 }
 
-output "agentcore_launch_env" {
-  description = "Paste after `agentcore launch` (add the model settings from docs/agentcore.md)."
-  value = join(" ", [for k, v in {
-    MEL_S3_INPUT          = "s3://${aws_s3_bucket.data.id}/input/insights.jsonl"
-    MEL_S3_RESULTS        = "s3://${aws_s3_bucket.data.id}/results"
-    MEL_GUARDRAIL_ID      = aws_bedrock_guardrail.survey.guardrail_id
-    MEL_GUARDRAIL_VERSION = aws_bedrock_guardrail_version.survey.version
-    MEL_METRICS_NAMESPACE = var.metrics_namespace
-  } : "--env ${k}=${v}"])
+output "agent_env" {
+  description = "The settings the managed runtime runs with (also what to export for a local `python -m mel.agent` run)."
+  value       = try(aws_bedrockagentcore_agent_runtime.agent[0].environment_variables, {})
 }
