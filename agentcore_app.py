@@ -26,7 +26,7 @@ if os.environ.get("DOCKER_CONTAINER") == "1":
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
-from mel.agent import run_agent, guardrail_from_env, judge_from_env, MAX_REVISIONS
+from mel.agent import run_agent, guardrail_from_env, judge_from_env, payload_options
 from mel.agent.aws import load_insight, save_result, put_metrics
 
 app = BedrockAgentCoreApp()
@@ -39,10 +39,11 @@ async def invoke(payload):
         yield {"step": "error", "status": "fail", "title": "No insight",
                "detail": "Send {'insight': {...}} or a known {'insight_id': ...}."}
         return
-    guard, judge = guardrail_from_env(), judge_from_env()
-    langs = tuple(payload.get("langs") or ("en-IN", "hi-IN"))
-    for e in run_agent(ins, langs=langs, guardrail=guard, judge=judge,
-                       max_revisions=int(payload.get("max_revisions", MAX_REVISIONS))):
+    options, problem = payload_options(payload)
+    if problem:
+        yield {"step": "error", "status": "fail", "title": "Bad request", "detail": problem}
+        return
+    for e in run_agent(ins, guardrail=guardrail_from_env(), judge=judge_from_env(), **options):
         if e["step"] == "result":
             e["saved_to"] = save_result(e)
             put_metrics(e)

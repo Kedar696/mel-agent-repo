@@ -240,7 +240,7 @@ class CapLedger:
             return Admit("sent", handoff)
 
         # Over the cap. 1) Prefer to move to the next eligible date inside this window.
-        moved_start = self._next_eligible(start, blocking, cap["window_days"], window)
+        moved_start = self._next_eligible(start, prior, cap["window_days"], window)
         if moved_start is not None:
             moved = _reschedule(handoff, moved_start)
             if not defer_move:
@@ -278,18 +278,23 @@ class CapLedger:
         return None
 
     @staticmethod
-    def _next_eligible(start, blocking, window_days: int, window: dict):
-        """The earliest send start (keeping 07:00) at least `window_days` after every blocking
-        send, that is still inside [not_before, not_after]. None if none fits. "Every" matters
-        when hand-offs were admitted out of order: a later admitted survey also blocks."""
-        latest_block = max(t for (t, _) in blocking)
-        earliest_ok = latest_block + timedelta(days=window_days)
-        candidate = start if start >= earliest_ok else earliest_ok.replace(
-            hour=start.hour, minute=start.minute, second=start.second)
-        if candidate < earliest_ok:
-            candidate += timedelta(days=1)  # same day but an earlier clock time: next day, same time
+    def _next_eligible(start, prior, window_days: int, window: dict):
+        """The earliest send start (keeping the clock time) a full `window_days` away from EVERY prior send
+        to this farmer, still inside [not_before, not_after]; None if none fits. Every prior send, not only
+        the ones blocking the original start: a send admitted out of order can sit a week or more after
+        the original start and still be less than a week from the moved date."""
+        gap = timedelta(days=window_days)
         not_after = parse_ist(window["not_after"])
-        return candidate if candidate <= not_after else None
+        candidate = start
+        while candidate <= not_after:
+            clash = [t for (t, _) in prior if abs(candidate - t) < gap]
+            if not clash:
+                return candidate
+            earliest_ok = max(clash) + gap
+            candidate = earliest_ok.replace(hour=start.hour, minute=start.minute, second=start.second)
+            if candidate < earliest_ok:
+                candidate += timedelta(days=1)  # same day but an earlier clock time: next day, same time
+        return None
 
 
 class Admit:

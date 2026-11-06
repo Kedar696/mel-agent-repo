@@ -230,3 +230,12 @@ def test_n_items_override_is_asked_for(bedrock, one):
     rt = bedrock([_lines(one, "en-IN").splitlines()[0]])
     evs, res = run_agent_to_end(one, langs=("en-IN",), n_items=1)
     assert "Questions: 1\n" in rt.calls[0]["messages"][0]["content"][0]["text"] and not any(e.get("exception") for e in evs)
+
+
+def test_payload_options_validate_the_agentcore_request():
+    from mel.agent import payload_options
+    assert payload_options({}) == ({"langs": ("en-IN", "hi-IN"), "max_revisions": 2}, "")
+    assert payload_options({"langs": ["hi"], "max_revisions": "1"}) == ({"langs": ("hi-IN",), "max_revisions": 1}, "")
+    for bad in ({"max_revisions": "lots"}, {"langs": ["xx-YY"]}, {"max_revisions": 99}, {"langs": 7}):
+        kw, problem = payload_options(bad)
+        assert kw == {} and problem, bad

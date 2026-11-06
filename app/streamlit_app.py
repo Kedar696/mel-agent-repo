@@ -51,7 +51,8 @@ from mel.data import load_insights, load_farmers, errors
 from mel.evaluation import evaluate
 from mel.pipeline import run_pipeline, run_insight, clean
 from mel.schedule import build_handoff
-from mel.schedule.handoff import CapLedger
+from mel.schedule import CapLedger, FrequencyScheduler, OptOutList
+from mel.schedule.batch import schedule_in_send_order
 from mel.writer import (check_survey, write_surveys, FarmerMemory, history_notes, llm, relevance, RELEVANCE_THRESHOLD)
 from mel.writer.templates import template_items
 
@@ -140,25 +141,25 @@ DATA_DIR = PACK_DATA if full_pack() else None
 
 @st.cache_resource(show_spinner="Running the pipeline on every conversation…")
 def batch():
-    """Run the whole pipeline once, replay the weekly limit in send order (P3's CapLedger.admit), and count
-    schema-valid files once, so later clicks stay fast even on the full dataset."""
-    res = run_pipeline(load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None),
-                       farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # farmers feed send time
+    """Run the whole pipeline once, put every hand-off through the same gate as `mel.cli run` (opt-out, quality
+    gate, weekly cap with deferred moves, in send order), and count schema-valid files once, so later clicks stay
+    fast even on the full dataset."""
+    insights = load_insights(DATA_DIR / "insights.jsonl" if DATA_DIR else None)
+    res = run_pipeline(insights, farmers=load_farmers(DATA_DIR / "farmers.csv" if DATA_DIR else None),  # feed send time
                        history=True,     # P4's history rules: on in the app, off for scoring (team decision 4 Nov)
                        attention=True)   # activity attention: on in the app, off for scoring (same decision)
     rows = list(zip(res.insights, res.outputs))
-    # Contract order: send-window start, then created time, then farmer. Copies, because admit() edits the
-    # hand-off it merges into, and Survey demo must keep showing the original survey.
-    hs = sorted((copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o),
-                key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]))
-    led = CapLedger()
+    # Copies, because a merge edits the host hand-off, and Survey demo must keep showing the original survey.
+    hs = [copy.deepcopy(o["handoff"]) for _, o in rows if "handoff" in o]
+    ranker = FrequencyScheduler.from_insights(insights)        # the CLI's tie-break at the same window start
+    decided, _ = schedule_in_send_order(hs, cap=CapLedger(), opt_out=OptOutList(), relevance_threshold=RELEVANCE_THRESHOLD,
+                                        ranks={h["handoff_id"]: ranker.score(h) for h in hs})
     admits, upcoming = {}, {}  # upcoming: farmer -> [(send start, insight id)] of surveys that go out
-    for h in hs:
-        a = led.admit(h)
-        admits[h["handoff_id"]] = (a.decision, a.reason)
+    for hid, a in decided:
+        admits[hid] = (a.decision, a.reason)
         if a.decision in ("sent", "moved"):
-            upcoming.setdefault(h["survey"]["farmer_id"], []).append(
-                (a.handoff["send_window"]["not_before"], h["survey"]["source_insight_ids"][0]))
+            upcoming.setdefault(a.handoff["survey"]["farmer_id"], []).append(
+                (a.handoff["send_window"]["not_before"], a.handoff["survey"]["source_insight_ids"][0]))
     for v in upcoming.values():
         v.sort()
     surveyed = [o for _, o in rows if o["decision"].survey]
