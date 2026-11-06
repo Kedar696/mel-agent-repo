@@ -167,7 +167,7 @@ here, so don't look for her ticket.
 
 (AWS slide: the agent is **live on Amazon Bedrock AgentCore** in us-west-2: Evidence → Analyst → Verifier →
 Synthesizer, Claude Haiku 4.5 writes, Gemma 3 12B judges, Bedrock Guardrails block personal questions,
-results land in S3 and metrics in CloudWatch, all set up from one CloudFormation template. EventBridge, RDS and
+results land in S3 and metrics in CloudWatch, all set up from one Terraform apply. EventBridge, RDS and
 Amazon Connect are marked **not built**. Don't open any console on stage; use the screenshots.)
 
 ---

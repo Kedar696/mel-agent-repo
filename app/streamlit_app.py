@@ -21,7 +21,7 @@ import streamlit.components.v1 as components
 
 
 def _reload_mel_if_changed():
-    """Streamlit reruns this file when code changes (local `git pull`, or Streamlit Cloud pulling a merge),
+    """Streamlit reruns this file when code changes (local `git pull`),
     but keeps already-imported packages in memory, so new mel/ code would not be used and calls fail with
     'unexpected keyword argument'. The loaded `mel` package is marked with the code timestamp it came from;
     if it has no mark (loaded by an older version of this app) or an older one, drop the old modules and
@@ -654,7 +654,7 @@ def voice_readout(sv: dict, preview_key: str, rec):
     if not st.session_state.get("tts_on", True):
         return
     if not tts.api_key():
-        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) or, on Streamlit Cloud, to the app's secrets, then rerun to hear the call.")
+        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) or, on the hosted copy, as a container secret, then rerun to hear the call.")
         return
     volume = st.session_state.get("tts_volume", 80)
     state, vo = st.session_state.get(f"mel_preview|{preview_key}"), render(sv, "voice")

@@ -152,9 +152,9 @@ Questions:
 
 ## AWS design
 
-We have defined (not deployed) a container REST API with a Dockerfile and `infra/` (an ECR repository, an App
-Runner service, and an EKS Deployment/Service), with an IAM role limited to Bedrock inference. We want to
-confirm the deployment shape before building anything live.
+We have a container REST API with a Dockerfile, and Terraform (`infra/terraform/`) for the agent's resources on
+Bedrock AgentCore and the demo UI on ECS Express Mode, with IAM roles limited to what each part calls. We want to
+confirm the deployment shape before building anything more.
 
 - Is **EKS** the intended deployment target, or should we plan for something else? ⚙
 - Do you want the container image pushed to a specific registry (your ECR), or is ours fine for the demo?
@@ -163,7 +163,7 @@ confirm the deployment shape before building anything live.
   and `GET /surveys/due` (what is due to send at a given time); state is in memory, one replica. ⚙
 - In production, would you run **EventBridge** (scheduling/retries), **RDS** (the weekly limit and opt-outs) and
   **Amazon Connect** (voice) as our design assumes? (These are slide-only for the hackathon.)
-- Is **App Runner** acceptable for the demo link, or should the demo run only on EKS? ⚙
+- Is **ECS Express Mode** acceptable for the demo link, or should the demo run only on EKS? ⚙
 
 ---
 

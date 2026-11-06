@@ -3,7 +3,8 @@
 Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
 (and the date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-05 (lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions;
+_Last updated: 2026-11-05 (willF-one-account: one account, one Terraform, one hosted link; CloudFormation, App Runner
+and k8s files removed; lucas-p1: weekly cap in `mel.cli run`, REST API, Docker/infra, Py 3.12, DG questions;
 willF-team-open-items: P2 weather note, Hindi "pending review" label, CODEOWNERS P3 = @Semdon31;
 willF-bedrock-writer: compact Bedrock writer, Hindi by translation, replay file, Bedrock questions in the Survey demo
 and in Create your own insight)_
@@ -66,7 +67,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Both commands now also write `docs/results/judge_summary.json`
   (committed; incl. `rank_r`); the app's Evaluation tab shows "Can we trust the AI judge?" from it, never calling
   Bedrock. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
-  the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
+  the terminal (never chat/git) and `MEL_BEDROCK_REGION=us-west-2`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
   `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. UI/UX redesign (branch `willF-uiux`, 4 Nov, not yet
@@ -106,7 +107,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   first question) via `review_steps` / `plan_next`. Restart sends the flow back to the start. Tests: `tests/test_app.py`
   (was `tests/test_season_tab.py`).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
-  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey demo
+  (`demo/p4_standalone/`) is folded into the team app: Survey demo
   shows "What the agent remembers", a "pretend survey history" demo and generic vs
   adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
   channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
@@ -116,7 +117,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
   CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
   score history on: item sim 0.99 → 0.93, P4 relevance 0.69 → 0.73, format/safety/timeliness still 100%.
-  Tests: `tests/test_history.py`. Our app can be hosted next to P4's on Streamlit Cloud as a backup link.
+  Tests: `tests/test_history.py`.
 
 - **Activity attention (4 Nov, new):** focuses survey attention on positive *change* in a farmer's activity, at
   the beneficiary's representative's request (named in the demo per the "show deliberate changes with numbers"
@@ -140,10 +141,11 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   `docs/results/activity_attention.{md,json}` + Evaluation tab. Tests: `tests/test_activity.py` (23). Spec:
   `.kiro/specs/activity-attention/`; cross-owner changes (P2/P3/P4/P5) agreed, written in
   `docs/activity_attention_request.md`. **Uncommitted** on `lucas-p1` pending review.
-- **Terraform (P2, 5 Nov, `willF-terraform`):** `infra/terraform/` = `fasal-pulse.yaml` + `ui-express.yaml` in one
-  config (`agent.tf`, `ui.tf`, `main.tf`; AWS provider ~> 6.72, per-resource `region`). Same names, permissions and
-  dashboard. Not applied anywhere; in either team account use other `project_name`/`ui_name`. CI job `terraform`:
-  fmt + validate. Steps in `infra/README.md` "Terraform".
+- **Terraform (P2, 5 Nov, `willF-terraform`; the only IaC since `willF-one-account`):** `infra/terraform/`
+  (`agent.tf` = S3, Guardrail, AgentCore role, dashboard, budget in us-west-2; `ui.tf` = ECR, CodeBuild, ECS roles,
+  cluster, Express service in us-east-1; `main.tf`; AWS provider ~> 6.72, per-resource `region`). Agent side applied 5 Nov
+  (`-target` on `agent.tf`); the live UI was made by hand under the same names, so import it or use another `ui_name`. CI job `terraform`:
+  fmt + validate. Steps in `infra/README.md`.
 
 ## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
 P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
@@ -239,11 +241,13 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,
   free resume via cache, files to `out/agent_batch/`, summary `docs/results/full_bedrock_run.json`. Dashboard "What it
   costs". Decided: Haiku 4.5, hi+en, history off, cap $40. **Pilot and full run not yet run** (need AWS keys).
-- **IaC + demo-day plan (P5, 5 Nov, `p5-agent-orchestrator`):** `infra/fasal-pulse.yaml` (CloudFormation; rules restrict to us-east-1/us-west-2): private SSE S3 bucket (HTTPS only, results expire 30 d), least-privilege AgentCore execution role, Bedrock Guardrail + version (deny personal-info requests, PII + content filters, no violence filter; v1 also denied "new agronomic advice" but it blocked "Did you follow the advice?", so v2 drops it), CloudWatch dashboard (SEARCH over `FasalPulse/Agent`), optional budget. Outputs incl. ready `--env` flags for `agentcore launch`. cfn-lint clean; `tests/test_infra.py`. Steps in `docs/agentcore.md`. Hackathon rules check, stack and order of work: `docs/demo_day_plan.md`. Repo is public but has **no LICENSE** (team to pick MIT-0 or Apache-2.0). No AWS CLI on Michael's laptop: deploy via console upload or CloudShell. **Stack deployed 5 Nov in us-west-2** (team chose Oregon; all AgentCore/Bedrock settings now use `MEL_BEDROCK_REGION=us-west-2`); guardrail `dh15hs1wc6uw` (use v2 after the stack update). Batch runner now test-calls the guardrail before spending (and stops if it blocks a harmless question). Pilot 1 (40 surveys, us-west-2, guardrail v2): $0.22, projected full $15.41, judge 4.87, but hi-IN fell back to templates 15/40: 43 of 44 Hindi rejections were "less relevant than the template" (P4 keyword lists are the templates' own words). Fix: that comparison is now English-only (`mel/agent/orchestrator.py verify`); Hindi keeps the 0.3 send bar. P4 to review. Pilot 2: hi-IN bedrock 39/40, judge 4.90. Cost per survey now = full price of every distinct request in the run (cache hits priced from the tokens they took; `list_cost_usd` + `key` in out/bedrock_calls.jsonl, `full_price_usd` + `projection_basis` in ledger rows), so a cached re-run projects like a fresh one; pilot 2 replay: $0.0039/survey, ~$10.3 full (+ judge ~$0.25; guardrail ApplyGuardrail charges are not in the ledger). Mis-priced pilot 2 ledger row removed.
-- **Live demo link (P5, 5 Nov):** `infra/ui-express.yaml` deployed in Michael's account (us-east-1, stack
-  `fasal-pulse-ui`, image `13ef538` = main with PR #38) with `AgentCoreArn`: https://fa-53ba052ceabd447d83bc7d8b64823279.ecs.us-east-1.on.aws/
-  "Run the agent" is live on AgentCore (goat case 4.4 s, $0.0037). Will's copy (other account) can't reach the agent and
-  still runs an older image. ~$2/day: delete the stack after the presentation (empty the ECR repo first).
+- **IaC + demo-day plan (P5, 5 Nov, `p5-agent-orchestrator`):** `infra/fasal-pulse.yaml` (CloudFormation, replaced by `infra/terraform/agent.tf` on 5 Nov; rules restrict to us-east-1/us-west-2): private SSE S3 bucket (HTTPS only, results expire 30 d), least-privilege AgentCore execution role, Bedrock Guardrail + version (deny personal-info requests, PII + content filters, no violence filter; v1 also denied "new agronomic advice" but it blocked "Did you follow the advice?", so v2 drops it), CloudWatch dashboard (SEARCH over `FasalPulse/Agent`), optional budget. Outputs incl. ready `--env` flags for `agentcore launch`. `tests/test_infra.py`. Steps in `docs/agentcore.md`. Hackathon rules check, stack and order of work: `docs/demo_day_plan.md`. Repo is public but has **no LICENSE** (team to pick MIT-0 or Apache-2.0). No AWS CLI on Michael's laptop: deploy via console upload or CloudShell. **Stack deployed 5 Nov in us-west-2 in P5's own sandbox, not this account** (team chose Oregon; all AgentCore/Bedrock settings now use `MEL_BEDROCK_REGION=us-west-2`); its guardrail id is not valid here (`terraform output guardrail_id` after apply). Batch runner now test-calls the guardrail before spending (and stops if it blocks a harmless question). Pilot 1 (40 surveys, us-west-2, guardrail v2): $0.22, projected full $15.41, judge 4.87, but hi-IN fell back to templates 15/40: 43 of 44 Hindi rejections were "less relevant than the template" (P4 keyword lists are the templates' own words). Fix: that comparison is now English-only (`mel/agent/orchestrator.py verify`); Hindi keeps the 0.3 send bar. P4 to review. Pilot 2: hi-IN bedrock 39/40, judge 4.90. Cost per survey now = full price of every distinct request in the run (cache hits priced from the tokens they took; `list_cost_usd` + `key` in out/bedrock_calls.jsonl, `full_price_usd` + `projection_basis` in ledger rows), so a cached re-run projects like a fresh one; pilot 2 replay: $0.0039/survey, ~$10.3 full (+ judge ~$0.25; guardrail ApplyGuardrail charges are not in the ledger). Mis-priced pilot 2 ledger row removed.
+- **Hosted link + agent in the account (P2, 5 Nov night):** the UI on ECS Express Mode (us-east-1, service
+  `fasal-pulse-ui`, image `7a47ca8` = main): https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ .
+  `terraform apply` (agent side) + `agentcore launch` done in this account: runtime `fasal_pulse` (us-west-2),
+  guardrail from Terraform, insights in the bucket; the service has `MEL_AGENTCORE_ARN`, so "Run the agent" is live.
+  Gotcha: the toolkit reuses the repo's API `Dockerfile` unless it is moved aside (`docs/agentcore.md`).
+  ~$2/day: delete the service after the presentation (empty the ECR repo first).
 - **Deliverables check (P5, 5 Nov):** `docs/deliverables_coverage.md` maps every line of Digital Green's Vision and
   Technical documents (copied into `docs/`, git-ignored) to proof; all 7 Definition-of-Done items met; gaps in order:
   blind human scoring, Hindi review, guardrail on the $2.61 run (Will's run had none; run 2, $11.06, had v2), adoption
@@ -279,8 +283,8 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   and response file counts drop (explain in the PR). **REST API** `mel/api` (`POST /surveys`, `GET /surveys/due`,
   `/healthz`; FastAPI; one in-memory `SeasonScheduler` per process, state lost on restart; `tests/test_api.py`).
   **Dockerfile** + `.dockerignore` (built, run, three endpoints exercised, HEALTHCHECK healthy). **`infra/`**
-  (CFN: ECR + App Runner + Bedrock-only instance role; k8s Deployment/Service replicas 1; README; definition only,
-  cfn-lint + kubeconform clean). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
+  (App Runner CloudFormation + k8s manifests; removed 5 Nov by `willF-one-account`: App Runner takes no new
+  customers, the UI runs on ECS Express Mode and the IaC is `infra/terraform/`). **LICENSE** (Apache-2.0) + **NOTICE** (excludes the pack / pack-derived data).
   **Python 3.12** across README/pyproject/steering/TEAM. **CODEOWNERS** real usernames (P3 = @Semdon31). **CI** builds the image + smoke-tests `/healthz`. `requirements.txt` changed
   (`-r requirements-api.txt` + httpx) — post in chat. Done 5 Nov (`willF-polish`): `mel.cli eval --record LABEL` runs `mel.evaluation.run_eval()`
   (one history row per timing rule); late answers are counted as `schedule.late_answers` in `run_summary.json`
@@ -297,7 +301,10 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.
 - Bedrock is **required** for every model call (FINAL contract, 4 Nov), via the account's IAM role, no key.
-  Everything else on AWS is after core targets; App Runner optional; EventBridge/RDS/Connect are slide-only.
+  Everything else on AWS is after core targets; EventBridge/RDS/Connect are slide-only.
+- One AWS account (Will's Workshop Studio sandbox), one IaC (`infra/terraform/`), one Bedrock region for the models
+  and the agent (us-west-2), one AgentCore runtime, one hosted link (5 Nov). No second copies; no CloudFormation,
+  App Runner or Kubernetes files.
 - Rules follow the brief as the baseline; deliberate changes must be shown with numbers in the demo.
 
 ## How the user likes to work

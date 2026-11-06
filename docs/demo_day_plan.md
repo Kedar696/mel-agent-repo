@@ -12,7 +12,7 @@ cost ledger. Keep it.
 
 | Gap | Why it matters | Fix |
 |---|---|---|
-| **No infrastructure-as-code (IaC).** Today's AWS setup is console clicks plus the `agentcore` command line. | The rules say solutions "should be written as IaC when applicable". The account is wiped after the event, so nobody could rebuild it. | One CloudFormation template, `infra/fasal-pulse.yaml`, sets everything up in one deploy (list below). |
+| **No infrastructure-as-code (IaC).** Today's AWS setup is console clicks plus the `agentcore` command line. | The rules say solutions "should be written as IaC when applicable". The account is wiped after the event, so nobody could rebuild it. | One Terraform setup, `infra/terraform/`, sets everything up in one deploy (list below). |
 | **No licence file.** The repo is public but has no `LICENSE`. | Without a licence it isn't open source, and the rules ask for an open-source sample. | Add `LICENSE`: MIT-0, the licence most `aws-samples` repos use, or Apache-2.0. **The team decides which.** |
 | Nothing is deployed in AWS yet. | The rules' best practices: "a deployed hello world that touches all your services is more valuable than a perfect but unfinished component". | Deploy AgentCore tonight. We have admin access, so this doesn't need to wait for P1. |
 
@@ -36,7 +36,7 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | Use only `us-east-1` or `us-west-2` | ✅ everything runs in `us-west-2` (Oregon), the console's default; set `MEL_BEDROCK_REGION=us-west-2` in every terminal tab. (Earlier model runs, 4–5 Nov, used us-east-1.) |
 | Keep total spend under $500 | ✅ the full run is capped at $40 (expected about $5–10; the pilot gives the real figure). The AI judge costs about $0.05 per 1,000 surveys. AgentCore is billed by use. |
 | No public S3 buckets, no weakened security | ✅ the bucket is private and encrypted. No AWS keys in git (`.env` and `out/` are git-ignored). The event's temporary keys are pasted only into the terminal. |
-| IaC when applicable | 🟡 `infra/fasal-pulse.yaml` written, lint-clean (cfn-lint), tested (`tests/test_infra.py`); not deployed yet |
+| IaC when applicable | 🟡 `infra/terraform/` written, `terraform validate` in CI, tested (`tests/test_infra.py`); not applied yet |
 | Public GitHub repo, open-source sample | 🟡 public ✅, licence ⬜, README already lets a stranger run everything |
 | Least-privilege IAM, encryption at rest | 🟡 in the template (no wildcard actions; bucket SSE + HTTPS only); live once deployed |
 | Serverless, managed, on-demand | ✅ AgentCore Runtime, Bedrock, S3, CloudWatch; no servers we manage |
@@ -55,8 +55,8 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | Agent hosting | **Amazon Bedrock AgentCore Runtime**, entry point `agentcore_app.py` | Built by CodeBuild, image in ECR |
 | Storage | **Amazon S3** (input `insights.jsonl`, per-survey results) | |
 | Monitoring | **Amazon CloudWatch** metrics, namespace `FasalPulse/Agent` | Plus the cost ledger in git |
-| IaC | **AWS CloudFormation** (`infra/fasal-pulse.yaml`) | Deploy steps in `docs/agentcore.md` |
-| UI | **Streamlit** (`app/streamlit_app.py`): Dashboard, Survey demo, Season, Follow-up queue | Runs locally. Backup link on Streamlit Community Cloud. |
+| IaC | **Terraform** (`infra/terraform/`) | Steps in `docs/agentcore.md` and `infra/README.md` |
+| UI | **Streamlit** (`app/streamlit_app.py`): Dashboard, Survey demo, Season, Follow-up queue | Runs locally and on ECS Express Mode (link in section 7). |
 | Tests / CI | pytest (794 tests), GitHub Actions (`.github/workflows/ci.yml`) | |
 | Data | Organisers' synthetic pack: 6,999 insights → 2,616 surveys, 150-row golden set | Synthetic only |
 
@@ -87,7 +87,7 @@ stores it in ECR, AWS's container registry). We pass the template's role, bucket
 | 2 | Paste fresh Workshop Studio keys; run the pilot; read the three numbers above | P5 | 15 min |
 | 3 | Full run (background) **and**, in parallel, `agentcore configure` / `launch` / `invoke` | P5 (+P1 to watch the account) | 25 min |
 | 4 | Record the five demo picks **from AgentCore**: `python -m mel.agent --record --remote <ARN>`; commit them | P5 | 5 min |
-| 5 | ✅ `infra/fasal-pulse.yaml` written. Deploy the stack **before** step 3's `agentcore configure` (its role, bucket and guardrail feed it). `LICENSE`: team picks MIT-0 or Apache-2.0 | P5 + P1 | 10 min |
+| 5 | ✅ `infra/terraform/` written. `terraform apply` **before** step 3's `agentcore configure` (its role, bucket and guardrail feed it). `LICENSE`: team picks MIT-0 or Apache-2.0 | P5 + P1 | 10 min |
 | 6 | Commit results: `cost_history.jsonl`, `full_bedrock_run.json`, `agent_runs/`; regenerate README numbers (`python scripts/readme_numbers.py --write`) | P5 | 10 min |
 | 7 | Score the blind Bedrock sheet (15 rows) | any 2 people | 10 min |
 | 8 | Slides: add **Architecture** (diagram with real service names) and **Cost** (cost per survey, full run actual, projection per 1,000 farmers); update demo numbers | P5 | 30 min |
@@ -108,7 +108,7 @@ about 25 seconds.
   rejected a draft and the Analyst fixed it ("the agent checks its own work").
 - **Part 2** (quality): add **"What it costs"**: about $X per survey, all 2,616 surveys for $Y, every one checked.
   One sentence on the judge: "a different AI model grades relevance; we checked it against people's scores".
-- **Close:** "It runs on Bedrock AgentCore in the event account, the whole setup is one CloudFormation template,
+- **Close:** "It runs on Bedrock AgentCore in the event account, the whole setup is one Terraform apply,
   and the repo is open source". Show the architecture slide.
 
 Fill in $X and $Y from `full_bedrock_run.json` after step 3. Never use estimates on stage.

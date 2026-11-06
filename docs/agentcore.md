@@ -29,66 +29,71 @@ Local Streamlit UI --questions-->  AgentCore Runtime                            
    to S3 and sends metrics to CloudWatch. The app calls it when `MEL_AGENTCORE_ARN` is set.
 
 ## Deploy (from a laptop with the event's AWS keys, about 20 minutes)
-Two parts: **(1)** a CloudFormation stack (infrastructure-as-code) creates everything around the agent, then
-**(2)** the AgentCore toolkit builds and runs the agent itself, using the stack's outputs.
+Two parts: **(1)** `terraform apply` (infrastructure-as-code) creates everything around the agent, then
+**(2)** the AgentCore toolkit builds and runs the agent itself, using the Terraform outputs.
 
-### 1. The stack: `infra/fasal-pulse.yaml`
-It creates, in us-east-1 or us-west-2 only (the template refuses other regions):
+### 1. The resources: `infra/terraform/`
+`agent.tf` creates, in us-west-2 (or us-east-1; other regions are refused):
 - a **private, encrypted S3 bucket** for input and results (public access blocked, HTTPS only, results kept 30 days);
 - the **AgentCore execution role** with only what the agent needs: the Claude, Gemma and Nova models, this
   guardrail, this bucket, metrics in `FasalPulse/Agent`, its own logs and container image;
 - the **Bedrock Guardrail** for survey questions: no requests for personal information, PII
   and harmful-content filters;
 - a **CloudWatch dashboard** `fasal-pulse-agent` (runs, spend, seconds, revisions, fallbacks, tokens);
-- an optional **budget alert** (only if you give `BudgetEmail`).
+- an optional **budget alert** (only if you give `budget_email`).
 
-Nothing in it runs or costs money when idle. Deploy it either way:
-- **Console:** CloudFormation → Create stack → Upload `infra/fasal-pulse.yaml` → stack name `fasal-pulse` → tick
-  "I acknowledge that AWS CloudFormation might create IAM resources with custom names" → Submit. The **Outputs** tab
-  has everything for step 2.
-- **CloudShell** (the `>_` icon in the console top bar; it has the AWS CLI):
-  ```
-  git clone https://github.com/michvinh-7/mel-agent-repo.git && cd mel-agent-repo
-  aws cloudformation deploy --template-file infra/fasal-pulse.yaml --stack-name fasal-pulse --capabilities CAPABILITY_NAMED_IAM --region us-west-2
-  aws cloudformation describe-stacks --stack-name fasal-pulse --region us-west-2 --query "Stacks[0].Outputs" --output table
-  ```
-
-Optional: copy the insights to the bucket (the agent's image already carries the pack, so this only matters if you
-want S3 as the input). From the laptop, with `<bucket>` from the outputs:
+Nothing in it runs or costs money when idle. From a laptop with Terraform, or CloudShell (the `>_` icon in the
+console top bar; it has the AWS CLI, install Terraform there first):
 ```
-python -c "import boto3; boto3.client('s3').upload_file('mel-survey-agent-participant-pack/participant-pack/data/insights.jsonl', '<bucket>', 'input/insights.jsonl')"
+git clone https://github.com/michvinh-7/mel-agent-repo.git && cd mel-agent-repo/infra/terraform
+terraform init
+terraform apply
+terraform output
+```
+(The same apply makes the UI's registry and build project; the UI service itself comes on a second apply with
+`-var image_tag=<sha>`, see `infra/README.md`.)
+
+Copy the insights to the bucket (required: `agentcore_launch_env` sets `MEL_S3_INPUT`, and the runtime then reads only
+from S3). With `<bucket>` = `terraform output bucket_name`:
+```
+aws s3 cp mel-survey-agent-participant-pack/participant-pack/data/insights.jsonl s3://<bucket>/input/insights.jsonl
 ```
 
-To remove everything: empty the bucket, then delete the `fasal-pulse` stack.
+To remove everything: empty the bucket, then `terraform destroy`.
 
-Check the template before changing it: `pip install cfn-lint`, then
-`cfn-lint --regions us-east-1 us-west-2 -- infra/fasal-pulse.yaml`. `tests/test_infra.py` checks the security settings.
+Check the setup before changing it: `terraform fmt -check` and `terraform validate` (CI runs both).
+`tests/test_infra.py` checks the security settings.
 
 ### 2. The agent: AgentCore starter toolkit
 If a flag differs in your version, check `agentcore configure --help`.
 ```
 source .venv/bin/activate
 pip install bedrock-agentcore bedrock-agentcore-starter-toolkit
-agentcore configure --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-west-2 --execution-role <ExecutionRoleArn>
-agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-west-2 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it --env 'MEL_BEDROCK_PRICES={"anthropic.claude-haiku-4-5-20251001-v1:0":{"in":0.001,"out":0.005},"google.gemma-3-12b-it":{"in":0.00009,"out":0.00029}}' <AgentcoreLaunchEnv>
+mv Dockerfile /tmp/Dockerfile.api
+agentcore configure --non-interactive --name fasal_pulse --entrypoint agentcore_app.py --requirements-file requirements-agentcore.txt --region us-west-2 --execution-role <execution_role_arn> --ecr auto --deployment-type container --disable-memory
+agentcore launch --env MEL_USE_LLM=1 --env MEL_BEDROCK_REGION=us-west-2 --env MEL_BEDROCK_WRITE_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0 --env MEL_AGENT_JUDGE=1 --env MEL_JUDGE_MODEL=google.gemma-3-12b-it --env 'MEL_BEDROCK_PRICES={"anthropic.claude-haiku-4-5-20251001-v1:0":{"in":0.001,"out":0.005},"google.gemma-3-12b-it":{"in":0.00009,"out":0.00029}}' <agentcore_launch_env>
 agentcore invoke '{"insight_id": "I-001253"}'
 ```
+- **Move the REST API's `Dockerfile` aside first** (the `mv` above). With a `Dockerfile` at the repo root the toolkit
+  builds that image (P1's API on port 8000) instead of generating its own, and every invoke fails with "Runtime health
+  check failed"; `--non-interactive` skips the question that would catch it. Move it back after `launch`.
 - **Why the extra `--env` lines:** the toolkit builds the image with its own ignore list, not our `.dockerignore`. It
   copies `out/` (so the laptop's model cache would answer every call: $0 and no real Bedrock call) and leaves out
   `docs/` (so the price file is missing and costs show $0). `agentcore_app.py` therefore sets `MEL_OUT_DIR=/tmp/mel_out` in the
   container (caches, call log, judge cache; the app folder is read-only there); `MEL_BEDROCK_PRICES` gives the two models' prices (USD per 1,000 tokens, from
   `docs/results/bedrock_prices.json`). The build recipe is `.bedrock_agentcore/fasal_pulse/Dockerfile`.
-- `<ExecutionRoleArn>` and `<AgentcoreLaunchEnv>` come from the stack's Outputs. `AgentcoreLaunchEnv` is a ready-made
-  set of `--env` flags (bucket, guardrail id and version, metrics namespace).
-- **`configure`** asks for the agent name: type `fasal_pulse` (letters, numbers and underscores only; a `-` is
-  refused). Then it asks for an ECR repository (AWS's container registry): accept the auto-created one.
+- `<execution_role_arn>` and `<agentcore_launch_env>` come from `terraform output`. `agentcore_launch_env` is a
+  ready-made set of `--env` flags (bucket, guardrail id and version, metrics namespace).
+- `--name fasal_pulse`: letters, numbers and underscores only (a `-` is refused). `--ecr auto` makes the repository
+  `bedrock-agentcore-fasal_pulse`.
 - The toolkit prints that it is "no longer supported" in favour of the npm AgentCore CLI. It still deploys;
   set `AGENTCORE_SUPPRESS_RECOMMENDATION=1` to hide the warning. We stay on it for this event.
-- **`launch`** builds the container in the cloud (CodeBuild) and prints the runtime's ARN.
+- **`launch`** builds the container in the cloud (CodeBuild) and prints the runtime's ARN. To redeploy, add
+  `--auto-update-on-conflict`.
 - **`invoke`** should stream the steps and end with the result. Its metrics show on the dashboard within a few minutes.
 - **The guardrail is new:** run the 40-survey pilot with `MEL_GUARDRAIL_ID` / `MEL_GUARDRAIL_VERSION` set once. If it
-  blocks fair questions (they show as template fallbacks with a guardrail reason), loosen the topic wording in the
-  template and redeploy the stack.
+  blocks fair questions (they show as template fallbacks with a guardrail reason), loosen the topic wording in
+  `infra/terraform/agent.tf` and apply again.
 
 ### Point the app at it
 ```
@@ -96,6 +101,9 @@ export MEL_AGENTCORE_ARN=<the ARN from agentcore launch>
 streamlit run app/streamlit_app.py
 ```
 "Run the agent" in Survey demo now runs on AgentCore and streams each step back.
+
+Done 5 Nov in the event account: `terraform apply`, insights in the bucket, runtime `fasal_pulse` in us-west-2, and
+the hosted UI's `MEL_AGENTCORE_ARN` set to it (`infra/README.md`).
 
 ## Record runs for the hosted app (no AWS keys there)
 With the Bedrock settings in your terminal:

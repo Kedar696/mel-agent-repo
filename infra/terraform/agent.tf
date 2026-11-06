@@ -1,4 +1,4 @@
-# The AWS resources around the AgentCore agent (same as infra/fasal-pulse.yaml). Nothing here runs or costs
+# The AWS resources around the AgentCore agent. Nothing here runs or costs
 # money when idle. The runtime itself is still built with `agentcore launch` (docs/agentcore.md), using the
 # outputs below.
 
@@ -248,7 +248,7 @@ resource "aws_budgets_budget" "spend" {
   }
 }
 
-# ---- Outputs (the same names as the CloudFormation stack's) -------------------------------------
+# ---- Outputs ----------------------------------------------------------------------------------
 output "bucket_name" {
   value = aws_s3_bucket.data.id
 }

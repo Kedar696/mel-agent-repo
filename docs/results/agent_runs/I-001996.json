@@ -1,11 +1,11 @@
 {
  "insight_id": "I-001996",
- "recorded": "2026-11-05 01:57",
+ "recorded": "2026-11-05 23:48",
  "where": "agentcore",
- "writer": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+ "writer": null,
  "checker": null,
  "judge": null,
- "guardrail": "dh15hs1wc6uw",
+ "guardrail": "8dw1s0ayihkz",
  "events": [
   {
    "step": "evidence",
@@ -33,7 +33,7 @@
    "status": "ok",
    "title": "Analyst decides: survey (rule R8)",
    "detail": "A plan was created. Ask whether the first step was followed. Window 2026-12-22T07:00:00+05:30 to 2026-12-24T19:00:00+05:30.",
-   "ms": 2.6,
+   "ms": 3.4,
    "data": {
     "decision": {
      "survey": true,
@@ -60,13 +60,13 @@
    "status": "ok",
    "title": "Analyst drafts [en-IN]",
    "detail": "2 questions from Bedrock",
-   "ms": 1139.5,
+   "ms": 914.9,
    "data": {
     "lang": "en-IN",
     "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "questions": [
-     "Did you give light irrigation and apply soil insecticide to the affected patches in your wheat field?",
-     "After you did this, did the drying patches stop spreading or get better?"
+     "Did you give light irrigation to the affected wheat patches?",
+     "Did you apply the soil insecticide as recommended on the label?"
     ]
    }
   },
@@ -75,7 +75,7 @@
    "status": "ok",
    "title": "Verifier [en-IN]",
    "detail": "passed every check",
-   "ms": 821.2,
+   "ms": 815.0,
    "data": {
     "lang": "en-IN",
     "ok": true,
@@ -87,15 +87,15 @@
   {
    "step": "analyst",
    "status": "ok",
-   "title": "Analyst drafts [hi-IN]",
+   "title": "Analyst translates the English survey [hi-IN]",
    "detail": "2 questions from Bedrock",
-   "ms": 1437.4,
+   "ms": 865.0,
    "data": {
     "lang": "hi-IN",
     "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "questions": [
-     "क्या आपने गेहूं के सूखे हुए हिस्सों में हल्की सिंचाई दी और मिट्टी में कीटनाशक लगाया?",
-     "इस सलाह के बाद गेहूं के पौधे सूखना बंद हो गए?"
+     "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+     "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?"
     ]
    }
   },
@@ -104,12 +104,12 @@
    "status": "ok",
    "title": "Verifier [hi-IN]",
    "detail": "passed every check",
-   "ms": 688.8,
+   "ms": 953.0,
    "data": {
     "lang": "hi-IN",
     "ok": true,
     "problems": [],
-    "relevance": 0.6,
+    "relevance": 0.5,
     "judge": 5
    }
   },
@@ -118,7 +118,7 @@
    "status": "ok",
    "title": "Synthesizer",
    "detail": "2 survey files, hand-off (high priority, first channel whatsapp), 2 channel renders; all schema-valid",
-   "ms": 3.1,
+   "ms": 5.0,
    "data": {
     "schema_errors": {}
    }
@@ -163,7 +163,22 @@
       {
        "item_id": "q1",
        "type": "survey-confirm",
-       "prompt": "Did you give light irrigation and apply soil insecticide to the affected patches in your wheat field?",
+       "prompt": "Did you give light irrigation to the affected wheat patches?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "Did you apply the soil insecticide as recommended on the label?",
        "options": [
         {
          "value": "yes",
@@ -175,15 +190,6 @@
          "follow_up": "could_not_get_input"
         }
        ]
-      },
-      {
-       "item_id": "q2",
-       "type": "survey-scale",
-       "prompt": "After you did this, did the drying patches stop spreading or get better?",
-       "scale_min": 1,
-       "scale_max": 5,
-       "follow_up_at_or_below": 2,
-       "follow_up_reason": "advice_did_not_work"
       }
      ],
      "self_eval": {
@@ -219,7 +225,22 @@
       {
        "item_id": "q1",
        "type": "survey-confirm",
-       "prompt": "क्या आपने गेहूं के सूखे हुए हिस्सों में हल्की सिंचाई दी और मिट्टी में कीटनाशक लगाया?",
+       "prompt": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?",
        "options": [
         {
          "value": "yes",
@@ -228,32 +249,23 @@
         {
          "value": "no",
          "label": "नहीं",
-         "follow_up": "advice_did_not_work"
+         "follow_up": "could_not_get_input"
         }
        ]
-      },
-      {
-       "item_id": "q2",
-       "type": "survey-scale",
-       "prompt": "इस सलाह के बाद गेहूं के पौधे सूखना बंद हो गए?",
-       "scale_min": 1,
-       "scale_max": 5,
-       "follow_up_at_or_below": 2,
-       "follow_up_reason": "advice_did_not_work"
       }
      ],
      "self_eval": {
       "schema_valid": true,
       "gives_new_advice": false,
       "asks_personal_info": false,
-      "relevance_score": 0.6
+      "relevance_score": 0.5
      },
      "_source": "bedrock",
      "_revisions": 0,
      "_verifier": {
       "ok": true,
       "problems": [],
-      "relevance": 0.6,
+      "relevance": 0.5,
       "judge": 5
      },
      "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -279,7 +291,22 @@
       {
        "item_id": "q1",
        "type": "survey-confirm",
-       "prompt": "क्या आपने गेहूं के सूखे हुए हिस्सों में हल्की सिंचाई दी और मिट्टी में कीटनाशक लगाया?",
+       "prompt": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?",
        "options": [
         {
          "value": "yes",
@@ -288,25 +315,16 @@
         {
          "value": "no",
          "label": "नहीं",
-         "follow_up": "advice_did_not_work"
+         "follow_up": "could_not_get_input"
         }
        ]
-      },
-      {
-       "item_id": "q2",
-       "type": "survey-scale",
-       "prompt": "इस सलाह के बाद गेहूं के पौधे सूखना बंद हो गए?",
-       "scale_min": 1,
-       "scale_max": 5,
-       "follow_up_at_or_below": 2,
-       "follow_up_reason": "advice_did_not_work"
       }
      ],
      "self_eval": {
       "schema_valid": true,
       "gives_new_advice": false,
       "asks_personal_info": false,
-      "relevance_score": 0.6
+      "relevance_score": 0.5
      }
     },
     "send_window": {
@@ -397,7 +415,7 @@
        "interactive": {
         "type": "button",
         "body": {
-         "text": "क्या आपने गेहूं के सूखे हुए हिस्सों में हल्की सिंचाई दी और मिट्टी में कीटनाशक लगाया?"
+         "text": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?"
         },
         "action": {
          "buttons": [
@@ -424,37 +442,25 @@
        "to": "<farmer WhatsApp number>",
        "type": "interactive",
        "interactive": {
-        "type": "list",
+        "type": "button",
         "body": {
-         "text": "इस सलाह के बाद गेहूं के पौधे सूखना बंद हो गए?"
+         "text": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?"
         },
         "action": {
-         "button": "चुनें",
-         "sections": [
+         "buttons": [
           {
-           "title": "एक चुनें",
-           "rows": [
-            {
-             "id": "S-01996|q2|1",
-             "title": "1"
-            },
-            {
-             "id": "S-01996|q2|2",
-             "title": "2"
-            },
-            {
-             "id": "S-01996|q2|3",
-             "title": "3"
-            },
-            {
-             "id": "S-01996|q2|4",
-             "title": "4"
-            },
-            {
-             "id": "S-01996|q2|5",
-             "title": "5"
-            }
-           ]
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q2|yes",
+            "title": "हाँ"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q2|no",
+            "title": "नहीं"
+           }
           }
          ]
         }
@@ -469,7 +475,7 @@
      "items": [
       {
        "item_id": "q1",
-       "say": "क्या आपने गेहूं के सूखे हुए हिस्सों में हल्की सिंचाई दी और मिट्टी में कीटनाशक लगाया? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
+       "say": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
        "keypad": {
         "1": "yes",
         "2": "no"
@@ -494,34 +500,24 @@
       },
       {
        "item_id": "q2",
-       "say": "इस सलाह के बाद गेहूं के पौधे सूखना बंद हो गए? 1 से 5 के बीच कोई अंक दबाएँ या बोलें।",
+       "say": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
        "keypad": {
-        "1": 1,
-        "2": 2,
-        "3": 3,
-        "4": 4,
-        "5": 5
+        "1": "yes",
+        "2": "no"
        },
        "speech": {
-        "1": [
-         "1",
-         "एक"
+        "yes": [
+         "हाँ",
+         "हाँ",
+         "हां",
+         "जी हाँ",
+         "haan"
         ],
-        "2": [
-         "2",
-         "दो"
-        ],
-        "3": [
-         "3",
-         "तीन"
-        ],
-        "4": [
-         "4",
-         "चार"
-        ],
-        "5": [
-         "5",
-         "पाँच"
+        "no": [
+         "नहीं",
+         "नहीं",
+         "नही",
+         "nahin"
         ]
        },
        "timeout_seconds": 8,
@@ -537,17 +533,17 @@
     "calls": 4,
     "cached": 0,
     "failed": 0,
-    "input_tokens": 1760,
-    "output_tokens": 656,
-    "cost_usd": 0.003812,
-    "seconds": 4.095,
+    "input_tokens": 1318,
+    "output_tokens": 233,
+    "cost_usd": 0.001355,
+    "seconds": 3.56,
     "revisions": 0,
     "sources": {
      "en-IN": "bedrock",
      "hi-IN": "bedrock"
     }
    },
-   "saved_to": "s3://fasal-pulse-databucket-plkimewm8yws/results/I-001996/20261105T065756.json"
+   "saved_to": "s3://fasal-pulse-data-a8460baa13e0ea0aa889c01a2a/results/I-001996/20261106T044823.json"
   }
  ]
 }
