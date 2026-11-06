@@ -4,6 +4,7 @@ Needs ELEVENLABS_API_KEY in the environment or in the repo's .env (mel.config.en
 ELEVENLABS_VOICE_ID (default: a premade voice) and ELEVENLABS_MODEL (default eleven_multilingual_v2, which speaks
 Hindi and English). Without a key, speak() returns None and the app says how to enable it. Standard library only.
 """
+
 import json
 import urllib.error
 import urllib.request
@@ -31,9 +32,12 @@ def speak(text: str, *, key: str | None = None, voice: str | None = None, model:
     if not key or not text:
         return None
     body = json.dumps({"text": text, "model_id": model or env("ELEVENLABS_MODEL", DEFAULT_MODEL)}).encode()
-    req = urllib.request.Request(API.format(voice=voice or env("ELEVENLABS_VOICE_ID", DEFAULT_VOICE)), data=body,
-                                 method="POST", headers={"xi-api-key": key, "Content-Type": "application/json",
-                                                         "Accept": "audio/mpeg"})
+    req = urllib.request.Request(
+        API.format(voice=voice or env("ELEVENLABS_VOICE_ID", DEFAULT_VOICE)),
+        data=body,
+        method="POST",
+        headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.read()

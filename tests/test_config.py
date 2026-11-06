@@ -1,7 +1,8 @@
 """mel.config: one place every MEL_* setting is read."""
+
 import mel.config as config
 
-_READ_DOTENV = config._dotenv.__wrapped__      # the real reader, taken before conftest swaps it out
+_READ_DOTENV = config._dotenv.__wrapped__  # the real reader, taken before conftest swaps it out
 
 
 def test_env_reads_process_then_dotenv_then_default(monkeypatch, tmp_path):
@@ -14,7 +15,7 @@ def test_env_reads_process_then_dotenv_then_default(monkeypatch, tmp_path):
     monkeypatch.setenv("MEL_X", " from-env ")
     assert config.env("MEL_X") == "from-env"
     monkeypatch.setenv("MEL_X", "")
-    assert config.env("MEL_X") == "from-file"                               # empty counts as unset
+    assert config.env("MEL_X") == "from-file"  # empty counts as unset
 
 
 def test_flag_and_region(monkeypatch):

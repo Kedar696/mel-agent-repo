@@ -18,6 +18,7 @@ second slot.
 
 Run it:  MEL_API_TOKEN=... uvicorn --factory mel.api.app:create_app
 """
+
 import json
 import secrets
 import threading
@@ -76,7 +77,7 @@ def admit(store: Store, handoff: dict) -> Admit:
         ledger.allow(prior)
     a = ledger.admit_checked(handoff, opt_out=opt_out, relevance_threshold=RELEVANCE_THRESHOLD)
     if a.decision == "merged":
-        host = store.handoff(a.handoff["handoff_id"])       # the host now carries this survey's insight ids too
+        host = store.handoff(a.handoff["handoff_id"])  # the host now carries this survey's insight ids too
         store.put_handoff(a.handoff, host[1], host[2])
         store.put_handoff(handoff, "merged", a.reason)
     else:
@@ -103,6 +104,7 @@ def create_app(farmers: dict | None = None, store: Store | None = None, token: s
         scheme, _, given = request.headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not secrets.compare_digest(given.strip(), token):
             raise HTTPException(401, "a valid bearer token is required", headers={"WWW-Authenticate": "Bearer"})
+
     guarded = [Depends(auth)]
 
     @app.get("/healthz")
@@ -122,16 +124,24 @@ def create_app(farmers: dict | None = None, store: Store | None = None, token: s
         decision = res["decision"]
         if not decision["survey"]:
             store.put_no_survey(res["no_survey"])
-            return UTF8JSONResponse(status_code=200, content={"status": "no_survey", "decision": decision,
-                                                              "no_survey": res["no_survey"]})
-        surveys = {lang: clean(s) for lang, s in res["surveys"].items()}     # schema-valid: _-keys stripped
+            return UTF8JSONResponse(
+                status_code=200, content={"status": "no_survey", "decision": decision, "no_survey": res["no_survey"]}
+            )
+        surveys = {lang: clean(s) for lang, s in res["surveys"].items()}  # schema-valid: _-keys stripped
         for s in surveys.values():
             store.put_survey(s)
         with app.state.lock:
             a = admit(store, res["handoff"])
-        return UTF8JSONResponse(status_code=201, content={
-            "status": "survey", "decision": decision, "surveys": surveys, "handoff": a.handoff,
-            "admission": {"decision": a.decision, "reason": a.reason}})
+        return UTF8JSONResponse(
+            status_code=201,
+            content={
+                "status": "survey",
+                "decision": decision,
+                "surveys": surveys,
+                "handoff": a.handoff,
+                "admission": {"decision": a.decision, "reason": a.reason},
+            },
+        )
 
     @app.get("/surveys/due", dependencies=guarded)
     def surveys_due(at: str | None = None, limit: int | None = None):
@@ -189,11 +199,17 @@ def create_app(farmers: dict | None = None, store: Store | None = None, token: s
         new = store.put_response(record, flow_id)
         if record.get("failure_code") == "farmer_opted_out":
             store.opt_out(record["farmer_id"], record["response_key"], record["recorded_at"])
-        return UTF8JSONResponse(status_code=201 if new else 200, content={
-            "response_key": record["response_key"], "status": record["status"], "stored": new,
-            "needs_follow_up": bool(record.get("needs_follow_up")),
-            "follow_up_reasons": list(record.get("follow_up_reasons") or []),
-            "opted_out": store.opted_out(record["farmer_id"])})
+        return UTF8JSONResponse(
+            status_code=201 if new else 200,
+            content={
+                "response_key": record["response_key"],
+                "status": record["status"],
+                "stored": new,
+                "needs_follow_up": bool(record.get("needs_follow_up")),
+                "follow_up_reasons": list(record.get("follow_up_reasons") or []),
+                "opted_out": store.opted_out(record["farmer_id"]),
+            },
+        )
 
     @app.get("/follow-ups", dependencies=guarded)
     def follow_ups(limit: int | None = None):

@@ -21,6 +21,7 @@ config/rules/, so P1's pack-parity check is untouched). Defaults are explained t
 
 Delivery stays simulated elsewhere (mel.simulator); this module schedules, it does not send.
 """
+
 import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -45,7 +46,7 @@ def topic_of(insight: dict, cfg: dict | None = None) -> str:
     concern, else the literal 'unknown'. Deterministic; unrelated crops/concerns never share
     a key, so one farmer's wheat questions cannot contaminate their livestock questions."""
     cfg = cfg or frequency_config()
-    asset = (insight.get("asset") or {})
+    asset = insight.get("asset") or {}
     crop = asset.get("name")
     concern = insight.get("concern")
     if cfg["topic"]["prefer"] == "crop":
@@ -62,12 +63,13 @@ def _ts(insight: dict) -> datetime:
 class FrequencyPeak:
     """A monitor result for one (farmer, topic). No free text, only ids and counts.
 
-      is_peak      -- True when recent questions run at/above baseline * peak_ratio and meet
-                      the minimum count (so a sparse 1->2 jump is not a 'peak').
-      window_count -- questions in the most recent rolling window ending at `as_of`.
-      baseline     -- the pair's own average questions per window over its history.
-      strength     -- window_count / baseline (1.0 = at baseline), 0.0 if baseline is 0.
+    is_peak      -- True when recent questions run at/above baseline * peak_ratio and meet
+                    the minimum count (so a sparse 1->2 jump is not a 'peak').
+    window_count -- questions in the most recent rolling window ending at `as_of`.
+    baseline     -- the pair's own average questions per window over its history.
+    strength     -- window_count / baseline (1.0 = at baseline), 0.0 if baseline is 0.
     """
+
     def __init__(self, farmer_id, topic, *, is_peak, window_count, baseline, strength, n_history):
         self.farmer_id = farmer_id
         self.topic = topic
@@ -79,13 +81,21 @@ class FrequencyPeak:
 
     def signals(self) -> dict:
         """A compact, PII-free dict for explaining a scheduling result."""
-        return {"farmer_id": self.farmer_id, "topic": self.topic, "is_peak": self.is_peak,
-                "window_count": self.window_count, "baseline": round(self.baseline, 3),
-                "strength": round(self.strength, 3), "n_history": self.n_history}
+        return {
+            "farmer_id": self.farmer_id,
+            "topic": self.topic,
+            "is_peak": self.is_peak,
+            "window_count": self.window_count,
+            "baseline": round(self.baseline, 3),
+            "strength": round(self.strength, 3),
+            "n_history": self.n_history,
+        }
 
     def __repr__(self):
-        return (f"FrequencyPeak({self.farmer_id!r}, {self.topic!r}, peak={self.is_peak}, "
-                f"count={self.window_count}, baseline={self.baseline:.2f})")
+        return (
+            f"FrequencyPeak({self.farmer_id!r}, {self.topic!r}, peak={self.is_peak}, "
+            f"count={self.window_count}, baseline={self.baseline:.2f})"
+        )
 
 
 class FrequencyMonitor:
@@ -148,8 +158,9 @@ class FrequencyMonitor:
             events = [t for t in events if t <= now]
         n = len(events)
         if n < w["min_history"]:
-            return FrequencyPeak(farmer_id, topic, is_peak=False, window_count=n,
-                                 baseline=0.0, strength=0.0, n_history=n)
+            return FrequencyPeak(
+                farmer_id, topic, is_peak=False, window_count=n, baseline=0.0, strength=0.0, n_history=n
+            )
 
         if as_of is None:
             now = self._as_of(None)
@@ -158,15 +169,21 @@ class FrequencyMonitor:
 
         # Baseline: spread history across however many whole windows it spans (>=1), so the
         # baseline is this pair's own average load per window.
-        span = (events[-1] - events[0])
+        span = events[-1] - events[0]
         n_windows = max(1, (span / rolling))
         baseline = n / n_windows
         strength = (window_count / baseline) if baseline > 0 else 0.0
 
-        is_peak = (baseline > 0 and strength >= b["peak_ratio"]
-                   and window_count >= b["min_peak_count"])
-        return FrequencyPeak(farmer_id, topic, is_peak=is_peak, window_count=window_count,
-                             baseline=baseline, strength=strength, n_history=n)
+        is_peak = baseline > 0 and strength >= b["peak_ratio"] and window_count >= b["min_peak_count"]
+        return FrequencyPeak(
+            farmer_id,
+            topic,
+            is_peak=is_peak,
+            window_count=window_count,
+            baseline=baseline,
+            strength=strength,
+            n_history=n,
+        )
 
 
 # ------------------------------------------------------------------- season stage context
@@ -179,11 +196,13 @@ class SeasonStageContext:
 
     def __init__(self, calendar=None):
         from mel.data import load_crop_calendar
+
         self._rows = calendar if calendar is not None else load_crop_calendar()
 
     @staticmethod
     def _crop_key(crop):
         from mel.timing.calendar import _crop_key
+
         return _crop_key(crop) if crop else None
 
     def active_stage(self, crop, on: date):
@@ -224,8 +243,9 @@ class ClimateContext:
         cfg = cfg or frequency_config()
         self._provider = provider
         self._cfg_available = bool(cfg["climate"]["available"])
-        self._synthetic = (synthetic_factor if synthetic_factor is not None
-                           else cfg["climate"].get("synthetic_demo_factor"))
+        self._synthetic = (
+            synthetic_factor if synthetic_factor is not None else cfg["climate"].get("synthetic_demo_factor")
+        )
 
     @property
     def available(self) -> bool:
@@ -253,6 +273,7 @@ class ClimateContext:
 # -------------------------------------------------------------- frequency-aware scheduler
 class RankedHandoff:
     """One eligible hand-off with its computed rank score and the signals behind it."""
+
     def __init__(self, handoff, score, signals):
         self.handoff = handoff
         self.score = score
@@ -279,8 +300,15 @@ class FrequencyScheduler:
     survey, an expired/out-of-window survey, or a survey that fails the quality gate.
     """
 
-    def __init__(self, monitor: FrequencyMonitor, *, season: SeasonStageContext | None = None,
-                 climate: ClimateContext | None = None, cfg: dict | None = None, insights=None):
+    def __init__(
+        self,
+        monitor: FrequencyMonitor,
+        *,
+        season: SeasonStageContext | None = None,
+        climate: ClimateContext | None = None,
+        cfg: dict | None = None,
+        insights=None,
+    ):
         self.cfg = cfg or frequency_config()
         self.monitor = monitor
         self.season = season if season is not None else SeasonStageContext()
@@ -316,8 +344,7 @@ class FrequencyScheduler:
         return None
 
     # -- eligibility gate (wraps existing protections; never bypassed) -------
-    def filter_eligible(self, handoffs, *, relevance_threshold, opt_out=None, cap=None,
-                        now=None):
+    def filter_eligible(self, handoffs, *, relevance_threshold, opt_out=None, cap=None, now=None):
         """Keep only hand-offs that pass every existing protection, so ranking only ever sees
         allowed surveys. Order of checks: opt-out, quality gate, expiry/window (if `now`), and
         the frequency cap (if a CapLedger is supplied). Returns the eligible list; dropped
@@ -369,8 +396,7 @@ class FrequencyScheduler:
         freq_component = rk["frequency_weight"] * (peak.strength if peak and peak.is_peak else 0.0)
 
         # 3) season stage (active crop window -> a small boost)
-        on = (now_dt.date() if now_dt is not None
-              else parse_ist(handoff["send_window"]["not_before"]).date())
+        on = now_dt.date() if now_dt is not None else parse_ist(handoff["send_window"]["not_before"]).date()
         crop = self._handoff_crop(handoff)
         stage = self.season.active_stage(crop, on) if crop else None
         season_component = rk["season_stage_weight"] if stage else 0.0
@@ -379,8 +405,9 @@ class FrequencyScheduler:
         # insight's own state/district; with no insight the provider is asked for (None, None).
         loc = (self._source_insight(handoff) or {}).get("location") or {}
         clim_factor = self.climate.factor(loc.get("state"), loc.get("district"), on)
-        climate_component = (rk["climate_weight"] * clim_factor
-                             if (self.climate.available and clim_factor is not None) else 0.0)
+        climate_component = (
+            rk["climate_weight"] * clim_factor if (self.climate.available and clim_factor is not None) else 0.0
+        )
 
         score = base + freq_component + season_component + climate_component
         signals = {
@@ -403,10 +430,12 @@ class FrequencyScheduler:
     def _handoff_crop(self, handoff: dict):
         """The crop a hand-off is about: an explicit `_crop` (tests, callers), else the crop of
         its source insight. May be None (the season signal then simply does not apply)."""
-        return (handoff.get("_crop")
-                or (handoff.get("survey", {}).get("_crop"))
-                or handoff.get("crop")
-                or ((self._source_insight(handoff) or {}).get("asset") or {}).get("name"))
+        return (
+            handoff.get("_crop")
+            or (handoff.get("survey", {}).get("_crop"))
+            or handoff.get("crop")
+            or ((self._source_insight(handoff) or {}).get("asset") or {}).get("name")
+        )
 
     def _peak_for_handoff(self, handoff: dict, now_dt):
         """The best peak signal for this hand-off's farmer. Prefers the hand-off's own topic
@@ -418,8 +447,7 @@ class FrequencyScheduler:
         topic = self._handoff_topic(handoff)
         if topic is not None:
             return self.monitor.peak(farmer_id, topic, as_of=as_of)
-        candidates = [self.monitor.peak(f, t, as_of=as_of)
-                      for (f, t) in self.monitor.topics() if f == farmer_id]
+        candidates = [self.monitor.peak(f, t, as_of=as_of) for (f, t) in self.monitor.topics() if f == farmer_id]
         if not candidates:
             return None
         candidates.sort(key=lambda p: (-(p.strength if p.is_peak else 0.0), p.topic))

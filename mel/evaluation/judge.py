@@ -17,6 +17,7 @@ Bedrock settings (credentials come from the AWS account's IAM role, never a key 
 BedrockClient goes through the writer's ModelClient. Any object with .complete(system, user) -> (text, usage) works
 as `client`.
 """
+
 import argparse
 import csv
 import hashlib
@@ -44,18 +45,32 @@ RUBRIC = """Score how relevant this follow-up survey is to the advice this farme
 Built from Digital Green's design principles: one farmer, one context; ask about the advice given; never give
 new advice; short and tappable. Replace with Digital Green's MEL rubric if they share one."""
 
-SYSTEM = ("You are a monitoring-and-evaluation reviewer for Digital Green's FarmerChat. You grade follow-up "
-          "surveys against a rubric. Reply with JSON only: {\"score\": <1-5>, \"reason\": \"<one sentence>\"}.")
+SYSTEM = (
+    "You are a monitoring-and-evaluation reviewer for Digital Green's FarmerChat. You grade follow-up "
+    'surveys against a rubric. Reply with JSON only: {"score": <1-5>, "reason": "<one sentence>"}.'
+)
 
 SHEET = ROOT / "docs" / "results" / "hand_scores.csv"
 CACHE = OUT / "judge_cache"
 RESULTS = OUT / "judge_results.jsonl"
-SUMMARY = ROOT / "docs" / "results" / "judge_summary.json"   # committed, so the app can show the result without Bedrock
-SHEET_FIELDS = ["sample", "golden_id", "insight_id", "crop_or_animal", "resolution", "farmer_asked",
-                "advice_given", "questions", "score_1_to_5", "scorer", "notes"]
+SUMMARY = ROOT / "docs" / "results" / "judge_summary.json"  # committed, so the app can show the result without Bedrock
+SHEET_FIELDS = [
+    "sample",
+    "golden_id",
+    "insight_id",
+    "crop_or_animal",
+    "resolution",
+    "farmer_asked",
+    "advice_given",
+    "questions",
+    "score_1_to_5",
+    "scorer",
+    "notes",
+]
 
 
 # ---------------------------------------------------------------- what the judge sees
+
 
 def survey_text(survey: dict) -> str:
     lines = []
@@ -70,22 +85,26 @@ def survey_text(survey: dict) -> str:
 
 def insight_text(insight: dict) -> str:
     a = insight.get("asset") or {}
-    return (f"Crop or animal: {a.get('name') or 'unknown'} ({a.get('growth_stage') or 'stage unknown'})\n"
-            f"Problem: {(insight.get('concern') or 'unknown').replace('_', ' ')}\n"
-            f"Farmer asked: {insight.get('query_summary') or '-'}\n"
-            f"Advice given: {insight.get('advice_summary') or '-'}\n"
-            f"Resolution: {(insight.get('resolution_type') or '-').replace('_', ' ')}")
+    return (
+        f"Crop or animal: {a.get('name') or 'unknown'} ({a.get('growth_stage') or 'stage unknown'})\n"
+        f"Problem: {(insight.get('concern') or 'unknown').replace('_', ' ')}\n"
+        f"Farmer asked: {insight.get('query_summary') or '-'}\n"
+        f"Advice given: {insight.get('advice_summary') or '-'}\n"
+        f"Resolution: {(insight.get('resolution_type') or '-').replace('_', ' ')}"
+    )
 
 
 def prompt_for(survey: dict, insight: dict) -> str:
-    return (f"RUBRIC\n{RUBRIC}\n\nCONVERSATION SUMMARY\n{insight_text(insight)}\n\n"
-            f"SURVEY SENT TO THE FARMER\n{survey_text(survey)}\n\nReturn JSON only.")
+    return (
+        f"RUBRIC\n{RUBRIC}\n\nCONVERSATION SUMMARY\n{insight_text(insight)}\n\n"
+        f"SURVEY SENT TO THE FARMER\n{survey_text(survey)}\n\nReturn JSON only."
+    )
 
 
 def parse_score(text: str) -> tuple[int | None, str]:
     """Pull {"score", "reason"} out of the model's reply. None if it isn't a 1-5 score."""
     try:
-        obj = json.loads(text[text.index("{"): text.rindex("}") + 1])
+        obj = json.loads(text[text.index("{") : text.rindex("}") + 1])
         score = int(obj.get("score"))
         return (score if 1 <= score <= 5 else None), str(obj.get("reason", ""))[:300]
     except (ValueError, TypeError, AttributeError):
@@ -94,6 +113,7 @@ def parse_score(text: str) -> tuple[int | None, str]:
 
 
 # ---------------------------------------------------------------- model access
+
 
 class BedrockClient:
     """The judge's model access, through P4's ModelClient (mel/writer/llm.py): one Bedrock path for the whole team,
@@ -121,13 +141,19 @@ def judge_survey(survey: dict, insight: dict, client, cache_dir=CACHE) -> dict:
     t0 = time.perf_counter()
     text, usage = client.complete(SYSTEM, user)
     score, reason = parse_score(text)
-    row = {"insight_id": insight.get("insight_id"), "score": score, "reason": reason, "model": model,
-           "rubric": RUBRIC_VERSION, "input_tokens": usage.get("input_tokens", 0),
-           "output_tokens": usage.get("output_tokens", 0),
-           "cost_usd": cost_usd(model, usage.get("input_tokens", 0), usage.get("output_tokens", 0)),
-           "seconds": round(time.perf_counter() - t0, 3)}
+    row = {
+        "insight_id": insight.get("insight_id"),
+        "score": score,
+        "reason": reason,
+        "model": model,
+        "rubric": RUBRIC_VERSION,
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "cost_usd": cost_usd(model, usage.get("input_tokens", 0), usage.get("output_tokens", 0)),
+        "seconds": round(time.perf_counter() - t0, 3),
+    }
     if path:
-        try:                                   # a cache must never break a run (e.g. a read-only container folder)
+        try:  # a cache must never break a run (e.g. a read-only container folder)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
         except OSError:
@@ -136,6 +162,7 @@ def judge_survey(survey: dict, insight: dict, client, cache_dir=CACHE) -> dict:
 
 
 # ---------------------------------------------------------------- which surveys
+
 
 def golden_pairs(golden: list[dict] | None = None) -> list[tuple[dict, dict, dict]]:
     """(golden row, insight, our en-IN survey) for every answer-key row where both we and the key survey."""
@@ -156,16 +183,20 @@ def judge_batch(pairs, client, cache_dir=CACHE) -> dict:
     rows = [{"golden_id": g["golden_id"], **judge_survey(s, ins, client, cache_dir)} for g, ins, s in pairs]
     scored = [r["score"] for r in rows if r["score"] is not None]
     costs = [r["cost_usd"] for r in rows if r["cost_usd"] is not None]
-    return {"n": len(rows), "n_scored": len(scored),
-            "judge_relevance": round(sum(scored) / len(scored), 2) if scored else None,
-            "input_tokens": sum(r["input_tokens"] for r in rows),
-            "output_tokens": sum(r["output_tokens"] for r in rows),
-            "cost_usd": round(sum(costs), 4) if costs else None,
-            "seconds": round(sum(r["seconds"] for r in rows if not r["cached"]), 2),
-            "rows": rows}
+    return {
+        "n": len(rows),
+        "n_scored": len(scored),
+        "judge_relevance": round(sum(scored) / len(scored), 2) if scored else None,
+        "input_tokens": sum(r["input_tokens"] for r in rows),
+        "output_tokens": sum(r["output_tokens"] for r in rows),
+        "cost_usd": round(sum(costs), 4) if costs else None,
+        "seconds": round(sum(r["seconds"] for r in rows if not r["cached"]), 2),
+        "rows": rows,
+    }
 
 
 # ---------------------------------------------------------------- hand-scoring sheet and calibration
+
 
 def sample_for_hand_scoring(pairs, n: int = 20, seed: int = 7):
     """n surveys spread across resolution types (direct action, wait and monitor, ...), same every time."""
@@ -194,10 +225,21 @@ def make_sheet(pairs, path=SHEET, n: int = 20) -> int:
         w.writeheader()
         for i, (g, ins, s) in enumerate(sample, 1):
             a = ins.get("asset") or {}
-            w.writerow({"sample": i, "golden_id": g["golden_id"], "insight_id": ins.get("insight_id"),
-                        "crop_or_animal": a.get("name"), "resolution": ins.get("resolution_type"),
-                        "farmer_asked": ins.get("query_summary"), "advice_given": ins.get("advice_summary"),
-                        "questions": survey_text(s), "score_1_to_5": "", "scorer": "", "notes": ""})
+            w.writerow(
+                {
+                    "sample": i,
+                    "golden_id": g["golden_id"],
+                    "insight_id": ins.get("insight_id"),
+                    "crop_or_animal": a.get("name"),
+                    "resolution": ins.get("resolution_type"),
+                    "farmer_asked": ins.get("query_summary"),
+                    "advice_given": ins.get("advice_summary"),
+                    "questions": survey_text(s),
+                    "score_1_to_5": "",
+                    "scorer": "",
+                    "notes": "",
+                }
+            )
     return len(sample)
 
 
@@ -212,8 +254,12 @@ def agreement(pairs_of_scores: list[tuple[int, int]]) -> dict:
     if not n:
         return {"n": 0, "exact": None, "within_1": None, "mean_abs_diff": None}
     diffs = [abs(h - j) for h, j in pairs_of_scores]
-    return {"n": n, "exact": sum(d == 0 for d in diffs) / n, "within_1": sum(d <= 1 for d in diffs) / n,
-            "mean_abs_diff": round(sum(diffs) / n, 2)}
+    return {
+        "n": n,
+        "exact": sum(d == 0 for d in diffs) / n,
+        "within_1": sum(d <= 1 for d in diffs) / n,
+        "mean_abs_diff": round(sum(diffs) / n, 2),
+    }
 
 
 _Q_LINE = re.compile(r"^Q\d+\.\s(.*?)\s{2}\[(.*)\]\s*$")
@@ -230,9 +276,13 @@ def survey_from_text(text: str) -> dict:
         prompt, opts = m.group(1), m.group(2)
         sc = re.fullmatch(r"scale (\d+)-(\d+)", opts)
         if sc:
-            items.append({"type": "survey-scale", "prompt": prompt, "scale_min": int(sc.group(1)), "scale_max": int(sc.group(2))})
+            items.append(
+                {"type": "survey-scale", "prompt": prompt, "scale_min": int(sc.group(1)), "scale_max": int(sc.group(2))}
+            )
         else:
-            items.append({"type": "survey-select", "prompt": prompt, "options": [{"label": o} for o in opts.split(" / ")]})
+            items.append(
+                {"type": "survey-select", "prompt": prompt, "options": [{"label": o} for o in opts.split(" / ")]}
+            )
     return {"items": items}
 
 
@@ -261,20 +311,26 @@ def calibrate(pairs, client, path=SHEET, cache_dir=CACHE) -> dict:
         j = judged[r["golden_id"]]
         if j is not None:
             both.append((int(h), j))
-    hp = [(a, b) for hs in people.values() for i, a in enumerate(hs) for b in hs[i + 1:]]
+    hp = [(a, b) for hs in people.values() for i, a in enumerate(hs) for b in hs[i + 1 :]]
     counts = defaultdict(int)
     for j in judged.values():
         counts[j] += 1
     gids = [g for g in people if judged.get(g) is not None]
     others = {n: [g for g in gids if g in sc] for n, sc in by_scorer.items()}
-    return {**agreement(both),
-            "people_vs_people": agreement(hp),
-            "always_5": agreement([(h, 5) for h, _ in both]),
-            "judge_scores": dict(sorted(counts.items(), key=lambda kv: str(kv[0]))),
-            "rank_r": _corr([judged[g] for g in gids], [sum(people[g]) / len(people[g]) for g in gids]),
-            "people_rank_r": {n: _corr([by_scorer[n][g] for g in gs],
-                                       [_mean([by_scorer[m][g] for m in by_scorer if m != n and g in by_scorer[m]]) for g in gs])
-                              for n, gs in sorted(others.items())}}
+    return {
+        **agreement(both),
+        "people_vs_people": agreement(hp),
+        "always_5": agreement([(h, 5) for h, _ in both]),
+        "judge_scores": dict(sorted(counts.items(), key=lambda kv: str(kv[0]))),
+        "rank_r": _corr([judged[g] for g in gids], [sum(people[g]) / len(people[g]) for g in gids]),
+        "people_rank_r": {
+            n: _corr(
+                [by_scorer[n][g] for g in gs],
+                [_mean([by_scorer[m][g] for m in by_scorer if m != n and g in by_scorer[m]]) for g in gs],
+            )
+            for n, gs in sorted(others.items())
+        },
+    }
 
 
 def _mean(xs):
@@ -287,6 +343,7 @@ def _corr(xs, ys):
     if len(pts) < 2:
         return None
     import statistics
+
     try:
         return round(statistics.correlation([x for x, _ in pts], [y for _, y in pts]), 2)
     except statistics.StatisticsError:
@@ -301,10 +358,14 @@ def run_summary(result: dict, pairs, model: str) -> dict:
         if r["score"] is not None:
             by_type[res_of.get(r["golden_id"])].append(r["score"])
             counts[r["score"]] += 1
-    return {"model": model, "rubric": RUBRIC_VERSION, "date": time.strftime("%Y-%m-%d"),
-            **{k: v for k, v in result.items() if k != "rows"},
-            "score_counts": {str(k): counts[k] for k in sorted(counts)},
-            "by_resolution": {k: round(sum(v) / len(v), 2) for k, v in sorted(by_type.items(), key=lambda kv: str(kv[0]))}}
+    return {
+        "model": model,
+        "rubric": RUBRIC_VERSION,
+        "date": time.strftime("%Y-%m-%d"),
+        **{k: v for k, v in result.items() if k != "rows"},
+        "score_counts": {str(k): counts[k] for k in sorted(counts)},
+        "by_resolution": {k: round(sum(v) / len(v), 2) for k, v in sorted(by_type.items(), key=lambda kv: str(kv[0]))},
+    }
 
 
 def write_summary(path=SUMMARY, **parts) -> None:
@@ -343,8 +404,9 @@ def main():
     else:
         c = calibrate(pairs, client)
         print(c)
-        write_summary(calibration={"model": client.model_id, "rubric": RUBRIC_VERSION,
-                                   "date": time.strftime("%Y-%m-%d"), **c})
+        write_summary(
+            calibration={"model": client.model_id, "rubric": RUBRIC_VERSION, "date": time.strftime("%Y-%m-%d"), **c}
+        )
 
 
 if __name__ == "__main__":

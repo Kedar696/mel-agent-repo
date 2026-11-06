@@ -1,5 +1,6 @@
 """End-to-end glue: insight -> decision -> surveys -> hand-off. Owner: P1 (integration lead).
 Keep this thin: each step lives in its owner's package."""
+
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -20,8 +21,9 @@ def clean(survey: dict) -> dict:
     return {k: v for k, v in survey.items() if not k.startswith("_")}
 
 
-def run_insight(insight: dict, farmer: dict | None = None, history_hours=(), memory=None,
-                attention: dict | None = None) -> dict:
+def run_insight(
+    insight: dict, farmer: dict | None = None, history_hours=(), memory=None, attention: dict | None = None
+) -> dict:
     """The one generator, mel.agent.run_agent (decide -> write with Bedrock or the templates -> verify -> hand off),
     without its step events. Returns {'decision', 'no_survey'} or {'decision', 'surveys', 'handoff'} (hand-off in
     the farmer's language). The CLI, the REST API, the evaluation and AgentCore all go through this one path.
@@ -30,13 +32,14 @@ def run_insight(insight: dict, farmer: dict | None = None, history_hours=(), mem
     `memory` (mel.writer.FarmerMemory) turns on P4's history rules H1-H4, which adapt the questions.
     `attention` (mel.data.activity, off by default) adjusts priority (P3), question count (P4) and send time (P2);
     it never changes survey vs no-survey, the rule, or the send window. When None, behaviour is exactly today's."""
-    from mel.agent import run_agent_to_end          # here, not at the top: the agent imports this module
+    from mel.agent import run_agent_to_end  # here, not at the top: the agent imports this module
     from mel.decision.rules import Decision
+
     _, res = run_agent_to_end(insight, farmer=farmer, history_hours=history_hours, memory=memory, attention=attention)
     d = Decision(**res["decision"])
     if not d.survey:
         return {"decision": d, "no_survey": res["no_survey"]}
-    surveys = {lang: res["surveys"][lang] for lang in LANGS if lang in res["surveys"]}   # the project's language order
+    surveys = {lang: res["surveys"][lang] for lang in LANGS if lang in res["surveys"]}  # the project's language order
     return {"decision": d, "surveys": surveys, "handoff": res["handoff"]}
 
 
@@ -51,9 +54,10 @@ def select_insights(insights: list[dict], limit: int | None = None, farmer: str 
 @dataclass
 class PipelineResult:
     """What a batch run produced, in input order. Same input gives an equal result."""
-    insights: list[dict] = field(default_factory=list)   # the rows that were processed
-    outputs: list[dict] = field(default_factory=list)    # run_insight() result per row, same order
-    rows_read: int = 0                                   # rows given to run_pipeline before filtering
+
+    insights: list[dict] = field(default_factory=list)  # the rows that were processed
+    outputs: list[dict] = field(default_factory=list)  # run_insight() result per row, same order
+    rows_read: int = 0  # rows given to run_pipeline before filtering
 
     @property
     def rows_processed(self) -> int:
@@ -73,8 +77,12 @@ class PipelineResult:
                 by_lang[h["survey"]["language"]] += 1
                 by_channel[h["channel_order"][0]["channel"]] += 1
                 by_priority[h["priority"]] += 1
-        return {"by_rule": dict(by_rule), "by_language": dict(by_lang),
-                "by_first_channel": dict(by_channel), "by_priority": dict(by_priority)}
+        return {
+            "by_rule": dict(by_rule),
+            "by_language": dict(by_lang),
+            "by_first_channel": dict(by_channel),
+            "by_priority": dict(by_priority),
+        }
 
     def attention_counts(self) -> dict:
         """Counts by attention tier and reason, over every processed row that carries an attention result.
@@ -134,16 +142,21 @@ def _attention_by_insight_id(insights: list[dict]) -> dict[str, dict]:
                 except (KeyError, TypeError, ValueError, OverflowError):
                     t = None
                 if t is not None and last_promoted is not None and (t - last_promoted) < window:
-                    att = with_high_budget_spent(att)   # budget spent: stays normal
+                    att = with_high_budget_spent(att)  # budget spent: stays normal
                 elif t is not None:
-                    last_promoted = t                   # this one gets the high slot
+                    last_promoted = t  # this one gets the high slot
             result[i["insight_id"]] = att.as_dict()
     return result
 
 
-def run_pipeline(insights: list[dict], limit: int | None = None, farmer: str | None = None,
-                 farmers: dict[str, dict] | None = None, history: bool = False,
-                 attention: bool = False) -> PipelineResult:
+def run_pipeline(
+    insights: list[dict],
+    limit: int | None = None,
+    farmer: str | None = None,
+    farmers: dict[str, dict] | None = None,
+    history: bool = False,
+    attention: bool = False,
+) -> PipelineResult:
     """Run the filtered batch through ``run_insight``. Pure: it writes nothing, so the CLI (or
     a test) decides where output goes. Order follows the input, so two runs give equal results.
     `farmers` (load_farmers()) and each farmer's earlier chats in `insights`, including rows the
@@ -162,10 +175,17 @@ def run_pipeline(insights: list[dict], limit: int | None = None, farmer: str | N
     memory = None
     if history:
         from mel.writer import FarmerMemory
+
         memory = FarmerMemory([i for i in insights if isinstance(i, dict)], farmers)
     att_by_id = _attention_by_insight_id(insights) if attention else {}
-    outputs = [run_insight(i, farmers.get(i.get("farmer_id")),
-                           chat_hours(by_farmer[i.get("farmer_id")], i.get("farmer_id"), i.get("created_at")),
-                           memory, att_by_id.get(i.get("insight_id")))
-               for i in chosen]
+    outputs = [
+        run_insight(
+            i,
+            farmers.get(i.get("farmer_id")),
+            chat_hours(by_farmer[i.get("farmer_id")], i.get("farmer_id"), i.get("created_at")),
+            memory,
+            att_by_id.get(i.get("insight_id")),
+        )
+        for i in chosen
+    ]
     return PipelineResult(insights=chosen, outputs=outputs, rows_read=len(insights))

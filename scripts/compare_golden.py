@@ -6,6 +6,7 @@ OLD and NEW are golden_set.jsonl files (or golden_set.xlsx workbooks). Prints th
 that were added, removed and changed (with the fields that changed), and how many rows each
 rule R1-R8 has in each file. Two identical files print no golden ids.
 """
+
 import argparse
 import sys
 from collections import Counter

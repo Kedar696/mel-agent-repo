@@ -3,6 +3,7 @@ Owner: P1 (thin wrapper; the check itself is P3's `mel.simulator.reference_check
 
 Run:  python scripts/compare_outcomes.py        prints the report; exit 1 on any mismatch
 """
+
 import sys
 from pathlib import Path
 

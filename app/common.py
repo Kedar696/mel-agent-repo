@@ -1,5 +1,6 @@
 """What both tabs share: the Bedrock switch, display helpers (every human-facing date goes through
 app/display_time.py), the labels for rules, channels and languages, and the data folder the app reads."""
+
 import re
 
 import pandas as pd
@@ -15,13 +16,19 @@ from app.display_time import format_clock, format_date, format_datetime, format_
 BEDROCK_ON = llm.enabled()
 llm.override(False)
 
-RULE_LABEL = {"R1": "Junk / unclear", "R2": "Critical → human call", "R3": "Nothing to verify",
-              "R4": "Waiting for details", "R5": "No check needed", "R6": "After season",
-              "R7": "Already harvested", "R8": "Survey planned"}
+RULE_LABEL = {
+    "R1": "Junk / unclear",
+    "R2": "Critical → human call",
+    "R3": "Nothing to verify",
+    "R4": "Waiting for details",
+    "R5": "No check needed",
+    "R6": "After season",
+    "R7": "Already harvested",
+    "R8": "Survey planned",
+}
 RULE_TONE = {"R2": "red", "R4": "amber", "R6": "amber", "R8": "green"}
 CH_NAME = {"app": "App", "web": "Web", "whatsapp": "WhatsApp", "telegram": "Telegram", "voice": "Voice"}
 LANG_NAME = {"hi-IN": "Hindi", "en-IN": "English"}
-
 
 
 def html(s: str):
@@ -52,6 +59,7 @@ def us_text(text):
 
 def us_display(df):
     """A display copy of a table with ISO dates and timestamps in US form; the source frame is left as is."""
+
     def cell(v):
         if isinstance(v, str) and ISO_TS.fullmatch(v):
             try:
@@ -59,6 +67,7 @@ def us_display(df):
             except (ValueError, TypeError):
                 return v
         return us_text(v)
+
     out = df.copy()
     for col in out.columns:
         if out[col].dtype == object or pd.api.types.is_string_dtype(out[col]):  # pandas 3 uses a str dtype
@@ -68,7 +77,6 @@ def us_display(df):
 
 def table(df, **kw):
     return st.dataframe(us_display(df), **kw)  # returns the row selection when on_select is set
-
 
 
 # The full participant pack (6,999 conversations) when it is in the repo; the 57-row mock sample otherwise.

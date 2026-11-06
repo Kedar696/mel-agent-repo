@@ -27,8 +27,10 @@ mel = ["**/*.json", "**/*.md"]
 testpaths = ["tests"]
 
 [tool.ruff]
-# `ruff check` (pip install ruff). CI runs it. Rules: pyflakes (unused imports and variables, undefined
-# names, redefinitions) and bugbear's likely-bug checks. No style rules: one-line `if x: return` stays.
+# `ruff check` and `ruff format` (pip install ruff); CI runs both. Lint rules: pyflakes (unused imports and
+# variables, undefined names, redefinitions) and bugbear's likely-bug checks. Layout: ruff's formatter at 120
+# columns, so every file reads the same whoever wrote it (6 Nov; one mechanical commit, no logic change).
+line-length = 120
 extend-exclude = ["demo", "mel-survey-agent-participant-pack", "v0-sketch", "out"]
 
 [tool.ruff.lint]

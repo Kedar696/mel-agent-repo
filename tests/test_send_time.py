@@ -1,4 +1,5 @@
 """P2: send time picks one moment inside the window, with a stated rule; downstream sends at it."""
+
 from datetime import timedelta
 
 import pytest
@@ -20,20 +21,40 @@ def brief_policy(monkeypatch):
 
 
 def ins(**kw):
-    base = {"severity": "low", "preferred_channel": "app", "advice_summary": "Advised to weed the field.",
-            "verification": {"method": "push"}, "asset": {"name": "wheat", "category": "crop", "growth_stage": "vegetative"}}
+    base = {
+        "severity": "low",
+        "preferred_channel": "app",
+        "advice_summary": "Advised to weed the field.",
+        "verification": {"method": "push"},
+        "asset": {"name": "wheat", "category": "crop", "growth_stage": "vegetative"},
+    }
     return {**base, **kw}
 
 
-@pytest.mark.parametrize("insight,farmer,hours,rule,send_at", [
-    (ins(severity="high", preferred_channel="voice"), None, (), "high_severity", "2026-11-20T07:00:00+05:30"),
-    (ins(advice_summary="Advised to spray in the evening.", preferred_channel="voice"), None, (), "advice_evening", "2026-11-20T07:00:00+05:30"),
-    (ins(preferred_channel="voice"), None, [14] * 6, "usual_time", "2026-11-20T13:00:00+05:30"),
-    (ins(), {"activity_level": "light"}, [11] * 6, "usual_time", "2026-11-20T10:00:00+05:30"),
-    (ins(), {"activity_level": "heavy"}, [11] * 6, "async_channel", "2026-11-20T07:00:00+05:30"),
-    (ins(verification={"method": "ivr_callback"}), {"livestock": "cow"}, (), "livestock_chores", "2026-11-20T13:00:00+05:30"),
-    (ins(preferred_channel="voice"), None, list(range(7, 19)), "call_default", "2026-11-20T16:00:00+05:30"),
-])
+@pytest.mark.parametrize(
+    "insight,farmer,hours,rule,send_at",
+    [
+        (ins(severity="high", preferred_channel="voice"), None, (), "high_severity", "2026-11-20T07:00:00+05:30"),
+        (
+            ins(advice_summary="Advised to spray in the evening.", preferred_channel="voice"),
+            None,
+            (),
+            "advice_evening",
+            "2026-11-20T07:00:00+05:30",
+        ),
+        (ins(preferred_channel="voice"), None, [14] * 6, "usual_time", "2026-11-20T13:00:00+05:30"),
+        (ins(), {"activity_level": "light"}, [11] * 6, "usual_time", "2026-11-20T10:00:00+05:30"),
+        (ins(), {"activity_level": "heavy"}, [11] * 6, "async_channel", "2026-11-20T07:00:00+05:30"),
+        (
+            ins(verification={"method": "ivr_callback"}),
+            {"livestock": "cow"},
+            (),
+            "livestock_chores",
+            "2026-11-20T13:00:00+05:30",
+        ),
+        (ins(preferred_channel="voice"), None, list(range(7, 19)), "call_default", "2026-11-20T16:00:00+05:30"),
+    ],
+)
 def test_rules(insight, farmer, hours, rule, send_at):
     t = pick_send_time(insight, WIN, farmer, hours)
     assert (t["rule"], t["send_at"]) == (rule, send_at)
@@ -55,10 +76,13 @@ def test_slot_outside_window_falls_back_to_opening():
 
 
 def test_chat_hours_ignores_other_farmers_and_the_future():
-    rows = [{"farmer_id": "F-1", "created_at": "2026-11-01T09:00:00+05:30"},
-            {"farmer_id": "F-1", "created_at": "2026-11-30T15:00:00+05:30"},
-            {"farmer_id": "F-2", "created_at": "2026-11-01T18:00:00+05:30"},
-            {"farmer_id": "F-1", "created_at": "not a date"}, None]
+    rows = [
+        {"farmer_id": "F-1", "created_at": "2026-11-01T09:00:00+05:30"},
+        {"farmer_id": "F-1", "created_at": "2026-11-30T15:00:00+05:30"},
+        {"farmer_id": "F-2", "created_at": "2026-11-01T18:00:00+05:30"},
+        {"farmer_id": "F-1", "created_at": "not a date"},
+        None,
+    ]
     assert chat_hours(rows, "F-1", "2026-11-15T10:00:00+05:30") == [9]
 
 
@@ -93,10 +117,17 @@ def test_batch_run_sends_at_the_recommended_time():
 
 def test_pipeline_passes_chat_history_to_the_send_time():
     ins = next(i for i in load_insights() if decide(i).survey)
-    ins = {**ins, "farmer_id": "F-999999", "preferred_channel": "voice", "severity": "low",
-           "advice_summary": "Advised to weed the field."}
+    ins = {
+        **ins,
+        "farmer_id": "F-999999",
+        "preferred_channel": "voice",
+        "severity": "low",
+        "advice_summary": "Advised to weed the field.",
+    }
     d0 = parse_ist(ins["created_at"])
-    past = [{**ins, "insight_id": f"I-99999{n}", "created_at": fmt_ist((d0 - timedelta(days=n + 1)).replace(hour=14))}
-            for n in range(6)]
+    past = [
+        {**ins, "insight_id": f"I-99999{n}", "created_at": fmt_ist((d0 - timedelta(days=n + 1)).replace(hour=14))}
+        for n in range(6)
+    ]
     t = run_pipeline(past + [ins]).outputs[-1]["decision"].send_time
     assert (t["rule"], t["slot"]) == ("usual_time", "afternoon")

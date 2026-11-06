@@ -1,5 +1,6 @@
 """P4's history rules H1-H4 inside the team pipeline (moved from demo/p4_standalone on 4 Nov). Written by P5;
 P4 owns mel/writer/history.py."""
+
 import copy
 from datetime import timedelta
 
@@ -23,21 +24,31 @@ def _surveyed(resolution=None):
 
 def _earlier(i, days, **kw):
     e = copy.deepcopy(i)
-    e.update(insight_id=i["insight_id"] + f"-E{days}", conversation_id=i["conversation_id"] + f"-E{days}",
-             created_at=fmt_ist(parse_ist(i["created_at"]) - timedelta(days=days)), **kw)
+    e.update(
+        insight_id=i["insight_id"] + f"-E{days}",
+        conversation_id=i["conversation_id"] + f"-E{days}",
+        created_at=fmt_ist(parse_ist(i["created_at"]) - timedelta(days=days)),
+        **kw,
+    )
     return e
 
 
 def _answer(i, days, status="completed", answers=None):
-    return {"farmer_id": i["farmer_id"], "status": status, "answers": answers or {},
-            "recorded_at": fmt_ist(parse_ist(i["created_at"]) - timedelta(days=days)), "counts_toward_cap": True}
+    return {
+        "farmer_id": i["farmer_id"],
+        "status": status,
+        "answers": answers or {},
+        "recorded_at": fmt_ist(parse_ist(i["created_at"]) - timedelta(days=days)),
+        "counts_toward_cap": True,
+    }
 
 
 def test_no_memory_means_no_change():
     i, out = _surveyed()
     assert history_notes(i, None) == []
-    assert [s["items"] for s in write_surveys(i, out["decision"].send_window).values()] == \
-           [s["items"] for s in out["surveys"].values()]
+    assert [s["items"] for s in write_surveys(i, out["decision"].send_window).values()] == [
+        s["items"] for s in out["surveys"].values()
+    ]
 
 
 def test_h1_repeat_problem_asks_same_problem_again():

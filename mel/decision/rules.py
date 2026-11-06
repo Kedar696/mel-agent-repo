@@ -12,6 +12,7 @@ Golden-set rule ids (inferred from data/golden_set.jsonl, rules.json does not li
   R7 crop_already_harvested    standing-crop advice after harvest (not storage advice)
   R8 survey
 """
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -21,10 +22,14 @@ from mel.timing import send_window, parse_ist, is_past_harvest, pick_send_time
 
 # no_survey.schema.json only allows these two reason codes; extended code goes in `reason`.
 SCHEMA_REASON = {
-    "junk_insight": "generic_information", "critical_needs_human_call": "needs_more_context",
-    "nothing_to_verify": "generic_information", "waiting_for_details": "needs_more_context",
-    "no_check_needed": "generic_information", "window_after_season": "generic_information",
-    "window_passed": "generic_information", "crop_already_harvested": "generic_information",
+    "junk_insight": "generic_information",
+    "critical_needs_human_call": "needs_more_context",
+    "nothing_to_verify": "generic_information",
+    "waiting_for_details": "needs_more_context",
+    "no_check_needed": "generic_information",
+    "window_after_season": "generic_information",
+    "window_passed": "generic_information",
+    "crop_already_harvested": "generic_information",
 }
 REASON_TEXT = {
     "junk_insight": "Broken or empty insight; nothing reliable to ask about.",
@@ -75,8 +80,13 @@ def _critical_policy() -> str:
     return policy
 
 
-def decide(insight: dict, farmer: dict | None = None, history_hours=(), attention: dict | None = None,
-           now: datetime | None = None) -> Decision:
+def decide(
+    insight: dict,
+    farmer: dict | None = None,
+    history_hours=(),
+    attention: dict | None = None,
+    now: datetime | None = None,
+) -> Decision:
     """`farmer`, `history_hours` and `attention` only refine the send time (and ride on the Decision for the
     scheduler/writer to read); none of them ever change survey vs no-survey, the rule, or the send window.
     `attention` is the activity-attention result (mel.data.activity). pick_send_time runs inside decide(), so
@@ -105,8 +115,17 @@ def decide(insight: dict, farmer: dict | None = None, history_hours=(), attentio
         return _no("R6", "window_passed" if passed else "window_after_season")
     asset = insight.get("asset") or {}
     post_harvest = asset.get("growth_stage") == "post_harvest" or insight.get("concern") == "storage_post_harvest"
-    if asset.get("category") == "crop" and not post_harvest and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10])):
+    if (
+        asset.get("category") == "crop"
+        and not post_harvest
+        and is_past_harvest(asset.get("name"), date.fromisoformat(win["not_before"][:10]))
+    ):
         return _no("R7", "crop_already_harvested")
-    return Decision(True, "R8", None, win,
-                    send_time=pick_send_time(insight, win, farmer, history_hours, attention),
-                    attention=attention)
+    return Decision(
+        True,
+        "R8",
+        None,
+        win,
+        send_time=pick_send_time(insight, win, farmer, history_hours, attention),
+        attention=attention,
+    )

@@ -1,11 +1,18 @@
 """app/display_time.py: Eastern Time, MM/DD/YYYY, 12-hour clock, EST/EDT by date; inputs never changed."""
+
 import copy
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.display_time import (ZONE_LABEL, format_clock, format_date, format_datetime, format_dates_in_text,
-                              zone_abbreviation)
+from app.display_time import (
+    ZONE_LABEL,
+    format_clock,
+    format_date,
+    format_datetime,
+    format_dates_in_text,
+    zone_abbreviation,
+)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -59,23 +66,32 @@ def test_inputs_are_left_unmodified():
 
 
 def test_generated_text_tokens_only():
-    text = ("Same crop and problem raised 1x before (last 2026-11-19), sent 2026-12-04T09:12:00+05:30, "
-            "survey S-20931, id I-004512, draft 2026-11-04T16:20:00, bad 2026-13-45, window 2027-03-31.")
+    text = (
+        "Same crop and problem raised 1x before (last 2026-11-19), sent 2026-12-04T09:12:00+05:30, "
+        "survey S-20931, id I-004512, draft 2026-11-04T16:20:00, bad 2026-13-45, window 2027-03-31."
+    )
     assert format_dates_in_text(text) == (
         "Same crop and problem raised 1x before (last 11/19/2026), sent 12/03/2026 10:42 PM EST, "
-        "survey S-20931, id I-004512, draft 2026-11-04T16:20:00, bad 2026-13-45, window 03/31/2027.")
-    assert format_dates_in_text("Spray in the evening; check after 3 days.") == "Spray in the evening; check after 3 days."
+        "survey S-20931, id I-004512, draft 2026-11-04T16:20:00, bad 2026-13-45, window 03/31/2027."
+    )
+    assert (
+        format_dates_in_text("Spray in the evening; check after 3 days.") == "Spray in the evening; check after 3 days."
+    )
     assert format_dates_in_text("at 2026-07-09T08:00:00Z") == "at 07/09/2026 4:00 AM EDT"
 
 
 def test_india_time_for_one_farmers_screen():
     """use("india") switches the display zone for the rest of the run; use(None) is Eastern, the default."""
     from app import display_time as dt
+
     stamp = "2027-01-09T08:00:00+05:30"
     assert format_clock(stamp) == "9:30 PM" and dt.zone_label() == "Eastern Time"
     dt.use("india")
     try:
-        assert format_clock(stamp, include_zone=True) == "8:00 AM IST" and format_datetime(stamp) == "01/09/2027 8:00 AM IST"
+        assert (
+            format_clock(stamp, include_zone=True) == "8:00 AM IST"
+            and format_datetime(stamp) == "01/09/2027 8:00 AM IST"
+        )
         assert format_date(stamp) == "01/09/2027" and dt.zone_label() == "India time (IST)"
     finally:
         dt.use(None)

@@ -1,4 +1,5 @@
 """Crop-calendar checks (golden rule R7: crop_already_harvested). Owner: P2."""
+
 from datetime import date
 from functools import lru_cache
 

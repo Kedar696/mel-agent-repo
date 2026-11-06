@@ -28,6 +28,7 @@ be emitted once P1 adds it (see docs/h4_schema_change_request_late.md). Until th
 flag is computed internally and only attached when MEL_RESPONSE_LATE_FIELD=1, so every
 record this module emits by default stays schema-valid.
 """
+
 import hashlib
 from datetime import datetime, time, timedelta
 
@@ -131,8 +132,15 @@ def _voice_speech_word(item: dict, value, lang: str) -> str:
 
 # ------------------------------------------------------------------------ one record
 def _blank(item: dict) -> dict:
-    return {"item_id": item["item_id"], "item_type": item["type"], "result": "not_reached",
-            "value": None, "raw_input": None, "input_kind": None, "attempts": 0}
+    return {
+        "item_id": item["item_id"],
+        "item_type": item["type"],
+        "result": "not_reached",
+        "value": None,
+        "raw_input": None,
+        "input_kind": None,
+        "attempts": 0,
+    }
 
 
 def _answered_entry(channel, sid, item, value, lang) -> dict:
@@ -152,9 +160,16 @@ _INVALID_RAW = {
 }
 
 
-def simulate(survey: dict, channel: str, case: str = "completed", seed: int = 0,
-answers: dict | None = None, attempt: int = 1, persona: str = "default",
-             send_at: str | None = None) -> dict:
+def simulate(
+    survey: dict,
+    channel: str,
+    case: str = "completed",
+    seed: int = 0,
+    answers: dict | None = None,
+    attempt: int = 1,
+    persona: str = "default",
+    send_at: str | None = None,
+) -> dict:
     """send_at: P2's recommended send time (decision.send_time["send_at"]) for the first channel.
     Without it the send goes out at the window opening plus a fixed per-channel offset."""
     oc = outcome_codes()
@@ -165,12 +180,13 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
     window = survey["send_window"]
     exp = expires_at(window)
 
-    t0 = (parse_ist(send_at) if send_at else
-          parse_ist(window["not_before"]) + timedelta(hours=SEND_OFFSET_H[channel]))
-    ts = {"sent": fmt_ist(t0),
-          "delivered": fmt_ist(t0 + timedelta(minutes=1)),
-          "opened": fmt_ist(t0 + timedelta(minutes=20)),
-          "answered": fmt_ist(t0 + timedelta(minutes=25))}
+    t0 = parse_ist(send_at) if send_at else parse_ist(window["not_before"]) + timedelta(hours=SEND_OFFSET_H[channel])
+    ts = {
+        "sent": fmt_ist(t0),
+        "delivered": fmt_ist(t0 + timedelta(minutes=1)),
+        "opened": fmt_ist(t0 + timedelta(minutes=20)),
+        "answered": fmt_ist(t0 + timedelta(minutes=25)),
+    }
 
     # The survey's "anchor" item (confirm surveys -> q1, single-select/scale -> q3) is the
     # one the grid demonstrates each question type on, and it is where several cases focus:
@@ -309,9 +325,12 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
     sheet_outcome = None
     if channel in SHEET:
         sheet_outcome = (sheet_case or {}).get("sheet_outcome") or {
-            "sheet_dismissed": "dismissed", "farmer_opted_out": "dismissed",
-            "push_token_invalid": "never_opened", "client_cannot_render": "never_opened",
-            "push_not_opened": "never_opened", "window_expired": "never_opened",
+            "sheet_dismissed": "dismissed",
+            "farmer_opted_out": "dismissed",
+            "push_token_invalid": "never_opened",
+            "client_cannot_render": "never_opened",
+            "push_not_opened": "never_opened",
+            "window_expired": "never_opened",
         }.get(case, "finished")
 
     # ---- farmerchat answer-store reply ----
@@ -329,7 +348,9 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
     # ---- answered_by ----
     if case == "identity_mismatch":
         answered_by = "F-000999"
-    elif undelivered or case in ("push_not_opened", "window_expired") or (case == "voice_call_dropped" and not accepted):
+    elif (
+        undelivered or case in ("push_not_opened", "window_expired") or (case == "voice_call_dropped" and not accepted)
+    ):
         answered_by = None
     else:
         answered_by = survey["farmer_id"]
@@ -344,20 +365,27 @@ answers: dict | None = None, attempt: int = 1, persona: str = "default",
         # A retry on the same channel gets its own key (suffix -a<attempt>), so attempt 2 never
         # overwrites attempt 1. First attempts keep the plain key the 183 reference records use.
         "response_key": f"rk-{sid}-{channel}-{case}" + (f"-a{attempt}" if attempt > 1 else ""),
-        "survey_id": sid, "farmer_id": survey["farmer_id"],
+        "survey_id": sid,
+        "farmer_id": survey["farmer_id"],
         "source_insight_ids": survey["source_insight_ids"],
-        "channel": channel, "language": lang,
+        "channel": channel,
+        "language": lang,
         "question_type": _question_type(survey),
-        "status": status, "failure_code": code, "sheet_outcome": sheet_outcome,
+        "status": status,
+        "failure_code": code,
+        "sheet_outcome": sheet_outcome,
         "answers": accepted if stored else {},
         "items": recs,
         "complete": len(accepted) == n and status in ("completed", "negative_outcome"),
         "delivery_attempt": delivery_attempt,
-        "timestamps": ts, "recorded_at": recorded,
+        "timestamps": ts,
+        "recorded_at": recorded,
         "answered_by": answered_by,
         "raw_event": raw_event,
-        "retry_decision": retry, "retry_after_minutes": retry_after,
-        "counts_toward_cap": cap, "farmerchat_reply": reply,
+        "retry_decision": retry,
+        "retry_after_minutes": retry_after,
+        "counts_toward_cap": cap,
+        "farmerchat_reply": reply,
         "needs_follow_up": bool(reasons) and stored,
         "follow_up_reasons": sorted(set(reasons)) if stored else [],
     }
@@ -395,6 +423,7 @@ def _anchor_question_types() -> dict:
     global _ANCHOR_QT
     if _ANCHOR_QT is None:
         from mel.data import load_scenario
+
         _ANCHOR_QT = {}
         for qtype, a in outcome_codes()["grid_anchor"].items():
             s = load_scenario(a["scenario"])["surveys"]["hi-IN"]
@@ -430,21 +459,30 @@ def _raw_event(case: str, channel: str, sid: str, n: int) -> str | None:
     if case in table:
         return table[case]
     if case == "farmer_opted_out":
-        return {"app": "tapped Do not ask me again in the sheet",
-                "web": "tapped Do not ask me again in the sheet",
-                "whatsapp": "STOP", "telegram": "/stop",
-                "voice": "pressed 9 at the opening (no more calls)"}[channel]
+        return {
+            "app": "tapped Do not ask me again in the sheet",
+            "web": "tapped Do not ask me again in the sheet",
+            "whatsapp": "STOP",
+            "telegram": "/stop",
+            "voice": "pressed 9 at the opening (no more calls)",
+        }[channel]
     if case == "farmer_declined":
-        return {"whatsapp": f"{sid}|later", "telegram": f"mel|{sid}|later",
-                "voice": "pressed 2 at the opening (not now)"}.get(channel)
+        return {
+            "whatsapp": f"{sid}|later",
+            "telegram": f"mel|{sid}|later",
+            "voice": "pressed 2 at the opening (not now)",
+        }.get(channel)
     if case == "sheet_dismissed":
         return f"sheet swiped down at step 1 of {n}"
     if case == "sheet_closed_partway":
         return f"Close tapped at step {last} of {n}"
     if case == "sheet_interrupted":
         where = "app closed by the phone" if channel == "app" else "browser tab closed"
-        kept = "Answers kept on the phone and sent at next open" if channel == "app" \
+        kept = (
+            "Answers kept on the phone and sent at next open"
+            if channel == "app"
             else "Answers kept in the browser and sent at next visit"
+        )
         return f"{where} at step {last} of {n}. {kept}"
     return None
 
@@ -460,14 +498,16 @@ PERSONAS: dict[str, dict] = {
     # Answers completely on the very first channel tried.
     "default": {"per_channel": {}, "fallback_case": "completed", "unreachable": set()},
     # App push address is dead -> fall back; then completes on the next channel.
-    "app_push_dead": {"per_channel": {"app": "push_token_invalid"},
-                      "fallback_case": "completed", "unreachable": set()},
+    "app_push_dead": {"per_channel": {"app": "push_token_invalid"}, "fallback_case": "completed", "unreachable": set()},
     # Never answers anywhere: each channel is delivered but unanswered. The scheduler waits that
     # channel's wait_hours, then falls back to the next one, until the last channel or the send
     # window runs out. App's no-answer code is push_not_opened (window_expired is not an app
     # code in outcome_codes.json); every other channel reports window_expired.
-    "never_answers": {"per_channel": {"app": "push_not_opened"}, "fallback_case": "window_expired",
-                      "unreachable": set()},
+    "never_answers": {
+        "per_channel": {"app": "push_not_opened"},
+        "fallback_case": "window_expired",
+        "unreachable": set(),
+    },
     # Opts out on the first channel -> the whole hand-off stops immediately.
     "opts_out_first": {"per_channel": {}, "fallback_case": "farmer_opted_out", "unreachable": set()},
     # Cannot be reached on voice at all (no phone): that channel is skipped.
@@ -477,8 +517,13 @@ PERSONAS: dict[str, dict] = {
     # which routes the record to the follow-up queue. Which surveys is fixed by
     # `reports_advice_failure()`: a hash of (seed, survey_id), so the same seed always gives the
     # same failures. `advice_fails_for` can list survey_ids that always fail (explicit scenario).
-    "sometimes_fails": {"per_channel": {}, "fallback_case": "completed", "unreachable": set(),
-                        "advice_fails": 0.25, "advice_fails_for": frozenset()},
+    "sometimes_fails": {
+        "per_channel": {},
+        "fallback_case": "completed",
+        "unreachable": set(),
+        "advice_fails": 0.25,
+        "advice_fails_for": frozenset(),
+    },
 }
 
 
@@ -494,7 +539,7 @@ def reports_advice_failure(persona_name: str, survey_id: str, seed: int = 0) -> 
     if not rate:
         return False
     digest = hashlib.sha256(f"{seed}:{survey_id}".encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big") / 2 ** 64 < float(rate)
+    return int.from_bytes(digest[:8], "big") / 2**64 < float(rate)
 
 
 def is_late(record: dict, expires: str) -> bool:
@@ -521,6 +566,7 @@ def advice_failure_answer(items: list[dict]):
             if o.get("follow_up") == "advice_did_not_work":
                 return k, o["value"]
     return None
+
 
 # After a record, should the broadcaster move to the next channel, or stop?
 _CONTINUE = {"fall_back_to_next_channel"}
@@ -615,8 +661,7 @@ def earliest_send(handoff: dict, when: datetime):
     return when
 
 
-def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
-                     reachability=None) -> list[dict]:
+def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0, reachability=None) -> list[dict]:
     """Walk a hand-off's channel_order the way the broadcaster would and return the answer
     records produced, one per channel actually attempted.
 
@@ -638,6 +683,7 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
     if p is None:
         raise ValueError(f"unknown persona {persona!r}; known: {sorted(PERSONAS)}")
     survey = handoff["survey"]
+
     # Channels in channel_order the farmer can be reached on; order preserved. A channel is
     # skipped when the persona cannot be reached there, or when farmer data (an optional
     # mel.channels.FarmerReachability) explicitly says so. No data means reachable.
@@ -645,6 +691,7 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
         if reachability is not None and not reachability.reachable(survey["farmer_id"], ch):
             return False
         return _case_for_channel(p, ch) is not None
+
     reachable = [s["channel"] for s in handoff["channel_order"] if ok(s["channel"])]
     records: list[dict] = []
     send_at = None  # first attempt: the window opening plus the channel's usual offset
@@ -652,8 +699,15 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
         case = _case_for_channel(p, channel)
         attempt = 1
         while True:
-            rec = simulate(survey, channel, case, seed=seed, persona=persona, attempt=attempt,
-                           send_at=fmt_ist(send_at) if send_at else None)
+            rec = simulate(
+                survey,
+                channel,
+                case,
+                seed=seed,
+                persona=persona,
+                attempt=attempt,
+                send_at=fmt_ist(send_at) if send_at else None,
+            )
             records.append(rec)
             action, delay = next_step(handoff, channel, attempt, rec)
             if action == "stop":
@@ -673,9 +727,15 @@ def simulate_handoff(handoff: dict, persona: str = "default", seed: int = 0,
 
 
 # ------------------------------------------------------- app/web "submit once" sheet
-def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
-                   closed: bool = False, submit_at: str | None = None, seed: int = 0,
-                   answers: dict | None = None) -> dict:
+def simulate_sheet(
+    survey: dict,
+    channel: str,
+    answered_item_ids: list[str],
+    closed: bool = False,
+    submit_at: str | None = None,
+    seed: int = 0,
+    answers: dict | None = None,
+) -> dict:
     """Model the brief's app/web bottom sheet: the farmer taps through the steps and the
     answers are submitted ONCE, when they finish or close the sheet, keeping whatever was
     answered so far. `channel` must be "app" or "web".
@@ -716,7 +776,7 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
         raise ValueError(f"item_id answered twice in {given}; a sheet submits each answer once")
     if closed and len(given) == len(ids):
         raise ValueError("closed=True but every item was answered: that is a finished sheet (closed=False)")
-    answered = [i for i in ids if i in set(given)]          # item order, whatever the tap order
+    answered = [i for i in ids if i in set(given)]  # item order, whatever the tap order
     n, all_answered = len(items), len(answered) == len(items)
 
     values = {i: (answers or {}).get(i, _good_value(items[ids.index(i)])) for i in answered}
@@ -724,7 +784,7 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
     full = simulate(survey, channel, "completed", seed=seed, answers=values)
 
     if all_answered:
-        rec = full                                           # finished: completed / negative_outcome
+        rec = full  # finished: completed / negative_outcome
     else:
         # Fields that describe the attempt (keys, timestamps, retry, cap) come from the matching
         # case; the items and answers come from what the farmer actually gave.
@@ -737,7 +797,7 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
                 continue
             e = _blank(it)
             if k < last or (closed and k == last + 1):
-                e.update(result="skipped", attempts=1)       # shown but not answered
+                e.update(result="skipped", attempts=1)  # shown but not answered
             new_items.append(e)
         reasons = sorted({r for i in answered if (r := _follow_up(items[ids.index(i)], values[i]))})
         rec.update(
@@ -759,5 +819,5 @@ def simulate_sheet(survey: dict, channel: str, answered_item_ids: list[str],
     rec.pop("late", None)
     at = parse_ist(rec["timestamps"]["answered"]) if rec["timestamps"].get("answered") else None
     if _EMIT_LATE and answered and at is not None and at > parse_ist(expires_at(survey["send_window"])):
-        rec["late"] = True                                   # kept, and marked late
+        rec["late"] = True  # kept, and marked late
     return rec

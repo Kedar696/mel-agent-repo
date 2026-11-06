@@ -9,6 +9,7 @@ Run:  python scripts/activity_report.py
 This is reporting only: it never changes a decision, the rule, or the send window (asserted below).
 The thresholds in config/activity_attention.json are starting values; adjust them with the evidence here.
 """
+
 import json
 import sys
 from collections import Counter, defaultdict
@@ -42,8 +43,7 @@ def _by_activity(insights, outputs, farmers):
             q_sum[al] += len(out["handoff"]["survey"]["items"])
             q_n[al] += 1
     avg_q = {al: round(q_sum[al] / q_n[al], 3) for al in q_n}
-    return ({al: dict(c) for al, c in tier.items()},
-            {al: dict(c) for al, c in reason.items()}, avg_q)
+    return ({al: dict(c) for al, c in tier.items()}, {al: dict(c) for al, c in reason.items()}, avg_q)
 
 
 def _priority_counts(outputs):
@@ -54,8 +54,11 @@ def _cap_counts(outputs):
     """Replay the weekly cap in send order (P3's CapLedger.admit), as the app does, to report sent/moved/..."""
     import copy
     from mel.schedule import CapLedger
-    hs = sorted((copy.deepcopy(o["handoff"]) for o in outputs if "handoff" in o),
-                key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]))
+
+    hs = sorted(
+        (copy.deepcopy(o["handoff"]) for o in outputs if "handoff" in o),
+        key=lambda h: (h["send_window"]["not_before"], h["created_at"], h["frequency_cap"]["key"]),
+    )
     led, c = CapLedger(), Counter()
     for h in hs:
         c[led.admit(h).decision] += 1
@@ -71,6 +74,7 @@ def _golden_metrics(insights, attention):
     drop with attention on therefore reflects attention's question-count changes (steady_high trims to 2)
     measured against the golden set's generic expected items."""
     from mel.data import load_golden
+
     golden = load_golden()
     res = run_pipeline(insights, attention=attention)
     by_id = {i.get("insight_id"): o for i, o in zip(res.insights, res.outputs)}
@@ -80,7 +84,7 @@ def _golden_metrics(insights, attention):
         exp = g["expected"]
         gid = g["insight"]["insight_id"]
         out = by_id.get(gid)
-        if out is None:   # a golden row not in the full pack: score it on its own (no history)
+        if out is None:  # a golden row not in the full pack: score it on its own (no history)
             out = run_pipeline([g["insight"]], attention=attention).outputs[0]
         d = out["decision"]
         hits["decision"] += d.survey == exp["survey"]
@@ -105,10 +109,12 @@ def _golden_metrics(insights, attention):
 def _scorecard(insights, attention):
     """Reuse P5's scorecard. It calls run_insight directly, so pass attention per-insight from a full run."""
     res = run_pipeline(insights, attention=attention)
-    att_by_id = {i.get("insight_id"): getattr(o["decision"], "attention", None)
-                 for i, o in zip(res.insights, res.outputs)}
+    att_by_id = {
+        i.get("insight_id"): getattr(o["decision"], "attention", None) for i, o in zip(res.insights, res.outputs)
+    }
     # run_scorecard uses run_insight(ins, memory=...); wrap it so attention is applied per insight.
     from mel.evaluation import scorecard as sc
+
     orig = sc.run_insight
 
     def patched(ins, farmer=None, history_hours=(), memory=None, attention=None):
@@ -119,8 +125,17 @@ def _scorecard(insights, attention):
         card = run_scorecard(insights)
     finally:
         sc.run_insight = orig
-    return {k: card[k] for k in ("format_pass", "safety_pass", "timeliness_pass", "failed_but_scheduled",
-                                 "n_surveyed", "relevance_avg")}
+    return {
+        k: card[k]
+        for k in (
+            "format_pass",
+            "safety_pass",
+            "timeliness_pass",
+            "failed_but_scheduled",
+            "n_surveyed",
+            "relevance_avg",
+        )
+    }
 
 
 def measure():
@@ -180,61 +195,84 @@ def write_report(m):
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "activity_attention.json").write_text(json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    md = ["# Activity attention: before / after\n",
-          f"**Why this change:** {m['reason']}. Per `CLAUDE.md`, a deliberate change to the brief is shown "
-          f"with numbers. Attention is OFF by default (scoring and the CLI) and ON in the app.\n",
-          f"Full pack: **{m['n_insights']:,} insights**.\n",
-          "## Tiers and reasons (attention on)\n",
-          "### Tier totals\n", "| tier | count |", "|---|---|",
-          *[f"| {t} | {n} |" for t, n in sorted(m["tier_totals"].items())], "",
-          "### Reason totals\n", "| reason | count |", "|---|---|",
-          *[f"| {r} | {n} |" for r, n in sorted(m["reason_totals"].items())], "",
-          "### Tier by activity_level (attention on)\n",
-          "| activity_level | " + " | ".join(("surge", "neutral", "steady_high")) + " |",
-          "|---|---|---|---|"]
+    md = [
+        "# Activity attention: before / after\n",
+        f"**Why this change:** {m['reason']}. Per `CLAUDE.md`, a deliberate change to the brief is shown "
+        f"with numbers. Attention is OFF by default (scoring and the CLI) and ON in the app.\n",
+        f"Full pack: **{m['n_insights']:,} insights**.\n",
+        "## Tiers and reasons (attention on)\n",
+        "### Tier totals\n",
+        "| tier | count |",
+        "|---|---|",
+        *[f"| {t} | {n} |" for t, n in sorted(m["tier_totals"].items())],
+        "",
+        "### Reason totals\n",
+        "| reason | count |",
+        "|---|---|",
+        *[f"| {r} | {n} |" for r, n in sorted(m["reason_totals"].items())],
+        "",
+        "### Tier by activity_level (attention on)\n",
+        "| activity_level | " + " | ".join(("surge", "neutral", "steady_high")) + " |",
+        "|---|---|---|---|",
+    ]
     for al in sorted(m["tier_by_activity"]):
         c = m["tier_by_activity"][al]
         md.append(f"| {al} | {c.get('surge', 0)} | {c.get('neutral', 0)} | {c.get('steady_high', 0)} |")
-    md += ["",
-           _table("Priority counts", m["priority_off"], m["priority_on"], ["high", "normal", "low"]),
-           _table("Weekly cap (sent / moved / merged / skipped / opted_out)", m["cap_off"], m["cap_on"],
-                  ["sent", "moved", "merged", "skipped", "opted_out"]),
-           "### Average questions per survey, by activity_level\n",
-           "`on + history` is how the app runs (both history rules and attention on); compare it with "
-           "`off + history`, since history alone changes the question counts.\n",
-           "| activity_level | off | on | off + history | on + history |", "|---|---|---|---|---|"]
+    md += [
+        "",
+        _table("Priority counts", m["priority_off"], m["priority_on"], ["high", "normal", "low"]),
+        _table(
+            "Weekly cap (sent / moved / merged / skipped / opted_out)",
+            m["cap_off"],
+            m["cap_on"],
+            ["sent", "moved", "merged", "skipped", "opted_out"],
+        ),
+        "### Average questions per survey, by activity_level\n",
+        "`on + history` is how the app runs (both history rules and attention on); compare it with "
+        "`off + history`, since history alone changes the question counts.\n",
+        "| activity_level | off | on | off + history | on + history |",
+        "|---|---|---|---|---|",
+    ]
     for al in sorted(set(m["avg_questions_off"]) | set(m["avg_questions_on"])):
-        md.append(f"| {al} | {m['avg_questions_off'].get(al, '—')} | {m['avg_questions_on'].get(al, '—')} "
-                  f"| {m.get('avg_questions_off_history', {}).get(al, '—')} "
-                  f"| {m.get('avg_questions_on_history', {}).get(al, '—')} |")
-    md += ["",
-           "### Golden set (decision / rule / channel / item similarity)\n",
-           "| metric | off | on |", "|---|---|---|",
-           f"| decision_acc | {m['golden_off']['decision_acc']:.1%} | {m['golden_on']['decision_acc']:.1%} |",
-           f"| rule_acc | {m['golden_off']['rule_acc']:.1%} | {m['golden_on']['rule_acc']:.1%} |",
-           f"| channel_acc | {m['golden_off']['channel_acc']:.1%} | {m['golden_on']['channel_acc']:.1%} |",
-           f"| item_similarity_avg | {m['golden_off']['item_similarity_avg']} | {m['golden_on']['item_similarity_avg']} |",
-           "",
-           "### Scorecard (format / safety / timeliness must stay 100%)\n",
-           "| metric | off | on |", "|---|---|---|",
-           f"| format_pass | {m['scorecard_off']['format_pass']:.1%} | {m['scorecard_on']['format_pass']:.1%} |",
-           f"| safety_pass | {m['scorecard_off']['safety_pass']:.1%} | {m['scorecard_on']['safety_pass']:.1%} |",
-           f"| timeliness_pass | {m['scorecard_off']['timeliness_pass']:.1%} | {m['scorecard_on']['timeliness_pass']:.1%} |",
-           f"| failed_but_scheduled | {m['scorecard_off']['failed_but_scheduled']} | {m['scorecard_on']['failed_but_scheduled']} |",
-           "",
-           "## Notes\n",
-           "- Decision, rule and send window are identical off vs on (asserted in this script and in "
-           "`tests/test_activity.py`): attention only moves priority, question count and the send moment.",
-           "- A prototype on raw data flagged far more (≈109 quiet_then_high_weight, ≈63 activity_jump, ≈303 "
-           "steady_high); those did not go through the real pipeline (which drops junk, counts distinct "
-           "conversations, and respects the 28-day/dataset-start rule), so the real counts are lower. The "
-           "thresholds in `config/activity_attention.json` are starting values to adjust with this evidence.",
-           ""]
+        md.append(
+            f"| {al} | {m['avg_questions_off'].get(al, '—')} | {m['avg_questions_on'].get(al, '—')} "
+            f"| {m.get('avg_questions_off_history', {}).get(al, '—')} "
+            f"| {m.get('avg_questions_on_history', {}).get(al, '—')} |"
+        )
+    md += [
+        "",
+        "### Golden set (decision / rule / channel / item similarity)\n",
+        "| metric | off | on |",
+        "|---|---|---|",
+        f"| decision_acc | {m['golden_off']['decision_acc']:.1%} | {m['golden_on']['decision_acc']:.1%} |",
+        f"| rule_acc | {m['golden_off']['rule_acc']:.1%} | {m['golden_on']['rule_acc']:.1%} |",
+        f"| channel_acc | {m['golden_off']['channel_acc']:.1%} | {m['golden_on']['channel_acc']:.1%} |",
+        f"| item_similarity_avg | {m['golden_off']['item_similarity_avg']} | {m['golden_on']['item_similarity_avg']} |",
+        "",
+        "### Scorecard (format / safety / timeliness must stay 100%)\n",
+        "| metric | off | on |",
+        "|---|---|---|",
+        f"| format_pass | {m['scorecard_off']['format_pass']:.1%} | {m['scorecard_on']['format_pass']:.1%} |",
+        f"| safety_pass | {m['scorecard_off']['safety_pass']:.1%} | {m['scorecard_on']['safety_pass']:.1%} |",
+        f"| timeliness_pass | {m['scorecard_off']['timeliness_pass']:.1%} | {m['scorecard_on']['timeliness_pass']:.1%} |",
+        f"| failed_but_scheduled | {m['scorecard_off']['failed_but_scheduled']} | {m['scorecard_on']['failed_but_scheduled']} |",
+        "",
+        "## Notes\n",
+        "- Decision, rule and send window are identical off vs on (asserted in this script and in "
+        "`tests/test_activity.py`): attention only moves priority, question count and the send moment.",
+        "- A prototype on raw data flagged far more (≈109 quiet_then_high_weight, ≈63 activity_jump, ≈303 "
+        "steady_high); those did not go through the real pipeline (which drops junk, counts distinct "
+        "conversations, and respects the 28-day/dataset-start rule), so the real counts are lower. The "
+        "thresholds in `config/activity_attention.json` are starting values to adjust with this evidence.",
+        "",
+    ]
     (RESULTS / "activity_attention.md").write_text("\n".join(md), encoding="utf-8")
     print(f"wrote {RESULTS / 'activity_attention.md'} and .json")
     print(f"tier totals: {m['tier_totals']}")
-    print(f"format/safety/timeliness on: {m['scorecard_on']['format_pass']:.1%} / "
-          f"{m['scorecard_on']['safety_pass']:.1%} / {m['scorecard_on']['timeliness_pass']:.1%}")
+    print(
+        f"format/safety/timeliness on: {m['scorecard_on']['format_pass']:.1%} / "
+        f"{m['scorecard_on']['safety_pass']:.1%} / {m['scorecard_on']['timeliness_pass']:.1%}"
+    )
 
 
 if __name__ == "__main__":

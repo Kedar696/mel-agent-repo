@@ -1,4 +1,5 @@
 """Readers for the participant pack (or the mock subset in data/mock). Owner: P1."""
+
 import csv
 import json
 from pathlib import Path

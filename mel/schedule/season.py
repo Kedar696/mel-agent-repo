@@ -29,6 +29,7 @@ clock cannot advance past its end. The demo UI that drives this API lives in P5'
 app; the callable P3 surface and a Season-tab sketch are documented in
 `docs/p3_season_screen_api.md`.
 """
+
 from collections import Counter
 from datetime import timedelta
 
@@ -50,12 +51,13 @@ def _days(days: int) -> timedelta:
 class StepResult:
     """The outcome of one manually triggered scheduled step.
 
-      kind:
-        "sent"      -- a channel attempt ran; `record` is the simulated response.
-        "nothing"   -- no step was due to send at the clock's current instant.
-      handoff_id / channel identify which hand-off and channel the step touched (None for
-      "nothing"). `record` is the simulator's response record for a "sent" step, else None.
+    kind:
+      "sent"      -- a channel attempt ran; `record` is the simulated response.
+      "nothing"   -- no step was due to send at the clock's current instant.
+    handoff_id / channel identify which hand-off and channel the step touched (None for
+    "nothing"). `record` is the simulator's response record for a "sent" step, else None.
     """
+
     def __init__(self, kind: str, handoff_id=None, channel=None, record=None, reason=""):
         assert kind in ("sent", "nothing"), kind
         self.kind = kind
@@ -89,8 +91,17 @@ class SeasonScheduler:
     cannot run off into an endless future.
     """
 
-    def __init__(self, start=None, *, relevance_threshold: float, persona: str = "default",
-                 seed: int = 0, season: Season | None = None, reachability=None, ranker=None):
+    def __init__(
+        self,
+        start=None,
+        *,
+        relevance_threshold: float,
+        persona: str = "default",
+        seed: int = 0,
+        season: Season | None = None,
+        reachability=None,
+        ranker=None,
+    ):
         self.season = season or Season()
         self.clock = SimClock(start if start is not None else self.season.start_ist)
         self.cap = CapLedger()
@@ -109,7 +120,7 @@ class SeasonScheduler:
         # unreachable channel, while channel_order is preserved for reachable channels.
         self.reachability = reachability
         self._admit_log: list = []
-        self._sent_steps: dict[str, set[str]] = {}      # handoff_id -> channels already stepped
+        self._sent_steps: dict[str, set[str]] = {}  # handoff_id -> channels already stepped
         # Attempt timing. A hand-off is not stepped again until the clock reaches _next_at
         # (the previous attempt's wait interval, moved into send hours). _attempts counts tries
         # per (handoff_id, channel) so retries get distinct records; _retry_channel holds the
@@ -129,12 +140,11 @@ class SeasonScheduler:
         queued; a rejected one is counted in broadcaster.counts()["rejected"] (P5's "blocked by
         quality check"). Admitting the same hand-off twice changes nothing."""
         repeat = self.cap.seen(handoff.get("handoff_id"))
-        a = self.cap.admit_checked(handoff, opt_out=self.opt_out,
-                                   relevance_threshold=self.relevance_threshold)
+        a = self.cap.admit_checked(handoff, opt_out=self.opt_out, relevance_threshold=self.relevance_threshold)
         if repeat:
             return a
         self._admit_log.append(a)
-        self.admit_counts[a.decision] += 1   # P5: sent/moved/merged/skipped/opted_out/rejected
+        self.admit_counts[a.decision] += 1  # P5: sent/moved/merged/skipped/opted_out/rejected
         if a.decision == "rejected":
             self.broadcaster.rejected_count += 1
         if a.decision in ("sent", "moved", "merged"):
@@ -146,14 +156,18 @@ class SeasonScheduler:
         breakdown (sent/moved/merged/skipped/opted_out/rejected); `steps` is the per-step
         outcome breakdown (sent/nothing/no_reachable_channel/...); `dropped` is the
         broadcaster's rejected/expired/opted-out totals."""
-        return {"admitted": dict(self.admit_counts), "steps": dict(self.step_counts),
-                "dropped": self.broadcaster.counts()}
+        return {
+            "admitted": dict(self.admit_counts),
+            "steps": dict(self.step_counts),
+            "dropped": self.broadcaster.counts(),
+        }
 
     def admit_all(self, handoffs) -> list:
         """Admit many hand-offs in send order (send-window start, ties broken by the ranker's
         score if one is set, then created time, farmer, id), so the cap sees them as it would
         in the batch run. Returns the Admit decisions in that order."""
         from .batch import schedule_in_send_order
+
         ranks = {h.get("handoff_id"): self.ranker.score(h) for h in handoffs} if self.ranker else {}
         out = []
 
@@ -166,8 +180,14 @@ class SeasonScheduler:
                 self.broadcaster.queue(a.handoff, rank=ranks.get(hid))
             out.append(a)
 
-        schedule_in_send_order(handoffs, cap=self.cap, opt_out=self.opt_out,
-                               relevance_threshold=self.relevance_threshold, ranks=ranks, on_final=queue)
+        schedule_in_send_order(
+            handoffs,
+            cap=self.cap,
+            opt_out=self.opt_out,
+            relevance_threshold=self.relevance_threshold,
+            ranks=ranks,
+            on_final=queue,
+        )
         return out
 
     # -------------------------------------------------------------- the clock
@@ -182,9 +202,9 @@ class SeasonScheduler:
         would overshoot, the clock lands exactly on the season's last instant instead. Both
         the scheduler's expiry/due checks and the broadcaster's decisions follow the shared
         clock. Returns the new `now()`."""
-        target = self.clock.now() + _days(days)          # validates days (>=0, whole int)
+        target = self.clock.now() + _days(days)  # validates days (>=0, whole int)
         if target > self.season.end:
-            self.clock.set(self.season.end)               # clamp to the season boundary
+            self.clock.set(self.season.end)  # clamp to the season boundary
         else:
             self.clock.advance(days)
         return self.clock.now()
@@ -231,8 +251,8 @@ class SeasonScheduler:
 
         now = self.clock.now()
         b = self.broadcaster.next_due(
-            relevance_threshold=self.relevance_threshold,
-            ready=lambda h: now >= self._next_at.get(h["handoff_id"], now))
+            relevance_threshold=self.relevance_threshold, ready=lambda h: now >= self._next_at.get(h["handoff_id"], now)
+        )
         if b is None:
             self.step_counts["nothing"] += 1
             return StepResult("nothing", reason="no step due at " + self.clock.now_ist())
@@ -252,7 +272,7 @@ class SeasonScheduler:
                 ch = stepdef["channel"]
                 if ch in done:
                     continue
-                done.add(ch)                   # mark tried (skipped or stepped) so we advance
+                done.add(ch)  # mark tried (skipped or stepped) so we advance
                 if self._reachable(farmer_id, ch):
                     channel = ch
                     break
@@ -269,15 +289,25 @@ class SeasonScheduler:
 
         # Simulate this one attempt, sent at the clock's current instant. The case comes from
         # the persona, so opt-out / no-answer / fall-back behaviour follows outcome_codes.json.
-        rec = simulate(h["survey"], channel, case, seed=self.seed, persona=self.persona,
-                       attempt=attempt, send_at=self.clock.now_ist())
-        self.broadcaster.app.deliver(h, now, channel)   # the simulated app is the only target
+        rec = simulate(
+            h["survey"],
+            channel,
+            case,
+            seed=self.seed,
+            persona=self.persona,
+            attempt=attempt,
+            send_at=self.clock.now_ist(),
+        )
+        self.broadcaster.app.deliver(h, now, channel)  # the simulated app is the only target
         self.opt_out.record(rec)  # feed opt-outs back so later steps to this farmer are blocked
         self.step_counts["sent"] += 1
 
         action, delay = next_step(h, channel, attempt, rec)
-        left = [s["channel"] for s in h["channel_order"]
-                if s["channel"] not in done and self._reachable(farmer_id, s["channel"])]
+        left = [
+            s["channel"]
+            for s in h["channel_order"]
+            if s["channel"] not in done and self._reachable(farmer_id, s["channel"])
+        ]
         if action == "stop" or (action == "fallback" and not left):
             self._finish(hid)
         else:
@@ -296,6 +326,7 @@ class SeasonScheduler:
     def _reachable(self, farmer_id: str, channel: str) -> bool:
         """Reachable per the farmer data (if supplied) and the persona."""
         from mel.simulator import case_for_channel
+
         if self.reachability is not None and not self.reachability.reachable(farmer_id, channel):
             return False
         return case_for_channel(self.persona, channel) is not None

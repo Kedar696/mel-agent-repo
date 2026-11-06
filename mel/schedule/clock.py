@@ -17,6 +17,7 @@ Design choices, matching the P3 acceptance checklist:
     and the rest of the system works entirely in IST, so the clock insists on a tz-aware
     start and reports IST.
 """
+
 from datetime import datetime, timedelta
 
 from mel.config import IST, rules
@@ -43,8 +44,8 @@ class Season:
         wr = rules()["window_rules"]
         sh = rules()["send_hours"]
         if end is None:
-            end_date = wr["season_end"]                      # e.g. "2027-03-31"
-            end = f"{end_date}T{sh['to']}:00+05:30"          # last send hour on the last day
+            end_date = wr["season_end"]  # e.g. "2027-03-31"
+            end = f"{end_date}T{sh['to']}:00+05:30"  # last send hour on the last day
         self.end = parse_ist(end)
         if start is None:
             # 1 November of the November-before-the-end. The rabi season's November.

@@ -1,4 +1,5 @@
 """Builds schedule_handoff.json from an insight + survey. Owner: P3."""
+
 import json
 import uuid
 from datetime import timedelta
@@ -26,9 +27,11 @@ def _within(a, b, window_days: int) -> bool:
 
 def priority(insight: dict) -> str:
     p = rules()["priority"]
-    if (insight.get("resolution_type") in p["high_if_resolution"]
-            or insight.get("severity") in p["high_if_severity"]
-            or insight.get("behavioral_intent") in p["high_if_behavioral_intent"]):
+    if (
+        insight.get("resolution_type") in p["high_if_resolution"]
+        or insight.get("severity") in p["high_if_severity"]
+        or insight.get("behavioral_intent") in p["high_if_behavioral_intent"]
+    ):
         return "high"
     if insight.get("resolution_type") in p["low_if_resolution"]:
         return "low"
@@ -48,17 +51,17 @@ def channel_order(insight: dict, prio: str) -> list[dict]:
 
 
 STEP_UP = {"low": "normal", "normal": "high", "high": "high"}
-STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}   # never demote a brief-high survey
+STEP_DOWN = {"high": "high", "normal": "low", "low": "low"}  # never demote a brief-high survey
 
 
 def adjust_priority(brief_prio: str, insight: dict, attention: dict | None) -> str:
     """Nudge the brief's priority by the activity-attention tier. Pure per-insight (no rolling-window state).
 
-      surge       one step up (low->normal, normal->high), BUT stop at normal when attention["high_budget"]
-                  == "spent" (the once-per-7-days high-promotion budget, decided upstream in run_pipeline).
-      steady_high one step down, only normal->low: a survey the brief makes high stays high (safety: an urgent
-                  question from a steady heavy user is never demoted).
-      neutral     unchanged.
+    surge       one step up (low->normal, normal->high), BUT stop at normal when attention["high_budget"]
+                == "spent" (the once-per-7-days high-promotion budget, decided upstream in run_pipeline).
+    steady_high one step down, only normal->low: a survey the brief makes high stays high (safety: an urgent
+                question from a steady heavy user is never demoted).
+    neutral     unchanged.
     """
     if not attention:
         return brief_prio
@@ -199,8 +202,7 @@ class CapLedger:
         placed: the ledger saw it as `sent` at its new date, but the outcome is `moved`)."""
         self._decided[handoff_id] = admit
 
-    def admit_checked(self, handoff: dict, opt_out=None, *, relevance_threshold: float,
-                      defer_move: bool = False):
+    def admit_checked(self, handoff: dict, opt_out=None, *, relevance_threshold: float, defer_move: bool = False):
         """The scheduling gate every P3 path uses, in this order:
           1. opt-out -> `opted_out` (always wins);
           2. P4 quality gate (schema_valid, guards, relevance >= the supplied threshold) ->
@@ -209,6 +211,7 @@ class CapLedger:
           3. the weekly cap -> sent / moved / merged / skipped (see `admit`).
         Repeat calls for the same handoff_id return the first decision."""
         from .broadcast import quality_failures
+
         hid = handoff.get("handoff_id")
         if hid in self._decided:
             return self._decided[hid]
@@ -216,8 +219,11 @@ class CapLedger:
             a = Admit("opted_out", handoff, reason="farmer opted out of all surveys")
         else:
             fails = quality_failures(handoff["survey"], relevance_threshold)
-            a = (Admit("rejected", handoff, reason="; ".join(fails)) if fails
-                 else self._admit(handoff, opt_out, defer_move=defer_move))
+            a = (
+                Admit("rejected", handoff, reason="; ".join(fails))
+                if fails
+                else self._admit(handoff, opt_out, defer_move=defer_move)
+            )
         if hid is not None and not (defer_move and a.decision == "moved"):
             self._decided[hid] = a
         return a
@@ -267,7 +273,7 @@ class CapLedger:
         Merging into it lets the capped survey's insight IDs ride along with the host."""
         limit = max_source_insight_ids()
         new = extra["survey"]["source_insight_ids"]
-        for (_, h) in sorted(blocking, key=lambda tb: tb[0]):
+        for _, h in sorted(blocking, key=lambda tb: tb[0]):
             nb, na = parse_ist(h["send_window"]["not_before"]), parse_ist(h["send_window"]["not_after"])
             if not nb <= start <= na:
                 continue
@@ -304,6 +310,7 @@ class Admit:
     `rejected` is never produced by CapLedger itself. The batch and season schedulers use it for
     a survey that failed the quality gate before it reached the cap, so it never takes a farmer's
     weekly slot."""
+
     DECISIONS = ("sent", "moved", "merged", "skipped", "opted_out", "rejected")
 
     def __init__(self, decision: str, handoff: dict, reason: str = ""):
@@ -316,8 +323,11 @@ class Admit:
         return f"Admit({self.decision!r}, {self.handoff.get('handoff_id')!r}, {self.reason!r})"
 
     def __eq__(self, other):
-        return isinstance(other, Admit) and (self.decision, self.reason) == (other.decision, other.reason) \
+        return (
+            isinstance(other, Admit)
+            and (self.decision, self.reason) == (other.decision, other.reason)
             and self.handoff.get("handoff_id") == other.handoff.get("handoff_id")
+        )
 
 
 def _reschedule(handoff: dict, new_start) -> dict:
@@ -326,6 +336,7 @@ def _reschedule(handoff: dict, new_start) -> dict:
     send window and before its own expiry, so the window is only shortened, never shifted
     later. Used when a capped survey is moved."""
     import copy
+
     h = copy.deepcopy(handoff)
     h["send_window"] = {"not_before": fmt_ist(new_start), "not_after": handoff["send_window"]["not_after"]}
     h["survey"]["send_window"] = dict(h["send_window"])

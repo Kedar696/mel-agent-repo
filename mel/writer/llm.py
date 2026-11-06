@@ -27,6 +27,7 @@ Fewer tokens (5 Nov, after the first full run: 340 output tokens per draft, 1,77
     hosted app and every rerun replay the same questions for $0 and never call Bedrock for a request already answered
   * Bedrock prompt caching is not used: Haiku 4.5 caches only prefixes of 4,096 tokens or more, ours are about 300
 """
+
 import contextlib
 import contextvars
 import hashlib
@@ -39,19 +40,35 @@ from pathlib import Path
 
 from mel.config import OUT, ROOT, bedrock_region, env, flag
 
-REPLAY = ROOT / "docs" / "results" / "bedrock_cache.jsonl"   # committed answers, replayed for $0 (see export_cache)
+REPLAY = ROOT / "docs" / "results" / "bedrock_cache.jsonl"  # committed answers, replayed for $0 (see export_cache)
 
-RETRYABLE_CODES = {"ThrottlingException", "ModelTimeoutException", "ServiceUnavailableException",
-                   "InternalServerException", "ModelNotReadyException", "RequestTimeout"}
+RETRYABLE_CODES = {
+    "ThrottlingException",
+    "ModelTimeoutException",
+    "ServiceUnavailableException",
+    "InternalServerException",
+    "ModelNotReadyException",
+    "RequestTimeout",
+}
 RETRYABLE_CLASSES = {"EndpointConnectionError", "ConnectTimeoutError", "ReadTimeoutError", "ConnectionClosedError"}
 LANG_NAME = {"hi-IN": "Hindi (Devanagari script)", "en-IN": "English (simple Indian English)"}
 
 
 # ------------------------------------------------------------------ config (read at call time so tests can change it)
-def write_model() -> str: return env("MEL_BEDROCK_WRITE_MODEL")
-def check_model() -> str: return env("MEL_BEDROCK_CHECK_MODEL")
-def cache_dir() -> Path: return Path(env("MEL_CACHE_DIR") or OUT / "cache" / "bedrock")
-def log_path() -> Path: return Path(env("MEL_LLM_LOG") or OUT / "bedrock_calls.jsonl")
+def write_model() -> str:
+    return env("MEL_BEDROCK_WRITE_MODEL")
+
+
+def check_model() -> str:
+    return env("MEL_BEDROCK_CHECK_MODEL")
+
+
+def cache_dir() -> Path:
+    return Path(env("MEL_CACHE_DIR") or OUT / "cache" / "bedrock")
+
+
+def log_path() -> Path:
+    return Path(env("MEL_LLM_LOG") or OUT / "bedrock_calls.jsonl")
 
 
 def prices() -> dict:
@@ -67,8 +84,11 @@ def prices() -> dict:
         raw = json.loads((ROOT / "docs" / "results" / "bedrock_prices.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: {"in": v["in"] / 1000, "out": v["out"] / 1000} for k, v in raw.items()
-            if isinstance(v, dict) and v.get("in") is not None and v.get("out") is not None}
+    return {
+        k: {"in": v["in"] / 1000, "out": v["out"] / 1000}
+        for k, v in raw.items()
+        if isinstance(v, dict) and v.get("in") is not None and v.get("out") is not None
+    }
 
 
 _PROFILE_PREFIXES = ("us.", "eu.", "apac.", "global.")
@@ -104,7 +124,7 @@ def cost_usd(model_id: str, tokens_in: int, tokens_out: int):
     """None when the price of this model was not given (we never guess a price)."""
     pr = prices()
     p = pr.get(model_id)
-    if not p and model_id and model_id.startswith(_PROFILE_PREFIXES):   # a profile id costs what its model costs
+    if not p and model_id and model_id.startswith(_PROFILE_PREFIXES):  # a profile id costs what its model costs
         p = pr.get(model_id.split(".", 1)[1])
     if not p:
         return None
@@ -121,7 +141,7 @@ class ModelClient:
 
     def __init__(self, runtime=None, max_attempts=4, base_delay=1.0, sleep=time.sleep):
         self._runtime, self.max_attempts, self.base_delay, self._sleep = runtime, max_attempts, base_delay, sleep
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}   # tokens of the last converse() (cache hit: as made)
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}  # tokens of the last converse() (cache hit: as made)
 
     def runtime(self):
         """The one bedrock-runtime client (Converse and ApplyGuardrail both go through it). Raises ModelUnavailable."""
@@ -132,7 +152,7 @@ class ModelClient:
                 raise ModelUnavailable("boto3 is not installed") from e
             try:
                 self._runtime = boto3.client("bedrock-runtime", region_name=bedrock_region() or None)
-            except Exception as e:      # no region, bad credentials file, ...
+            except Exception as e:  # no region, bad credentials file, ...
                 raise ModelUnavailable(f"cannot create bedrock client: {e}") from e
         return self._runtime
 
@@ -144,7 +164,9 @@ class ModelClient:
     def converse(self, model_id, system, user, purpose="write", tag="", max_tokens=1200, temperature=0.2) -> str:
         """Returns the model's text. Raises ModelUnavailable. `purpose` is 'write' or 'check'; `tag` is e.g. the insight id (for the log).
         `system=None` sends no system prompt and `temperature=None` no temperature (newer models refuse one or the other)."""
-        key = hashlib.sha256(json.dumps([model_id, system, user, max_tokens, temperature], ensure_ascii=False).encode()).hexdigest()
+        key = hashlib.sha256(
+            json.dumps([model_id, system, user, max_tokens, temperature], ensure_ascii=False).encode()
+        ).hexdigest()
         # One request at a time per key: with 8 workers, two farmers with the same advice used to pay for the same
         # answer twice. The second waits, then finds the first one's answer in the cache.
         with self._inflight(key):
@@ -165,33 +187,53 @@ class ModelClient:
             try:
                 hit = json.loads(cached.read_text(encoding="utf-8"))
             except (ValueError, OSError):
-                hit = None                               # a broken cache file is just a miss
+                hit = None  # a broken cache file is just a miss
         if not isinstance(hit, dict) or "text" not in hit:
-            hit = replayed(key)                          # the committed answers: no AWS needed
+            hit = replayed(key)  # the committed answers: no AWS needed
         if hit:
-            self._log(model_id, purpose, tag, 0, 0, 0.0, cached=True, ok=True, key=key,
-                      list_cost=cost_usd(model_id, int(hit.get("input_tokens", 0)), int(hit.get("output_tokens", 0))))
+            self._log(
+                model_id,
+                purpose,
+                tag,
+                0,
+                0,
+                0.0,
+                cached=True,
+                ok=True,
+                key=key,
+                list_cost=cost_usd(model_id, int(hit.get("input_tokens", 0)), int(hit.get("output_tokens", 0))),
+            )
             # what this answer took when it was made (nothing is spent now): lets callers price an answer
-            self.last_usage = {"input_tokens": int(hit.get("input_tokens", 0)),
-                               "output_tokens": int(hit.get("output_tokens", 0)), "cached": True}
+            self.last_usage = {
+                "input_tokens": int(hit.get("input_tokens", 0)),
+                "output_tokens": int(hit.get("output_tokens", 0)),
+                "cached": True,
+            }
             return hit["text"]
         last = None
         for attempt in range(1, self.max_attempts + 1):
             t0 = time.perf_counter()
             try:
-                kw = {"system": [{"text": system}]} if system else {}   # some models take no system prompt: pass None
+                kw = {"system": [{"text": system}]} if system else {}  # some models take no system prompt: pass None
                 resp = self.runtime().converse(
-                    modelId=model_id, **kw,
+                    modelId=model_id,
+                    **kw,
                     messages=[{"role": "user", "content": [{"text": user}]}],
-                    inferenceConfig={"maxTokens": max_tokens, **({} if temperature is None else {"temperature": temperature})})
+                    inferenceConfig={
+                        "maxTokens": max_tokens,
+                        **({} if temperature is None else {"temperature": temperature}),
+                    },
+                )
             except ModelUnavailable:
                 raise
             except Exception as e:
                 last = e
                 secs = time.perf_counter() - t0
                 if self._retryable(e) and attempt < self.max_attempts:
-                    self._log(model_id, purpose, tag, 0, 0, secs, ok=False, error=f"retry {attempt}: {type(e).__name__}")
-                    self._sleep(self.base_delay * 2 ** (attempt - 1) * (0.5 + random.random()))   # backoff with jitter
+                    self._log(
+                        model_id, purpose, tag, 0, 0, secs, ok=False, error=f"retry {attempt}: {type(e).__name__}"
+                    )
+                    self._sleep(self.base_delay * 2 ** (attempt - 1) * (0.5 + random.random()))  # backoff with jitter
                     continue
                 self._log(model_id, purpose, tag, 0, 0, secs, ok=False, error=f"{type(e).__name__}: {e}"[:200])
                 raise ModelUnavailable(f"{type(e).__name__}: {e}") from e
@@ -203,7 +245,10 @@ class ModelClient:
             self.last_usage = {"input_tokens": tin, "output_tokens": tout}
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
-                cached.write_text(json.dumps({"text": text, "input_tokens": tin, "output_tokens": tout}, ensure_ascii=False), encoding="utf-8")
+                cached.write_text(
+                    json.dumps({"text": text, "input_tokens": tin, "output_tokens": tout}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
             except OSError:
                 pass
             return text
@@ -214,12 +259,24 @@ class ModelClient:
         made fresh (a cache hit: priced from the tokens it took when it was made), so cost per survey is right even
         for a run answered mostly from the cache."""
         cost = 0.0 if cached else cost_usd(model_id, tin, tout)
-        row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "model": model_id, "purpose": purpose, "tag": tag,
-               "input_tokens": tin, "output_tokens": tout, "cost_usd": cost,
-               "list_cost_usd": list_cost if cached else cost,
-               "seconds": round(secs, 3), "cached": cached, "ok": ok, "error": error, "key": key}
+        row = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "model": model_id,
+            "purpose": purpose,
+            "tag": tag,
+            "input_tokens": tin,
+            "output_tokens": tout,
+            "cost_usd": cost,
+            "list_cost_usd": list_cost if cached else cost,
+            "seconds": round(secs, 3),
+            "cached": cached,
+            "ok": ok,
+            "error": error,
+            "key": key,
+        }
         try:
-            p = log_path(); p.parent.mkdir(parents=True, exist_ok=True)
+            p = log_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
             with p.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
         except OSError:
@@ -279,8 +336,12 @@ def export_cache(path=None, source=None) -> int:
     for f in sorted(Path(source or cache_dir()).glob("*.json")):
         try:
             hit = json.loads(f.read_text(encoding="utf-8"))
-            rows[f.stem] = {"key": f.stem, "text": hit["text"], "input_tokens": int(hit.get("input_tokens", 0)),
-                            "output_tokens": int(hit.get("output_tokens", 0))}
+            rows[f.stem] = {
+                "key": f.stem,
+                "text": hit["text"],
+                "input_tokens": int(hit.get("input_tokens", 0)),
+                "output_tokens": int(hit.get("output_tokens", 0)),
+            }
         except (ValueError, KeyError, OSError, TypeError):
             continue
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -293,7 +354,18 @@ def usage_summary(path=None) -> dict:
     """Totals over the call log: calls, tokens, cost, seconds, cache hits, failures, and the same per model.
     cost_usd is the sum of the calls whose price was known; unpriced_calls says how many were not."""
     p = Path(path) if path else log_path()
-    tot = {"calls": 0, "ok": 0, "failed": 0, "cached": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "unpriced_calls": 0, "seconds": 0.0, "by_model": {}}
+    tot = {
+        "calls": 0,
+        "ok": 0,
+        "failed": 0,
+        "cached": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "unpriced_calls": 0,
+        "seconds": 0.0,
+        "by_model": {},
+    }
     if not p.exists():
         return tot
     for line in p.read_text(encoding="utf-8").splitlines():
@@ -301,9 +373,17 @@ def usage_summary(path=None) -> dict:
             r = json.loads(line)
         except ValueError:
             continue
-        for t in (tot, tot["by_model"].setdefault(r["model"], {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "seconds": 0.0})):
-            t["calls"] += 1; t["input_tokens"] += r["input_tokens"]; t["output_tokens"] += r["output_tokens"]
-            t["seconds"] = round(t["seconds"] + r["seconds"], 3); t["cost_usd"] = round(t["cost_usd"] + (r["cost_usd"] or 0), 6)
+        for t in (
+            tot,
+            tot["by_model"].setdefault(
+                r["model"], {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "seconds": 0.0}
+            ),
+        ):
+            t["calls"] += 1
+            t["input_tokens"] += r["input_tokens"]
+            t["output_tokens"] += r["output_tokens"]
+            t["seconds"] = round(t["seconds"] + r["seconds"], 3)
+            t["cost_usd"] = round(t["cost_usd"] + (r["cost_usd"] or 0), 6)
         tot["ok" if r["ok"] else "failed"] += 1
         tot["cached"] += bool(r["cached"])
         tot["unpriced_calls"] += r["ok"] and not r["cached"] and r["cost_usd"] is None
@@ -337,11 +417,22 @@ act_within_days: the whole number of days the farmer has to act, 0 if none
 check_back: when to ask how it went, one of next_day, two_to_five_days, three_to_ten_days, seven_to_fourteen_days, seasonal, none
 questions: how many survey questions this needs, 1, 2 or 3"""
 
-TYPES = {"confirm": "survey-confirm", "select": "survey-single-select", "scale": "survey-scale",
-         "survey-confirm": "survey-confirm", "survey-single-select": "survey-single-select", "survey-scale": "survey-scale"}
-STARS = {"f": "advice_did_not_work", "d": "crop_or_animal_damaged", "i": "could_not_get_input", "e": "could_not_reach_expert"}
+TYPES = {
+    "confirm": "survey-confirm",
+    "select": "survey-single-select",
+    "scale": "survey-scale",
+    "survey-confirm": "survey-confirm",
+    "survey-single-select": "survey-single-select",
+    "survey-scale": "survey-scale",
+}
+STARS = {
+    "f": "advice_did_not_work",
+    "d": "crop_or_animal_damaged",
+    "i": "could_not_get_input",
+    "e": "could_not_reach_expert",
+}
 YES_NO = {"en": ("Yes", "No"), "hi": ("हाँ", "नहीं")}
-MAX_WRITE_TOKENS = 400       # three compact lines, Hindi included; a chatty answer is cut, not paid for in full
+MAX_WRITE_TOKENS = 400  # three compact lines, Hindi included; a chatty answer is cut, not paid for in full
 _STAR = re.compile(r"^(.*?)\s*\*\s*([a-z]?)\s*$", re.I)
 
 
@@ -354,9 +445,13 @@ def lines_from(items: list[dict]) -> str:
     back = {v: k for k, v in STARS.items()}
     out = []
     for q in items:
-        kind = "scale" if q.get("type") == "survey-scale" else "confirm" if q.get("type") == "survey-confirm" else "select"
-        answers = [o.get("label", "") + (f"*{back[o['follow_up']]}" if o.get("follow_up") in back else "")
-                   for o in q.get("options", [])]
+        kind = (
+            "scale" if q.get("type") == "survey-scale" else "confirm" if q.get("type") == "survey-confirm" else "select"
+        )
+        answers = [
+            o.get("label", "") + (f"*{back[o['follow_up']]}" if o.get("follow_up") in back else "")
+            for o in q.get("options", [])
+        ]
         out.append(" | ".join([kind, q.get("prompt", ""), *answers]))
     return "\n".join(out)
 
@@ -388,20 +483,36 @@ def parse_lines(text: str, lang: str = "en-IN", source: list[dict] | None = None
             else:
                 answers.append((a, None))
         if typ == "survey-confirm" and len(answers) > 2:
-            typ = q["type"] = "survey-single-select"           # it is not a yes/no question after all
+            typ = q["type"] = "survey-single-select"  # it is not a yes/no question after all
         if typ == "survey-scale":
             if src and src.get("type") == "survey-scale":
-                q.update({x: src[x] for x in ("scale_min", "scale_max", "follow_up_at_or_below", "follow_up_reason") if x in src})
-            else:   # 1 to 5; 1 or 2 means the advice did not work
-                q.update({"scale_min": 1, "scale_max": 5, "follow_up_at_or_below": 2, "follow_up_reason": "advice_did_not_work"})
+                q.update(
+                    {
+                        x: src[x]
+                        for x in ("scale_min", "scale_max", "follow_up_at_or_below", "follow_up_reason")
+                        if x in src
+                    }
+                )
+            else:  # 1 to 5; 1 or 2 means the advice did not work
+                q.update(
+                    {
+                        "scale_min": 1,
+                        "scale_max": 5,
+                        "follow_up_at_or_below": 2,
+                        "follow_up_reason": "advice_did_not_work",
+                    }
+                )
             items.append(q)
             continue
         if typ == "survey-confirm":
-            labels = [a[0] for a in answers] + list(YES_NO[k][len(answers):])
-            answers = [(labels[0], answers[0][1] if answers else None), (labels[1], answers[1][1] if len(answers) > 1 else None)]
+            labels = [a[0] for a in answers] + list(YES_NO[k][len(answers) :])
+            answers = [
+                (labels[0], answers[0][1] if answers else None),
+                (labels[1], answers[1][1] if len(answers) > 1 else None),
+            ]
         if src is not None and src.get("type") != "survey-scale":
             if len(answers) != len(src.get("options", [])):
-                return None                                     # a translation must keep every answer
+                return None  # a translation must keep every answer
             q["type"] = src["type"]
             opts = [{**o, "label": a[0]} for o, a in zip(src["options"], answers)]
         else:
@@ -418,6 +529,7 @@ def parse_lines(text: str, lang: str = "en-IN", source: list[dict] | None = None
         return None
     return items or None
 
+
 SYSTEM_CHECK = """You are a strict safety checker for farmer surveys. You receive the advice a farmer was given and a draft survey.
 Answer with JSON only: {"gives_new_advice": bool, "asks_personal_info": bool, "contradicts_advice": bool}
 gives_new_advice is true if any question or answer tells the farmer to do something the advice did not say.
@@ -432,15 +544,21 @@ def _context(insight: dict) -> dict:
 
 def _json_from(text: str):
     try:
-        return json.loads(text[text.index("{"): text.rindex("}") + 1])
+        return json.loads(text[text.index("{") : text.rindex("}") + 1])
     except (ValueError, TypeError):
         return None
 
 
 # ------------------------------------------------------------------ the model calls
-def llm_items(insight: dict, lang: str, n_items: int | None = None, model_id: str | None = None,
-              feedback: list[str] | None = None, previous: list[dict] | None = None,
-              source_items: list[dict] | None = None) -> list[dict] | None:
+def llm_items(
+    insight: dict,
+    lang: str,
+    n_items: int | None = None,
+    model_id: str | None = None,
+    feedback: list[str] | None = None,
+    previous: list[dict] | None = None,
+    source_items: list[dict] | None = None,
+) -> list[dict] | None:
     """Items written by a Bedrock model (the configured writing model unless `model_id` is given), or None (off, unreachable,
     or unreadable answer). Nothing is checked here: compose.py runs the guards, relevance and (optionally) model_check.
     `feedback` + `previous` (P5's agent orchestrator, bounded revision): the reasons a checker rejected the previous draft;
@@ -453,27 +571,50 @@ def llm_items(insight: dict, lang: str, n_items: int | None = None, model_id: st
         system, user = SYSTEM_TRANSLATE, lines_from(source_items)
     else:
         system = SYSTEM_WRITE
-        user = (f"Language: {lang} = {LANG_NAME.get(lang, lang)}\nQuestions: {n_items or '1 to 3'}\n"
-                f"Insight: {json.dumps(_context(insight), ensure_ascii=False)}")
+        user = (
+            f"Language: {lang} = {LANG_NAME.get(lang, lang)}\nQuestions: {n_items or '1 to 3'}\n"
+            f"Insight: {json.dumps(_context(insight), ensure_ascii=False)}"
+        )
     if feedback:
-        user += ("\nYour previous draft was rejected by the checker" + (f":\n{lines_from(previous)}" if previous else "")
-                 + "\nFix these problems and write it again:\n- " + "\n- ".join(feedback))
+        user += (
+            "\nYour previous draft was rejected by the checker"
+            + (f":\n{lines_from(previous)}" if previous else "")
+            + "\nFix these problems and write it again:\n- "
+            + "\n- ".join(feedback)
+        )
     try:
-        text = client().converse(model_id or write_model(), system, user, purpose="write", tag=str(insight.get("insight_id", "")),
-                                 max_tokens=MAX_WRITE_TOKENS)
+        text = client().converse(
+            model_id or write_model(),
+            system,
+            user,
+            purpose="write",
+            tag=str(insight.get("insight_id", "")),
+            max_tokens=MAX_WRITE_TOKENS,
+        )
     except ModelUnavailable:
         return None
-    if '"items"' in text:                                     # the older JSON answer (replayed caches, tests)
+    if '"items"' in text:  # the older JSON answer (replayed caches, tests)
         data = _json_from(text)
         items = data.get("items") if isinstance(data, dict) else None
         return items if isinstance(items, list) and items else None
     return parse_lines(text, lang, source_items)
 
 
-READ_FIELDS = {"asset": None, "concern": None, "severity": {"low", "medium", "high", "critical"},
-               "advice_type": {"direct_action", "wait_and_monitor", "do_not_act", "plan_created", "escalate_to_expert",
-                               "generic_information", "needs_more_context"},
-               "check_back": {"next_day", "two_to_five_days", "three_to_ten_days", "seven_to_fourteen_days", "seasonal", "none"}}
+READ_FIELDS = {
+    "asset": None,
+    "concern": None,
+    "severity": {"low", "medium", "high", "critical"},
+    "advice_type": {
+        "direct_action",
+        "wait_and_monitor",
+        "do_not_act",
+        "plan_created",
+        "escalate_to_expert",
+        "generic_information",
+        "needs_more_context",
+    },
+    "check_back": {"next_day", "two_to_five_days", "three_to_ten_days", "seven_to_fourteen_days", "seasonal", "none"},
+}
 
 
 def read_conversation(question: str, advice: str) -> dict | None:
@@ -483,9 +624,13 @@ def read_conversation(question: str, advice: str) -> dict | None:
     is off or unreachable. The caller decides what to do with them; the rules R1-R8 and the window stay P2's."""
     if not enabled():
         return None
-    user = f"Farmer asked: {(question or '').strip()[:400]}\nAdvice given: {(advice or '').strip()[:600] or '(none yet)'}"
+    user = (
+        f"Farmer asked: {(question or '').strip()[:400]}\nAdvice given: {(advice or '').strip()[:600] or '(none yet)'}"
+    )
     try:
-        text = client().converse(write_model(), SYSTEM_READ, user, purpose="read", tag="own-insight", max_tokens=120, temperature=0)
+        text = client().converse(
+            write_model(), SYSTEM_READ, user, purpose="read", tag="own-insight", max_tokens=120, temperature=0
+        )
     except ModelUnavailable:
         return None
     out = {}
@@ -513,10 +658,21 @@ def model_check(survey: dict, insight: dict) -> dict | None:
     or None when no check model is configured or it can't be reached. None means 'no opinion', not 'safe'."""
     if not enabled() or not check_model():
         return None
-    draft = [{"prompt": q.get("prompt"), "options": [o.get("label") for o in q.get("options", [])]} for q in survey.get("items", [])]
+    draft = [
+        {"prompt": q.get("prompt"), "options": [o.get("label") for o in q.get("options", [])]}
+        for q in survey.get("items", [])
+    ]
     user = f"Advice given: {insight.get('advice_summary')}\nDraft survey ({survey.get('language')}): {json.dumps(draft, ensure_ascii=False)}\nReturn only JSON."
     try:
-        text = client().converse(check_model(), SYSTEM_CHECK, user, purpose="check", tag=str(insight.get("insight_id", "")), max_tokens=200, temperature=0)
+        text = client().converse(
+            check_model(),
+            SYSTEM_CHECK,
+            user,
+            purpose="check",
+            tag=str(insight.get("insight_id", "")),
+            max_tokens=200,
+            temperature=0,
+        )
     except ModelUnavailable:
         return None
     data = _json_from(text)
@@ -526,8 +682,9 @@ def model_check(survey: dict, insight: dict) -> dict | None:
     return {k: data[k] for k in keys}
 
 
-if __name__ == "__main__":                                   # python -m mel.writer.llm export-cache [path]
+if __name__ == "__main__":  # python -m mel.writer.llm export-cache [path]
     import sys
+
     if sys.argv[1:2] == ["export-cache"]:
         target = sys.argv[2] if len(sys.argv) > 2 else None
         print(f"{export_cache(target)} answers in {target or REPLAY}")

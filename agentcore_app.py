@@ -16,6 +16,7 @@ Settings (environment of the runtime; credentials come from its IAM execution ro
   MEL_S3_RESULTS=s3://bucket/prefix            every result is saved here as JSON (optional)
   MEL_METRICS_NAMESPACE (default FasalPulse/Agent)   CloudWatch metrics; MEL_METRICS=0 turns them off
 """
+
 import os
 
 # In the container the app folder is read-only and the AgentCore toolkit copies the laptop's out/ (model and judge
@@ -36,8 +37,12 @@ app = BedrockAgentCoreApp()
 async def invoke(payload):
     ins = payload.get("insight") or load_insight(payload.get("insight_id"))
     if not ins:
-        yield {"step": "error", "status": "fail", "title": "No insight",
-               "detail": "Send {'insight': {...}} or a known {'insight_id': ...}."}
+        yield {
+            "step": "error",
+            "status": "fail",
+            "title": "No insight",
+            "detail": "Send {'insight': {...}} or a known {'insight_id': ...}.",
+        }
         return
     options, problem = payload_options(payload)
     if problem:

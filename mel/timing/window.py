@@ -3,6 +3,7 @@
 The answer-key convention deliberately differs from the brief. See README.md in
 this directory for the conflicts and commands to evaluate both policies.
 """
+
 from datetime import date, datetime, time, timedelta
 
 from mel.config import IST, env, rules
@@ -44,11 +45,11 @@ def window_days(insight: dict) -> tuple[int, int]:
 def send_window(insight: dict, now: datetime | None = None) -> dict | None:
     """Return IST bounds, or None when the selected policy has no usable window.
 
-`now` is the simulated clock's instant (P3's `SeasonScheduler.clock.now()`), tz-aware.
-None keeps the old behaviour: the window is planned from the insight's own date.
-Read the policy on each call so callers/tests can select it without reimporting.
-Public input/output shapes remain unchanged.
-"""
+    `now` is the simulated clock's instant (P3's `SeasonScheduler.clock.now()`), tz-aware.
+    None keeps the old behaviour: the window is planned from the insight's own date.
+    Read the policy on each call so callers/tests can select it without reimporting.
+    Public input/output shapes remain unchanged.
+    """
     basis = env("MEL_TIMING_BASIS", "brief")
     if basis not in {"brief", "answer_key"}:
         raise ValueError("MEL_TIMING_BASIS must be 'brief' or 'answer_key'")
@@ -68,8 +69,8 @@ Public input/output shapes remain unchanged.
 
 def _from_now(win: dict | None, now: datetime | None, min_days: int) -> dict | None:
     """Never open in the past. Once the clock is past the opening, open at the next send hour
-(now, or 07:00 if before it, or 07:00 tomorrow if after 19:00) and keep the end. None when
-fewer than `min_days` calendar days are left (brief: 2, the same rule as the season-end clip)."""
+    (now, or 07:00 if before it, or 07:00 tomorrow if after 19:00) and keep the end. None when
+    fewer than `min_days` calendar days are left (brief: 2, the same rule as the season-end clip)."""
     if win is None or now is None:
         return win
     if now.utcoffset() is None:
@@ -92,10 +93,10 @@ fewer than `min_days` calendar days are left (brief: 2, the same rule as the sea
 def _answer_key_window(insight: dict) -> dict | None:
     """Reproduce the v1 answer-key convention without reading expected outputs.
 
-This evaluation mode permits same-day and short season-clipped windows and
-ignores action deadlines, exactly where the answer key conflicts with the brief.
-Its same-day end can exceed 19:00; scheduler send_hours still apply.
-"""
+    This evaluation mode permits same-day and short season-clipped windows and
+    ignores action deadlines, exactly where the answer key conflicts with the brief.
+    Its same-day end can exceed 19:00; scheduler send_hours still apply.
+    """
     r = rules()
     created = parse_ist(insight["created_at"])
     timing = (insight.get("verification") or {}).get("timing") or "none"

@@ -2,6 +2,7 @@
 the survey on the farmer's phone (app/channel_preview.py), and the agent's review and plan once the farmer answers.
 Also the user's own insight (app/custom_context.py), the Bedrock-written questions, the voice read-out and the
 step-by-step agent panel (local or on Amazon Bedrock AgentCore)."""
+
 import copy
 import json
 import re
@@ -24,42 +25,59 @@ from mel.writer.templates import template_items
 from app import custom_context as cc
 from app import tts
 from app.channel_preview import render_channel_preview
-from app.common import (BEDROCK_ON, CH_NAME, DATA_DIR, LANG_NAME, RULE_LABEL, html, long, short, table, us_text)
+from app.common import BEDROCK_ON, CH_NAME, DATA_DIR, LANG_NAME, RULE_LABEL, html, long, short, table, us_text
 from app.display_time import format_date, use as use_zone, zone_label
 from app.theme import MASCOT
 
 HINDI_SHEET = ROOT_DIR / "docs" / "p4" / "hindi_review_sheet.csv"  # P4's native-speaker review, one row per line
-data = None   # the app's batch (data.rows, data.admits, data.upcoming, memory), set by render()
+data = None  # the app's batch (data.rows, data.admits, data.upcoming, memory), set by render()
 
 
-AGENT_VERBS = [("Schlepping", "Schlepped"), ("Pondering", "Pondered"), ("Mulling", "Mulled"),
-               ("Percolating", "Percolated"), ("Ruminating", "Ruminated"), ("Noodling", "Noodled")]
+AGENT_VERBS = [
+    ("Schlepping", "Schlepped"),
+    ("Pondering", "Pondered"),
+    ("Mulling", "Mulled"),
+    ("Percolating", "Percolated"),
+    ("Ruminating", "Ruminated"),
+    ("Noodling", "Noodled"),
+]
 
 
 def guard_checks(surveys):
     """-> (passed, total, failed check names), over both languages."""
     probs = [p for s in surveys.values() for p in check_survey(clean(s))]
-    checks = [("Schema valid", "schema"), ("No new advice", "advice"), ("No personal info", "personal"),
-              ("Labels ≤ 20 chars", "label")]
+    checks = [
+        ("Schema valid", "schema"),
+        ("No new advice", "advice"),
+        ("No personal info", "personal"),
+        ("Labels ≤ 20 chars", "label"),
+    ]
     failed = [t for t, k in checks if any(k in p for p in probs)]
     return len(checks) - len(failed), len(checks), failed
 
 
 def _route(h):
-    return " → ".join(CH_NAME[c["channel"]] + (f' <small>({c["wait_hours"]} h)</small>' if c.get("wait_hours") else "")
-                      for c in h["channel_order"])
+    return " → ".join(
+        CH_NAME[c["channel"]] + (f" <small>({c['wait_hours']} h)</small>" if c.get("wait_hours") else "")
+        for c in h["channel_order"]
+    )
 
 
 def _planned_next(h):
     """(send start, insight id) of this farmer's next batch survey that gets past the weekly limit, or None."""
     me, start = h["survey"]["source_insight_ids"][0], h["send_window"]["not_before"]
-    return next(((t, iid) for t, iid in data.upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None)
+    return next(
+        ((t, iid) for t, iid in data.upcoming.get(h["survey"]["farmer_id"], []) if t > start and iid != me), None
+    )
 
 
 def _why(out, d, lang):
     """The decision's reason in plain words (the survey rationale, or the no-survey reason without its code)."""
-    return us_text(out["surveys"][lang]["rationale"].split(" Personalised:")[0] if d.survey
-                   else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"]))  # drop the "[R5 code]" prefix
+    return us_text(
+        out["surveys"][lang]["rationale"].split(" Personalised:")[0]
+        if d.survey
+        else re.sub(r"^\[[^\]]*\]\s*", "", out["no_survey"]["reason"])
+    )  # drop the "[R5 code]" prefix
 
 
 def agent_view(ins, out, d, notes, attention, review=None, chat=(), shown=0) -> int:
@@ -77,32 +95,75 @@ def agent_view(ins, out, d, notes, attention, review=None, chat=(), shown=0) -> 
     def kv(pairs):
         return '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in pairs) + "</dl>"
 
-    steps = [("Read", f'conversation {ins.get("conversation_id") or ""}', kv([
-                 ("Farmer", f'{fid} · {escape(str(loc.get("district") or "—"))}, {escape(str(loc.get("state") or ""))}'
-                            f' · speaks {LANG_NAME.get(ins.get("conversation_language"), "—")}'),
-                 ("Severity", f'<span class="sev {escape(sev)}">{escape(sev.title())}</span>'),
-                 ("Topic", f'{escape(str(a.get("name") or "—").title())} · '
-                           f'{escape(str(ins.get("concern") or "").replace("_", " "))}'),
-                 ("Reported", f'“{escape(ins.get("query_summary") or "—")}”'),
-                 ("Advice", f'“{escape(ins.get("advice_summary") or "—")}”')])),
-             ("Decide", "rules R1–R8", kv([("Decision", f'<b>{d.rule} · {"Survey" if d.survey else "No survey"}</b>'
-                                                        f' · {escape(why)}')]))]
+    steps = [
+        (
+            "Read",
+            f"conversation {ins.get('conversation_id') or ''}",
+            kv(
+                [
+                    (
+                        "Farmer",
+                        f"{fid} · {escape(str(loc.get('district') or '—'))}, {escape(str(loc.get('state') or ''))}"
+                        f" · speaks {LANG_NAME.get(ins.get('conversation_language'), '—')}",
+                    ),
+                    ("Severity", f'<span class="sev {escape(sev)}">{escape(sev.title())}</span>'),
+                    (
+                        "Topic",
+                        f"{escape(str(a.get('name') or '—').title())} · "
+                        f"{escape(str(ins.get('concern') or '').replace('_', ' '))}",
+                    ),
+                    ("Reported", f"“{escape(ins.get('query_summary') or '—')}”"),
+                    ("Advice", f"“{escape(ins.get('advice_summary') or '—')}”"),
+                ]
+            ),
+        ),
+        (
+            "Decide",
+            "rules R1–R8",
+            kv([("Decision", f"<b>{d.rule} · {'Survey' if d.survey else 'No survey'}</b> · {escape(why)}")]),
+        ),
+    ]
     recall = [("Remembers", f"<b>{r}</b> · {escape(w)}") for r, w in notes]
     if d.survey and attention and attention.get("tier") != "neutral":
-        recall.append(("Attention", f'<b>{escape(attention["tier"].replace("_", " "))}</b> · {escape(attention["explanation"])}'))
+        recall.append(
+            ("Attention", f"<b>{escape(attention['tier'].replace('_', ' '))}</b> · {escape(attention['explanation'])}")
+        )
     if recall:
         steps.append(("Recall", f"history of {ins.get('farmer_id')}", kv(recall)))
     if d.survey:
         h = out["handoff"]
         ok, total, failed = guard_checks(out["surveys"])
-        steps.append(("Check", "survey", kv([("Checklist", f'<span class="{"fail" if failed else "pass"}">{ok} / {total} passed</span>'
-                                                           + (f' · ✕ {escape(", ".join(failed))}' if failed else ""))])))
+        steps.append(
+            (
+                "Check",
+                "survey",
+                kv(
+                    [
+                        (
+                            "Checklist",
+                            f'<span class="{"fail" if failed else "pass"}">{ok} / {total} passed</span>'
+                            + (f" · ✕ {escape(', '.join(failed))}" if failed else ""),
+                        )
+                    ]
+                ),
+            )
+        )
         decision, reason = data.admits.get(h["handoff_id"], ("sent", ""))
-        held = "" if decision == "sent" else f' · {escape(decision.replace("_", " "))} by weekly limit: {escape(us_text(reason))}'
-        steps.append(("Schedule", "hand-off", kv([("Sends", f'<b>{long(d.send_time["send_at"])}</b><br>{_route(h)}{held}')])))
+        held = (
+            ""
+            if decision == "sent"
+            else f" · {escape(decision.replace('_', ' '))} by weekly limit: {escape(us_text(reason))}"
+        )
+        steps.append(
+            ("Schedule", "hand-off", kv([("Sends", f"<b>{long(d.send_time['send_at'])}</b><br>{_route(h)}{held}")]))
+        )
         say = "Survey ready. Handed to the scheduler."
     else:
-        say = "No survey. A person calls this farmer instead." if d.rule == "R2" else f"No survey: {RULE_LABEL[d.rule].lower()}."
+        say = (
+            "No survey. A person calls this farmer instead."
+            if d.rule == "R2"
+            else f"No survey: {RULE_LABEL[d.rule].lower()}."
+        )
     lines = lambda at: [("Ask", c["q"], c["a"]) for c in chat if c.get("at") == at]
     steps = lines("top") + steps + lines("agent")
     if review:
@@ -112,29 +173,47 @@ def agent_view(ins, out, d, notes, attention, review=None, chat=(), shown=0) -> 
 
     def step(k, name, arg, res):
         cls = "step" + (" done" if k < first else "") + {"Think": " think", "Ask": " ask"}.get(name, "")
-        call = ('<i>✻</i><em>Thinking…</em>' if name == "Think" else f'<i>❯</i><span>{escape(arg)}</span>' if name == "Ask"
-                else f'<i>⏺</i><b>{name}</b>(<em>{escape(arg)}</em>)')
-        return (f'<div class="{cls}" style="--i:{k - first}"><div class="call">{call}</div>'
-                f'<div class="res"><span class="elbow">⎿</span><div>{res}</div></div></div>')
+        call = (
+            "<i>✻</i><em>Thinking…</em>"
+            if name == "Think"
+            else f"<i>❯</i><span>{escape(arg)}</span>"
+            if name == "Ask"
+            else f"<i>⏺</i><b>{name}</b>(<em>{escape(arg)}</em>)"
+        )
+        return (
+            f'<div class="{cls}" style="--i:{k - first}"><div class="call">{call}</div>'
+            f'<div class="res"><span class="elbow">⎿</span><div>{res}</div></div></div>'
+        )
+
     body = "".join(step(k, *s_) for k, s_ in enumerate(steps))
-    t = 0.3 + 0.6 * (len(steps) - first)  # when the last new step is in: the status turns to "✻ … for Ns", the mascot smiles
+    t = 0.3 + 0.6 * (
+        len(steps) - first
+    )  # when the last new step is in: the status turns to "✻ … for Ns", the mascot smiles
     verb, done = AGENT_VERBS[sum(map(ord, str(ins.get("insight_id")))) % len(AGENT_VERBS)]
     secs, tokens = max(1, round(t)), len(re.sub(r"<[^>]+>", "", body)) // 3 + 380
-    html(f'<div class="mel-agent" style="--t:{t:.2f}s;--secs:{secs};--toks:{tokens};--spins:{max(1, round(t / .8))};'
-         f'--m:{max(1, round(t))}"><div class="scroll" tabindex="0" aria-label="Agent log"><div class="log">{body}'
-         f'<div class="status"><span class="spin"></span><span class="run">{verb}… <em>(<i class="sec"></i>s · ↓ '
-         f'<i class="tok"></i> tokens · thinking some more with max effort)</em></span>'
-         f'<span class="fin">{done} for {secs}s</span></div></div></div>'
-         f'<div class="foot">{MASCOT}<div class="bubble">{escape(say)}</div></div></div>')
+    html(
+        f'<div class="mel-agent" style="--t:{t:.2f}s;--secs:{secs};--toks:{tokens};--spins:{max(1, round(t / 0.8))};'
+        f'--m:{max(1, round(t))}"><div class="scroll" tabindex="0" aria-label="Agent log"><div class="log">{body}'
+        f'<div class="status"><span class="spin"></span><span class="run">{verb}… <em>(<i class="sec"></i>s · ↓ '
+        f'<i class="tok"></i> tokens · thinking some more with max effort)</em></span>'
+        f'<span class="fin">{done} for {secs}s</span></div></div></div>'
+        f'<div class="foot">{MASCOT}<div class="bubble">{escape(say)}</div></div></div>'
+    )
     return len(steps)
 
 
-FU_LABEL = {"advice_did_not_work": "the advice didn't work", "crop_or_animal_damaged": "the crop or animal was damaged",
-            "could_not_get_input": "they couldn't get the inputs", "could_not_reach_expert": "they couldn't reach the expert"}
-FU_ACTION = {"advice_did_not_work": "a person re-checks the advice and calls with a corrected recommendation",
-             "crop_or_animal_damaged": "a person assesses the damage and connects the farmer to a vet or extension worker",
-             "could_not_get_input": "a person shares the nearest input supplier or a subsidy",
-             "could_not_reach_expert": "a person books a call with the nearest agriculture expert"}
+FU_LABEL = {
+    "advice_did_not_work": "the advice didn't work",
+    "crop_or_animal_damaged": "the crop or animal was damaged",
+    "could_not_get_input": "they couldn't get the inputs",
+    "could_not_reach_expert": "they couldn't reach the expert",
+}
+FU_ACTION = {
+    "advice_did_not_work": "a person re-checks the advice and calls with a corrected recommendation",
+    "crop_or_animal_damaged": "a person assesses the damage and connects the farmer to a vet or extension worker",
+    "could_not_get_input": "a person shares the nearest input supplier or a subsidy",
+    "could_not_reach_expert": "a person books a call with the nearest agriculture expert",
+}
 RETRY = ("retry_same_channel", "fall_back_to_next_channel")
 
 
@@ -156,39 +235,77 @@ def plan_next(h, rec, lang):
     this survey first; then the next survey already in the batch; else the earliest day the weekly limit allows one.
     -> (another survey?, [(label, html)], one line for the thinking)."""
     if rec["status"] == "declined":
-        return False, [("Next survey", "<b>No</b> · the farmer opted out; we never ask again")], \
-            "The farmer opted out, so the only right move is to stop."
+        return (
+            False,
+            [("Next survey", "<b>No</b> · the farmer opted out; we never ask again")],
+            "The farmer opted out, so the only right move is to stop.",
+        )
     if rec["retry_decision"] in RETRY:
         wait = rec.get("retry_after_minutes") or 0
         at = datetime.fromisoformat(rec["recorded_at"]) + timedelta(minutes=wait)
-        how = "same channel" if rec["retry_decision"] == "retry_same_channel" else "the next channel in the farmer's order"
-        return True, [("Next survey", "<b>Yes, this one again</b> · it did not get through"),
-                      ("When", f"<b>{long(at)}</b>"), ("Channel", how)], \
-            "The survey did not get through, so the same questions go out again before anything new."
+        how = (
+            "same channel"
+            if rec["retry_decision"] == "retry_same_channel"
+            else "the next channel in the farmer's order"
+        )
+        return (
+            True,
+            [
+                ("Next survey", "<b>Yes, this one again</b> · it did not get through"),
+                ("When", f"<b>{long(at)}</b>"),
+                ("Channel", how),
+            ],
+            "The survey did not get through, so the same questions go out again before anything new.",
+        )
     nxt = _planned_next(h)
     if nxt:
         a, o = data.insight_by_id.get(nxt[1]) or {}, data.out_by_id.get(nxt[1]) or {}
         sv = (o.get("surveys") or {}).get(lang) or next(iter((o.get("surveys") or {}).values()), None)
-        topic = f'{str((a.get("asset") or {}).get("name") or "").title()} · {str(a.get("concern") or "").replace("_", " ")}'
-        rows_ = [("Next survey", "<b>Yes</b>"), ("When", f"<b>{long(nxt[0])}</b>"),
-                 ("What", f"{escape(topic)} <small>(their conversation of {format_date(a['created_at'])})</small>"
-                  if a.get("created_at") else escape(topic))]
+        topic = (
+            f"{str((a.get('asset') or {}).get('name') or '').title()} · {str(a.get('concern') or '').replace('_', ' ')}"
+        )
+        rows_ = [
+            ("Next survey", "<b>Yes</b>"),
+            ("When", f"<b>{long(nxt[0])}</b>"),
+            (
+                "What",
+                f"{escape(topic)} <small>(their conversation of {format_date(a['created_at'])})</small>"
+                if a.get("created_at")
+                else escape(topic),
+            ),
+        ]
         if sv:
             rows_.append(("Opens with", f"“{escape(sv['items'][0]['prompt'])}”"))
         if o.get("handoff"):
             rows_.append(("Channel", _route(o["handoff"])))
-        about = f'{(a.get("asset") or {}).get("name") or "the crop"} ({str(a.get("concern") or "").replace("_", " ")})'
-        return True, rows_, (f"This farmer has since asked about {escape(about)}. That survey is already planned for "
-                             f"{format_date(nxt[0])}, 7 days after this one, so it respects the weekly limit.")
+        about = f"{(a.get('asset') or {}).get('name') or 'the crop'} ({str(a.get('concern') or '').replace('_', ' ')})"
+        return (
+            True,
+            rows_,
+            (
+                f"This farmer has since asked about {escape(about)}. That survey is already planned for "
+                f"{format_date(nxt[0])}, 7 days after this one, so it respects the weekly limit."
+            ),
+        )
     if not rec["counts_toward_cap"]:
-        return False, [("Next survey", "<b>Only when needed</b> · this attempt does not count toward the weekly limit")], \
-            "Nothing else from this farmer needs checking yet."
+        return (
+            False,
+            [("Next survey", "<b>Only when needed</b> · this attempt does not count toward the weekly limit")],
+            "Nothing else from this farmer needs checking yet.",
+        )
     me, fid = h["survey"]["source_insight_ids"][0], h["survey"]["farmer_id"]
-    start = next((t for t, iid in data.upcoming.get(fid, []) if iid == me), h["send_window"]["not_before"])  # moved? its new day
+    start = next(
+        (t for t, iid in data.upcoming.get(fid, []) if iid == me), h["send_window"]["not_before"]
+    )  # moved? its new day
     gate = datetime.fromisoformat(start) + timedelta(days=7)
-    return False, [("Next survey", "<b>Not yet</b> · only when a new conversation needs one"),
-                   ("Earliest", f"<b>{format_date(gate)}</b> · 7 days after this send (weekly limit)")], \
-        "Nothing else from this farmer needs checking, and the weekly limit holds the next survey for 7 days."
+    return (
+        False,
+        [
+            ("Next survey", "<b>Not yet</b> · only when a new conversation needs one"),
+            ("Earliest", f"<b>{format_date(gate)}</b> · 7 days after this send (weekly limit)"),
+        ],
+        "Nothing else from this farmer needs checking, and the weekly limit holds the next survey for 7 days.",
+    )
 
 
 def review_steps(ins, out, h, sv, rec, lang, ch):
@@ -197,48 +314,87 @@ def review_steps(ins, out, h, sv, rec, lang, ch):
     simulator built from the real taps, the checks, and the batch; nothing is invented."""
     got = {e["item_id"]: e for e in rec["items"]}
     answered = [it for it in sv["items"] if got.get(it["item_id"], {}).get("result") == "answered"]
-    qa = "".join(f'<div class="qa"><span>{escape(it["prompt"])}</span><b>'
-                 + (escape(_answer_label(it, got[it["item_id"]]["value"])) if it in answered else "<small>no answer</small>")
-                 + "</b></div>" for it in sv["items"])
+    qa = "".join(
+        f'<div class="qa"><span>{escape(it["prompt"])}</span><b>'
+        + (escape(_answer_label(it, got[it["item_id"]]["value"])) if it in answered else "<small>no answer</small>")
+        + "</b></div>"
+        for it in sv["items"]
+    )
     status = rec["status"].replace("_", " ").capitalize()
     flags = [FU_LABEL.get(r, r.replace("_", " ")) for r in rec["follow_up_reasons"]]
-    steps = [("Review", f"answers from {CH_NAME.get(ch, ch)}", f'<dl class="kv"><dt>Status</dt><dd><b>{escape(status)}</b> · '
-              f'{len(answered)} of {len(sv["items"])} answered · {short(rec["recorded_at"])}</dd>'
-              f'<dt>Answers</dt><dd>{qa}</dd>'
-              + (f'<dt>Flag</dt><dd><span class="fail">⚑ {escape("; ".join(flags))}</span></dd>' if flags else "") + "</dl>")]
+    steps = [
+        (
+            "Review",
+            f"answers from {CH_NAME.get(ch, ch)}",
+            f'<dl class="kv"><dt>Status</dt><dd><b>{escape(status)}</b> · '
+            f"{len(answered)} of {len(sv['items'])} answered · {short(rec['recorded_at'])}</dd>"
+            f"<dt>Answers</dt><dd>{qa}</dd>"
+            + (f'<dt>Flag</dt><dd><span class="fail">⚑ {escape("; ".join(flags))}</span></dd>' if flags else "")
+            + "</dl>",
+        )
+    ]
 
     ok, total, failed = guard_checks(out["surveys"])
     rel = relevance(sv, ins)
     judge = _judge_score(ins["insight_id"]) if out["surveys"][lang].get("_source") == "bedrock" else None
     full = len(answered) == len(sv["items"])
     good = not failed and rel >= RELEVANCE_THRESHOLD and full
-    verdict = ("Good survey" if good else "Usable, with gaps" if not failed and answered else "Weak survey")
-    why = ("safe, on topic and every question answered" if good else
-           f"{len(sv['items']) - len(answered)} question(s) unanswered" if not failed and answered else
-           "it failed a check" if failed else "the farmer answered nothing")
-    steps.append(("Assess", "survey quality", f'<dl class="kv"><dt>Checks</dt><dd><span class="{"fail" if failed else "pass"}">'
-                  f'{ok} / {total} passed</span>' + (f' · ✕ {escape(", ".join(failed))}' if failed else "")
-                  + f'</dd><dt>Relevance</dt><dd><b>{rel:.2f}</b> <small>(0 to 1; the send bar is {RELEVANCE_THRESHOLD})</small></dd>'
-                  + (f'<dt>AI judge</dt><dd><b>{judge} / 5</b> <small>(Gemma 3 12B, recorded run)</small></dd>' if judge else "")
-                  + f'<dt>Verdict</dt><dd><span class="{"pass" if good else "warn"}">{verdict}</span> · {why}</dd></dl>'))
+    verdict = "Good survey" if good else "Usable, with gaps" if not failed and answered else "Weak survey"
+    why = (
+        "safe, on topic and every question answered"
+        if good
+        else f"{len(sv['items']) - len(answered)} question(s) unanswered"
+        if not failed and answered
+        else "it failed a check"
+        if failed
+        else "the farmer answered nothing"
+    )
+    steps.append(
+        (
+            "Assess",
+            "survey quality",
+            f'<dl class="kv"><dt>Checks</dt><dd><span class="{"fail" if failed else "pass"}">'
+            f"{ok} / {total} passed</span>"
+            + (f" · ✕ {escape(', '.join(failed))}" if failed else "")
+            + f"</dd><dt>Relevance</dt><dd><b>{rel:.2f}</b> <small>(0 to 1; the send bar is {RELEVANCE_THRESHOLD})</small></dd>"
+            + (
+                f"<dt>AI judge</dt><dd><b>{judge} / 5</b> <small>(Gemma 3 12B, recorded run)</small></dd>"
+                if judge
+                else ""
+            )
+            + f'<dt>Verdict</dt><dd><span class="{"pass" if good else "warn"}">{verdict}</span> · {why}</dd></dl>',
+        )
+    )
 
     again, plan, plan_thought = plan_next(h, rec, lang)
-    thoughts = [f"The farmer says {escape(' and '.join(flags))}. A person should call before we ask anything else: "
-                f"{escape('; '.join(FU_ACTION.get(r, 'a person follows up') for r in rec['follow_up_reasons']))}."
-                if flags else
-                "Every answer is in and none of them points to trouble, so the advice looks like it is working."
-                if full else
-                f"Only {len(answered)} of {len(sv['items'])} answers came back; the record keeps what we got and we do not chase the rest."
-                if answered else "No answers came back; the record says why."]
-    thoughts.append(f"The questions stayed on topic (relevance {rel:.2f}) and short enough to answer in about a minute."
-                    if not failed and rel >= RELEVANCE_THRESHOLD else "The survey itself needs work before it is reused.")
+    thoughts = [
+        f"The farmer says {escape(' and '.join(flags))}. A person should call before we ask anything else: "
+        f"{escape('; '.join(FU_ACTION.get(r, 'a person follows up') for r in rec['follow_up_reasons']))}."
+        if flags
+        else "Every answer is in and none of them points to trouble, so the advice looks like it is working."
+        if full
+        else f"Only {len(answered)} of {len(sv['items'])} answers came back; the record keeps what we got and we do not chase the rest."
+        if answered
+        else "No answers came back; the record says why."
+    ]
+    thoughts.append(
+        f"The questions stayed on topic (relevance {rel:.2f}) and short enough to answer in about a minute."
+        if not failed and rel >= RELEVANCE_THRESHOLD
+        else "The survey itself needs work before it is reused."
+    )
     thoughts.append(plan_thought)
     steps.append(("Think", "", "".join(f"<p>{t}</p>" for t in thoughts)))
-    steps.append(("Plan", "next step", '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in plan) + "</dl>"))
+    steps.append(
+        ("Plan", "next step", '<dl class="kv">' + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in plan) + "</dl>")
+    )
     when = next((v for k, v in plan if k == "When"), "")
-    say = ("A person should call this farmer first." if flags else
-           f"{verdict}. Next one {re.sub(r'<[^>]+>', '', when)}." if again and when else
-           f"{verdict}. Nothing else to ask yet.")
+    say = (
+        "A person should call this farmer first."
+        if flags
+        else f"{verdict}. Next one {re.sub(r'<[^>]+>', '', when)}."
+        if again and when
+        else f"{verdict}. Nothing else to ask yet."
+    )
     return steps, say
 
 
@@ -250,30 +406,54 @@ BROWSE = "Browse all conversations"
 PRETEND = ["none", "said the input was not available nearby", "said it was too costly", "ignored the last 3 surveys"]
 PRETEND_ATT = {
     "as computed from the real data": None,
-    "quiet, then urgent (surge)": {"tier": "surge", "reason": "quiet_then_high_weight", "weight": 1.5,
-                                   "baseline_per_week": 0.0, "recent_count": 1,
-                                   "explanation": "This farmer was quiet, then raised an urgent question: worth extra attention."},
-    "steady heavy user (steady_high)": {"tier": "steady_high", "reason": "none", "weight": 0.5,
-                                        "baseline_per_week": 2.5, "recent_count": 3,
-                                        "explanation": "This farmer is consistently busy, so no extra priority by default."},
-    "went quiet (neutral)": {"tier": "neutral", "reason": "declining", "weight": 1.0,
-                             "baseline_per_week": 2.0, "recent_count": 1,
-                             "explanation": "This farmer's activity has dropped below their usual rate: treated normally."},
+    "quiet, then urgent (surge)": {
+        "tier": "surge",
+        "reason": "quiet_then_high_weight",
+        "weight": 1.5,
+        "baseline_per_week": 0.0,
+        "recent_count": 1,
+        "explanation": "This farmer was quiet, then raised an urgent question: worth extra attention.",
+    },
+    "steady heavy user (steady_high)": {
+        "tier": "steady_high",
+        "reason": "none",
+        "weight": 0.5,
+        "baseline_per_week": 2.5,
+        "recent_count": 3,
+        "explanation": "This farmer is consistently busy, so no extra priority by default.",
+    },
+    "went quiet (neutral)": {
+        "tier": "neutral",
+        "reason": "declining",
+        "weight": 1.0,
+        "baseline_per_week": 2.0,
+        "recent_count": 1,
+        "explanation": "This farmer's activity has dropped below their usual rate: treated normally.",
+    },
 }
 
 
-
-EDITOR_KEYS = {"question": "cc_question", "advice": "cc_advice", "asset": "cc_asset", "concern": "cc_concern",
-               "severity": "cc_severity", "resolution": "cc_resolution", "days": "cc_days", "check": "cc_check",
-               "channel": "cc_channel", "language": "cc_language", "district": "cc_district"}
+EDITOR_KEYS = {
+    "question": "cc_question",
+    "advice": "cc_advice",
+    "asset": "cc_asset",
+    "concern": "cc_concern",
+    "severity": "cc_severity",
+    "resolution": "cc_resolution",
+    "days": "cc_days",
+    "check": "cc_check",
+    "channel": "cc_channel",
+    "language": "cc_language",
+    "district": "cc_district",
+}
 
 
 def _sync_draft() -> dict:
     """Editor widgets -> draft. Streamlit drops a widget's key once it is not rendered (editor hidden, demo shown),
     so the draft in session state is what survives; the widgets are re-seeded from it when the editor reopens."""
     draft = st.session_state.setdefault("custom_draft", dict(cc.DEFAULTS))
-    reseed = st.session_state.get("custom_reseed")   # Bedrock read the last submission: its Details win over the
-    if reseed:                                        # widget values still around from the run that submitted
+    reseed = st.session_state.get("custom_reseed")  # Bedrock read the last submission: its Details win over the
+    if reseed:  # widget values still around from the run that submitted
         draft.update(reseed)
     else:
         for field, wkey in EDITOR_KEYS.items():
@@ -311,11 +491,17 @@ def own_insight_run(fields: dict, n: int) -> dict:
     Details as typed and the checked templates."""
     from mel.agent import run_agent
     from mel.decision import decide
+
     with llm.writer(BEDROCK_ON):
-        read = (llm.read_conversation(fields["question"], fields["advice"])
-                if BEDROCK_ON and st.session_state.get("cc_read", True) else None)
+        read = (
+            llm.read_conversation(fields["question"], fields["advice"])
+            if BEDROCK_ON and st.session_state.get("cc_read", True)
+            else None
+        )
         if read:
-            fields.update(cc.apply_reading(fields, read))  # the draft is this dict: the Details now show what the model read
+            fields.update(
+                cc.apply_reading(fields, read)
+            )  # the draft is this dict: the Details now show what the model read
             st.session_state["custom_reseed"] = {f: fields[f] for f in EDITOR_KEYS}
         sub = cc.submission(fields, n)
         sub["read"], sub["fields"] = read, dict(fields)
@@ -324,21 +510,27 @@ def own_insight_run(fields: dict, n: int) -> dict:
             sub["out"] = run_insight(ins, memory=data.memory())
             sub["bedrock_note"] = "from the checked template (Bedrock is off on this machine)"
             return sub
-        evs = list(run_agent(ins, memory=None, n_items=sub.get("questions")))   # one agent run, no second writer call
+        evs = list(run_agent(ins, memory=None, n_items=sub.get("questions")))  # one agent run, no second writer call
     res = evs[-1] if evs and evs[-1].get("step") == "result" else {}
-    d = decide(ins)                                                           # the same call the agent made
+    d = decide(ins)  # the same call the agent made
     out = {"decision": d, "no_survey": None if d.survey else d.no_survey_record(ins)}
     sub["bedrock_note"] = None
     if d.survey and res.get("surveys"):
         out.update(surveys=res["surveys"], handoff=res["handoff"])
         m = res.get("metrics") or {}
         src = res["surveys"].get(ins["conversation_language"], {}).get("_source")
-        sub["bedrock_note"] = (f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
-                               f"${m.get('cost_usd') or 0:.4f}" if src == "bedrock" else
-                               "from the checked template: the Bedrock draft failed the checks twice")
-        st.session_state[_agent_key(ins, d.attention, True)] = evs            # the agent panel shows this run
-    elif d.survey:                                                            # the agent run broke: the templates
-        out, sub["bedrock_note"] = run_insight(ins, memory=data.memory()), "from the checked template (the agent run failed)"
+        sub["bedrock_note"] = (
+            f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
+            f"${m.get('cost_usd') or 0:.4f}"
+            if src == "bedrock"
+            else "from the checked template: the Bedrock draft failed the checks twice"
+        )
+        st.session_state[_agent_key(ins, d.attention, True)] = evs  # the agent panel shows this run
+    elif d.survey:  # the agent run broke: the templates
+        out, sub["bedrock_note"] = (
+            run_insight(ins, memory=data.memory()),
+            "from the checked template (the agent run failed)",
+        )
     sub["out"] = out
     return sub
 
@@ -349,26 +541,40 @@ def own_insight_editor(draft: dict) -> bool:
     reseed = st.session_state.pop("custom_reseed", None)  # the widgets are not drawn yet, so their keys may be set
     for field, wkey in EDITOR_KEYS.items():
         if reseed:
-            st.session_state[wkey] = draft[field]            # show what Bedrock read (apply_reading)
+            st.session_state[wkey] = draft[field]  # show what Bedrock read (apply_reading)
         else:
             st.session_state.setdefault(wkey, draft[field])  # re-seed from the draft (keys are gone after hiding)
     with st.container(border=True, key="own_editor"):
-        st.caption("Type a FarmerChat conversation. With Bedrock on, the model reads it and fills in the Details; "
-                   "otherwise the Details decide the survey, not the text. The same rules, writer and checks run on "
-                   "it, and nothing you type joins the numbers.")
+        st.caption(
+            "Type a FarmerChat conversation. With Bedrock on, the model reads it and fills in the Details; "
+            "otherwise the Details decide the survey, not the text. The same rules, writer and checks run on "
+            "it, and nothing you type joins the numbers."
+        )
         t = st.columns(2)
-        t[0].text_area("What the farmer asked", key="cc_question", height=96,
-                       placeholder="Small green insects on the mustard flowers, what should I do?",
-                       help="Shown on the green card as typed.")
-        t[1].text_area("Advice FarmerChat gave", key="cc_advice", height=96,
-                       placeholder="Spray neem oil in the evening and check the plants after three days.",
-                       help="Leave empty if no advice was given yet: there is nothing to check, so no survey. Without "
-                            "Bedrock no model reads the text: the questions follow the Details, plus a few keywords in the advice.")
-        st.checkbox("Let Bedrock read the conversation and fill in the Details: crop, problem, severity, advice type, "
-                    "days to act, when to check back, how many questions", key="cc_read", value=True,
-                    disabled=not BEDROCK_ON,
-                    help="Needs MEL_USE_LLM=1 and AWS keys on this machine. The model's reading replaces the Details "
-                         "below; untick it to use the Details as you set them.")
+        t[0].text_area(
+            "What the farmer asked",
+            key="cc_question",
+            height=96,
+            placeholder="Small green insects on the mustard flowers, what should I do?",
+            help="Shown on the green card as typed.",
+        )
+        t[1].text_area(
+            "Advice FarmerChat gave",
+            key="cc_advice",
+            height=96,
+            placeholder="Spray neem oil in the evening and check the plants after three days.",
+            help="Leave empty if no advice was given yet: there is nothing to check, so no survey. Without "
+            "Bedrock no model reads the text: the questions follow the Details, plus a few keywords in the advice.",
+        )
+        st.checkbox(
+            "Let Bedrock read the conversation and fill in the Details: crop, problem, severity, advice type, "
+            "days to act, when to check back, how many questions",
+            key="cc_read",
+            value=True,
+            disabled=not BEDROCK_ON,
+            help="Needs MEL_USE_LLM=1 and AWS keys on this machine. The model's reading replaces the Details "
+            "below; untick it to use the Details as you set them.",
+        )
         with st.expander("Details: crop, problem, severity, advice type, timing, channel, language, district"):
             d = st.columns([1.1, 1.3, 1, 1.7])
             d[0].selectbox("Crop or animal", list(cc.ASSETS), key="cc_asset", format_func=str.title)
@@ -381,15 +587,19 @@ def own_insight_editor(draft: dict) -> bool:
             e[2].selectbox("Farmer's usual channel", CHANNELS, key="cc_channel", format_func=CH_NAME.get)
             e[3].selectbox("Farmer's language", list(cc.LANGUAGES), key="cc_language", format_func=cc.LANGUAGES.get)
             e[4].text_input("District (Bihar)", key="cc_district")
-            st.caption(f"Dates show in {zone_label()}. The conversation is stamped with the real current time; the rules "
-                       "use Digital Green's rabi 2026-27 calendar for India, so send windows must fall before 03/31/2027, "
-                       "between 7:00 AM and 7:00 PM India time.")
+            st.caption(
+                f"Dates show in {zone_label()}. The conversation is stamped with the real current time; the rules "
+                "use Digital Green's rabi 2026-27 calendar for India, so send windows must fall before 03/31/2027, "
+                "between 7:00 AM and 7:00 PM India time."
+            )
         fields = _sync_draft()  # the widgets exist now: read them back into the draft
         resolution, note = cc.effective_resolution(fields)
         b = st.columns([3, 1], vertical_alignment="center")
-        b[0].caption(f"Survey will be built for: {fields['asset'].title()}, {cc.CONCERNS[fields['concern']].lower()}, "
-                     f"{cc.SEVERITY[fields['severity']].lower()} severity, "
-                     f"{'no advice given yet' if note else cc.ADVICE_TYPES[resolution].lower()}.")
+        b[0].caption(
+            f"Survey will be built for: {fields['asset'].title()}, {cc.CONCERNS[fields['concern']].lower()}, "
+            f"{cc.SEVERITY[fields['severity']].lower()} severity, "
+            f"{'no advice given yet' if note else cc.ADVICE_TYPES[resolution].lower()}."
+        )
         submitted = b[1].button("Preview the survey", key="custom_submit", type="primary", width="stretch")
     if not submitted:
         return False
@@ -398,12 +608,16 @@ def own_insight_editor(draft: dict) -> bool:
         for problem in problems:
             st.error(problem)
         if st.session_state.pop("custom_submission", None):
-            st.info("The earlier report was closed because the form no longer matches it. Fix the fields and press "
-                    "Preview the survey again.")
+            st.info(
+                "The earlier report was closed because the form no longer matches it. Fix the fields and press "
+                "Preview the survey again."
+            )
         return False
     n = st.session_state.get("custom_count", 0) + 1  # new ids (so the phone starts fresh), the time frozen now,
     st.session_state["custom_count"] = n  # and the pipeline run once
-    with st.spinner("Bedrock is reading the conversation and writing the survey…" if BEDROCK_ON else "Building the survey…"):
+    with st.spinner(
+        "Bedrock is reading the conversation and writing the survey…" if BEDROCK_ON else "Building the survey…"
+    ):
         sub = own_insight_run(fields, n)
     st.session_state["custom_submission"] = sub
     st.session_state["editor_open"] = False
@@ -426,9 +640,14 @@ def sound_button(where):
     answered, so ElevenLabs is called for each line the first time it is heard."""
     on = st.session_state.get("tts_on", True)
     pill = where.container(horizontal=True, gap=None, wrap=False, width="content", key="tts_pill")
-    pill.button("Mute the call" if on else "Read the call aloud", key="tts_toggle", on_click=_flip_sound,
-                icon=":material/volume_up:" if on else ":material/volume_off:", width="content",
-                help="Mute" if on else "Read the call aloud (ElevenLabs, Hindi and English)")
+    pill.button(
+        "Mute the call" if on else "Read the call aloud",
+        key="tts_toggle",
+        on_click=_flip_sound,
+        icon=":material/volume_up:" if on else ":material/volume_off:",
+        width="content",
+        help="Mute" if on else "Read the call aloud (ElevenLabs, Hindi and English)",
+    )
     with pill.popover("Volume", key="tts_pop", help="Volume"):
         st.slider("Volume", 0, 100, 80, key="tts_volume", format="%d%%")
 
@@ -440,7 +659,9 @@ def voice_readout(sv: dict, preview_key: str, rec):
     if not st.session_state.get("tts_on", True):
         return
     if not tts.api_key():
-        st.caption("Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) or, on the hosted copy, as a container secret, then rerun to hear the call.")
+        st.caption(
+            "Add ELEVENLABS_API_KEY to the repo's .env (copy .env.example) or, on the hosted copy, as a container secret, then rerun to hear the call."
+        )
         return
     volume = st.session_state.get("tts_volume", 80)
     state, vo = st.session_state.get(f"mel_preview|{preview_key}"), render_channel(sv, "voice")
@@ -449,7 +670,11 @@ def voice_readout(sv: dict, preview_key: str, rec):
     if state.stage == "invite":
         line = vo["opening"]
     elif state.done:
-        line = (vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"]) if state.ending == "finished" else ""
+        line = (
+            (vo["closing_if_follow_up"] if rec and rec["needs_follow_up"] else vo["closing"])
+            if state.ending == "finished"
+            else ""
+        )
     else:
         line = vo["items"][state.step]["say"]
     if not line:
@@ -461,17 +686,24 @@ def voice_readout(sv: dict, preview_key: str, rec):
         return
     if audio:
         st.audio(audio, format="audio/mpeg", autoplay=True)
-        components.html(f"""<script>
+        components.html(
+            f"""<script>
 const vol = {volume / 100:.2f};
 const apply = () => window.parent.document.querySelectorAll('audio').forEach(a => {{ a.volume = vol; }});
 apply(); [150, 500, 1200, 2500].forEach(t => setTimeout(apply, t));
-</script>""", height=0)
+</script>""",
+            height=0,
+        )
 
 
 def report_strip(kicker: str, title: str, note: str = ""):
     """The report's title line: what this insight is, plus the submission time for an own insight."""
-    html(f'<div class="mel-report"><div><div class="mel-kicker{" own" if kicker == "Your insight" else ""}">{escape(kicker)}'
-         f'</div><h2>{escape(title)}</h2></div>' + (f'<div class="mel-sum">{escape(note)}</div>' if note else "") + '</div>')
+    html(
+        f'<div class="mel-report"><div><div class="mel-kicker{" own" if kicker == "Your insight" else ""}">{escape(kicker)}'
+        f"</div><h2>{escape(title)}</h2></div>"
+        + (f'<div class="mel-sum">{escape(note)}</div>' if note else "")
+        + "</div>"
+    )
 
 
 # ---------------------------------------------------------------- the agent, step by step (P5, AWS AgentCore design)
@@ -479,9 +711,18 @@ def report_strip(kicker: str, title: str, note: str = ""):
 # Amazon Bedrock AgentCore when MEL_AGENTCORE_ARN is set. A run recorded on a laptop with Bedrock access
 # (python -m mel.agent --record) is shown on the hosted app, which has no AWS keys.
 AGENT_RUNS = ROOT_DIR / "docs" / "results" / "agent_runs"
-STEP_ICON = {"evidence": ":material/search:", "analyst": ":material/table_chart:", "verifier": ":material/shield:",
-             "synthesizer": ":material/description:"}
-STEP_NAME = {"evidence": "Evidence Extractor", "analyst": "Analyst", "verifier": "Verifier", "synthesizer": "Synthesizer"}
+STEP_ICON = {
+    "evidence": ":material/search:",
+    "analyst": ":material/table_chart:",
+    "verifier": ":material/shield:",
+    "synthesizer": ":material/description:",
+}
+STEP_NAME = {
+    "evidence": "Evidence Extractor",
+    "analyst": "Analyst",
+    "verifier": "Verifier",
+    "synthesizer": "Synthesizer",
+}
 
 
 @st.cache_resource(show_spinner=False)
@@ -491,9 +732,12 @@ def _farmers_by_id():
 
 def _agent_inputs(ins):
     from mel.timing import chat_hours
+
     same = [i for i, _ in data.rows if i.get("farmer_id") == ins.get("farmer_id")]
-    return {"farmer": _farmers_by_id().get(ins.get("farmer_id")),
-            "history_hours": chat_hours(same, ins.get("farmer_id"), ins.get("created_at"))}
+    return {
+        "farmer": _farmers_by_id().get(ins.get("farmer_id")),
+        "history_hours": chat_hours(same, ins.get("farmer_id"), ins.get("created_at")),
+    }
 
 
 def _recorded_run(insight_id):
@@ -509,21 +753,28 @@ def bedrock_surveys(ins, out, attention):
     (its answers are cached on disk and in docs/results/bedrock_cache.jsonl, so a repeat costs $0), else the batch's
     checked template as it was. The note says which, for the caption above the phone."""
     from mel.agent import run_agent
+
     rec = _recorded_run(ins["insight_id"])
     res = rec["events"][-1] if rec and rec.get("events") and rec["events"][-1].get("step") == "result" else None
     note = "from the checked template (Bedrock is off on this machine)"
     if res and res.get("surveys"):
-        note = (f"written by Bedrock ({rec.get('writer') or 'model'}), recorded from "
-                f"{'Amazon Bedrock AgentCore' if rec.get('where') == 'agentcore' else 'a Bedrock run'} on {rec.get('recorded', '?')}")
+        note = (
+            f"written by Bedrock ({rec.get('writer') or 'model'}), recorded from "
+            f"{'Amazon Bedrock AgentCore' if rec.get('where') == 'agentcore' else 'a Bedrock run'} on {rec.get('recorded', '?')}"
+        )
     elif BEDROCK_ON:
         key = _agent_key(ins, attention, True)
         with llm.writer(True):
-            evs = st.session_state.get(key) or list(run_agent(ins, memory=None, attention=attention, **_agent_inputs(ins)))
-        st.session_state[key] = evs                       # the agent panel shows the same run, no second call
+            evs = st.session_state.get(key) or list(
+                run_agent(ins, memory=None, attention=attention, **_agent_inputs(ins))
+            )
+        st.session_state[key] = evs  # the agent panel shows the same run, no second call
         res = evs[-1] if evs and evs[-1].get("step") == "result" else None
         m = (res or {}).get("metrics") or {}
-        note = (f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
-                f"${m.get('cost_usd') or 0:.4f}" + (" (answered from the cache)" if m.get("cached") else ""))
+        note = (
+            f"written by Bedrock just now ({llm.write_model()}) · {m.get('seconds', 0):.1f} s · "
+            f"${m.get('cost_usd') or 0:.4f}" + (" (answered from the cache)" if m.get("cached") else "")
+        )
     if not res or not res.get("surveys"):
         return out, note
     surveys = res["surveys"]
@@ -545,8 +796,10 @@ def _show_event(e, where):
     elif e["step"] == "verifier" and not ok:
         where.markdown("\n".join(f"  - {p}" for p in data.get("problems", [])) or e["detail"])
     elif e["step"] == "verifier":
-        where.caption(f"passed every check · relevance {data.get('relevance')}"
-                      + (f" · AI judge {data['judge']}/5" if data.get("judge") is not None else ""))
+        where.caption(
+            f"passed every check · relevance {data.get('relevance')}"
+            + (f" · AI judge {data['judge']}/5" if data.get("judge") is not None else "")
+        )
     else:
         where.caption(us_text(e["detail"]))
 
@@ -555,23 +808,35 @@ def agent_panel(ins, attention, mem):
     """Shows how the agent writes this conversation's survey, step by step."""
     from mel.agent import run_agent
     from mel.writer import llm
+
     arn = env("MEL_AGENTCORE_ARN")
     rec = _recorded_run(ins["insight_id"])
-    where = ("Amazon Bedrock AgentCore" if arn else
-             "this machine, writing with Bedrock" if BEDROCK_ON else "this machine, templates only (no AWS keys here)")
-    st.caption("Four steps, as in our AWS design: the **Evidence Extractor** gathers what we know, the **Analyst** "
-               "decides and drafts, the **Verifier** checks (safety, relevance, short questions, Guardrails), and a "
-               "rejected draft goes back to the Analyst at most twice before the safe template is used. The "
-               f"**Synthesizer** builds the files. Runs on: {where}.")
+    where = (
+        "Amazon Bedrock AgentCore"
+        if arn
+        else "this machine, writing with Bedrock"
+        if BEDROCK_ON
+        else "this machine, templates only (no AWS keys here)"
+    )
+    st.caption(
+        "Four steps, as in our AWS design: the **Evidence Extractor** gathers what we know, the **Analyst** "
+        "decides and drafts, the **Verifier** checks (safety, relevance, short questions, Guardrails), and a "
+        "rejected draft goes back to the Analyst at most twice before the safe template is used. The "
+        f"**Synthesizer** builds the files. Runs on: {where}."
+    )
     key = _agent_key(ins, attention, mem is not None)
     c = st.columns([1, 2.4], vertical_alignment="center")
     if c[0].button("Run the agent", key=f"run_{key}", icon=":material/play_arrow:"):
         events = []
         from mel.evaluation.costs import CostMeter, record_cost, row_from_results
+
         meter = CostMeter()
         with st.status("The agent is working…", expanded=True) as box, llm.writer(BEDROCK_ON):
-            stream = (agentcore_stream(arn, ins) if arn else
-                      run_agent(ins, memory=mem, attention=attention, **_agent_inputs(ins)))
+            stream = (
+                agentcore_stream(arn, ins)
+                if arn
+                else run_agent(ins, memory=mem, attention=attention, **_agent_inputs(ins))
+            )
             try:
                 for e in stream:
                     if e.get("step") == "result":
@@ -579,26 +844,38 @@ def agent_panel(ins, attention, mem):
                         break
                     events.append(e)
                     _show_event(e, box)
-            except Exception as e:   # AgentCore out of reach (expired credentials, AccessDenied, network): say so
-                events = []          # and keep showing the recorded run below
+            except Exception as e:  # AgentCore out of reach (expired credentials, AccessDenied, network): say so
+                events = []  # and keep showing the recorded run below
                 box.update(label=f"The agent could not run: {type(e).__name__}", state="error", expanded=True)
                 st.error(str(e)[:300])
             else:
                 m = (events[-1] if events and events[-1].get("step") == "result" else {}).get("metrics", {})
-                box.update(label=f"Done in {m.get('seconds', 0):.1f} s · {m.get('calls', 0)} model calls · "
-                                 f"{m.get('revisions', 0)} revisions", state="complete", expanded=False)
+                box.update(
+                    label=f"Done in {m.get('seconds', 0):.1f} s · {m.get('calls', 0)} model calls · "
+                    f"{m.get('revisions', 0)} revisions",
+                    state="complete",
+                    expanded=False,
+                )
         if events:
             st.session_state[key] = events
-        if not arn and meter.summary()["calls"]:       # a local run that paid for model calls: track its cost
-            record_cost(row_from_results("single", f"app: {ins['insight_id']}", meter,
-                                         [e for e in events if e.get("step") == "result"],
-                                         writer=llm.write_model() if BEDROCK_ON else None,
-                                         checker=llm.check_model() or None))
+        if not arn and meter.summary()["calls"]:  # a local run that paid for model calls: track its cost
+            record_cost(
+                row_from_results(
+                    "single",
+                    f"app: {ins['insight_id']}",
+                    meter,
+                    [e for e in events if e.get("step") == "result"],
+                    writer=llm.write_model() if BEDROCK_ON else None,
+                    checker=llm.check_model() or None,
+                )
+            )
     shown = st.session_state.get(key)
     if not shown and rec:
-        c[1].caption(f"Showing a run recorded on {rec.get('recorded', '?')} with Bedrock "
-                     f"({rec.get('writer') or 'templates'}; judge {rec.get('judge') or 'none'}). Press Run the agent "
-                     "to run it here.")
+        c[1].caption(
+            f"Showing a run recorded on {rec.get('recorded', '?')} with Bedrock "
+            f"({rec.get('writer') or 'templates'}; judge {rec.get('judge') or 'none'}). Press Run the agent "
+            "to run it here."
+        )
         shown = rec["events"]
     if shown:
         res = shown[-1] if shown[-1].get("step") == "result" else {}
@@ -607,11 +884,20 @@ def agent_panel(ins, attention, mem):
             k = st.columns(4)
             k[0].metric("Model calls", m.get("calls", 0), delta_color="off", delta_arrow="off")
             k[1].metric("Revisions", m.get("revisions", 0), "Analyst ↔ Verifier", delta_color="off", delta_arrow="off")
-            k[2].metric("Cost", f"${m.get('cost_usd') or 0:.4f}", f"{m.get('input_tokens', 0):,} in / "
-                        f"{m.get('output_tokens', 0):,} out tokens", delta_color="off", delta_arrow="off")
-            k[3].metric("Time", f"{m.get('seconds', 0):.1f} s",
-                        " · ".join(f"{l}: {src}" for l, src in (m.get("sources") or {}).items()),
-                        delta_color="off", delta_arrow="off")
+            k[2].metric(
+                "Cost",
+                f"${m.get('cost_usd') or 0:.4f}",
+                f"{m.get('input_tokens', 0):,} in / {m.get('output_tokens', 0):,} out tokens",
+                delta_color="off",
+                delta_arrow="off",
+            )
+            k[3].metric(
+                "Time",
+                f"{m.get('seconds', 0):.1f} s",
+                " · ".join(f"{l}: {src}" for l, src in (m.get("sources") or {}).items()),
+                delta_color="off",
+                delta_arrow="off",
+            )
         for e in shown:
             if e.get("step") in STEP_NAME:
                 with st.container(border=True):
@@ -622,6 +908,7 @@ def agent_panel(ins, attention, mem):
 def agentcore_stream(arn, ins):
     """Events from the agent running on Amazon Bedrock AgentCore Runtime (agentcore/app.py), as they arrive."""
     from mel.agent.remote import invoke
+
     yield from invoke(arn, {"insight": ins})
 
 
@@ -630,15 +917,33 @@ def _set_stage(flow: str, stage: int):
 
 
 def _restart_flow(flow: str):
-    st.session_state.update({flow: 0, f"{flow}|fresh": True,   # the phone starts from its first screen next time
-                             f"{flow}|chat": [], f"{flow}|shown": 0})
+    st.session_state.update(
+        {
+            flow: 0,
+            f"{flow}|fresh": True,  # the phone starts from its first screen next time
+            f"{flow}|chat": [],
+            f"{flow}|shown": 0,
+        }
+    )
 
 
-COMMANDS = {"start": "start", "read": "start", "go": "start", "run": "start", "send": "send", "restart": "restart",
-            "reset": "restart", "help": "help"}
-QUESTIONS = (("why", ("why", "decid", "rule", "reason")), ("quality", ("quality", "good", "score", "check", "judge", "relevan")),
-             ("next", ("next", "when", "again", "plan", "follow")), ("history", ("history", "remember", "before", "memory", "earlier")),
-             ("help", ("help", "what can", "?")))
+COMMANDS = {
+    "start": "start",
+    "read": "start",
+    "go": "start",
+    "run": "start",
+    "send": "send",
+    "restart": "restart",
+    "reset": "restart",
+    "help": "help",
+}
+QUESTIONS = (
+    ("why", ("why", "decid", "rule", "reason")),
+    ("quality", ("quality", "good", "score", "check", "judge", "relevan")),
+    ("next", ("next", "when", "again", "plan", "follow")),
+    ("history", ("history", "remember", "before", "memory", "earlier")),
+    ("help", ("help", "what can", "?")),
+)
 ASK_HINT = "Ask why, quality, next or history. Commands: start, send, restart."
 
 
@@ -672,34 +977,52 @@ def answer(c, ins, out, d, notes, sv, rec, h, lang) -> str:
     if cmd == "send":
         if not d.survey:
             return f"There is no survey to send: {escape(RULE_LABEL[d.rule].lower())}."
-        return ("Hand me the conversation first: drag it in, or type <b>start</b>." if stage == 0 else
-                "Sent. The survey is on the farmer's phone." if stage == 1 else "It is already on the farmer's phone.")
+        return (
+            "Hand me the conversation first: drag it in, or type <b>start</b>."
+            if stage == 0
+            else "Sent. The survey is on the farmer's phone."
+            if stage == 1
+            else "It is already on the farmer's phone."
+        )
     if cmd == "why":
-        return f'<b>{d.rule} · {"Survey" if d.survey else escape(RULE_LABEL[d.rule])}</b> · {escape(_why(out, d, lang or ins["conversation_language"]))}'
+        return f"<b>{d.rule} · {'Survey' if d.survey else escape(RULE_LABEL[d.rule])}</b> · {escape(_why(out, d, lang or ins['conversation_language']))}"
     if cmd == "history":
-        return ("; ".join(f"<b>{r}</b> {escape(w)}" for r, w in notes) or
-                "Nothing earlier from this farmer changes this survey.")
+        return (
+            "; ".join(f"<b>{r}</b> {escape(w)}" for r, w in notes)
+            or "Nothing earlier from this farmer changes this survey."
+        )
     if cmd == "quality":
         if not d.survey:
             return "No survey was written, so there is nothing to grade."
         ok, total, failed = guard_checks(out["surveys"])
         judge = _judge_score(ins["insight_id"]) if out["surveys"][lang].get("_source") == "bedrock" else None
-        return (f'Checks <span class="{"fail" if failed else "pass"}">{ok} / {total}</span> · relevance '
-                f'<b>{relevance(sv, ins):.2f}</b> (send bar {RELEVANCE_THRESHOLD})' + (f" · AI judge <b>{judge} / 5</b>" if judge else "")
-                + (". The answers are graded above." if rec else ". I grade the answers once the farmer replies."))
+        return (
+            f'Checks <span class="{"fail" if failed else "pass"}">{ok} / {total}</span> · relevance '
+            f"<b>{relevance(sv, ins):.2f}</b> (send bar {RELEVANCE_THRESHOLD})"
+            + (f" · AI judge <b>{judge} / 5</b>" if judge else "")
+            + (". The answers are graded above." if rec else ". I grade the answers once the farmer replies.")
+        )
     if cmd == "next":
         if not d.survey:
             return "No survey for this conversation, so nothing to follow up."
         if rec:
             return " · ".join(f"{k}: {v}" for k, v in plan_next(h, rec, lang)[1])
-        return (f'It goes out <b>{long(d.send_time["send_at"])}</b> via {_route(h)}. Once the farmer answers, '
-                "I decide on the next survey.")
+        return (
+            f"It goes out <b>{long(d.send_time['send_at'])}</b> via {_route(h)}. Once the farmer answers, "
+            "I decide on the next survey."
+        )
     return ASK_HINT
 
 
-FLOW_STEPS = (("The agent reads the conversation", "Drag the conversation onto the terminal", "Survey ready: press Send to the farmer"),
-              ("The farmer answers", "Answer on the phone as the farmer would", ""),
-              ("The agent reviews and plans", "How good was the survey, and what comes next", ""))
+FLOW_STEPS = (
+    (
+        "The agent reads the conversation",
+        "Drag the conversation onto the terminal",
+        "Survey ready: press Send to the farmer",
+    ),
+    ("The farmer answers", "Answer on the phone as the farmer would", ""),
+    ("The agent reviews and plans", "How good was the survey, and what comes next", ""),
+)
 
 
 def flow_steps(stage: int, survey: bool, answered: bool) -> str:
@@ -712,8 +1035,11 @@ def flow_steps(stage: int, survey: bool, answered: bool) -> str:
         else:
             state = "done" if k < now or (k == 2 and answered) else "now" if k == now else ""
             cue = (cue1 if k == 0 and stage == 1 else cue0) if state == "now" or (k == 2 and answered) else ""
-        out.append(f'<div class="s {state}"><b>{"✓" if state == "done" and k < 2 else k + 1}</b><div><span>{title_}</span>'
-                   + (f"<small>{escape(cue)}</small>" if cue else "") + "</div></div>")
+        out.append(
+            f'<div class="s {state}"><b>{"✓" if state == "done" and k < 2 else k + 1}</b><div><span>{title_}</span>'
+            + (f"<small>{escape(cue)}</small>" if cue else "")
+            + "</div></div>"
+        )
     return f'<div class="mel-steps">{"".join(out)}</div>'
 
 
@@ -811,13 +1137,20 @@ def intake_card(ins, flow: str):
     """The conversation as a card the viewer drags onto the empty terminal (or clicks, or presses Enter on). Dropping it
     sends a trigger back to Python, which starts the agent (stage 1)."""
     a, loc, sev = ins.get("asset") or {}, ins.get("location") or {}, str(ins.get("severity") or "n/a")
-    _INTAKE(data={"id": ins["insight_id"], "conv": ins.get("conversation_id") or ins["insight_id"],
-                  "sev": sev.title(), "sevc": sev,
-                  "topic": f'{str(a.get("name") or "—").title()} · {str(ins.get("concern") or "").replace("_", " ")}',
-                  "meta": f'Farmer {ins.get("farmer_id")} · {loc.get("district") or "—"}, {loc.get("state") or ""} · '
-                          f'speaks {LANG_NAME.get(ins.get("conversation_language"), "—")} · {short(ins["created_at"])}',
-                  "asked": ins.get("query_summary") or "—"},
-            key=f"intake|{ins['insight_id']}", on_dropped_change=lambda: _set_stage(flow, 1))
+    _INTAKE(
+        data={
+            "id": ins["insight_id"],
+            "conv": ins.get("conversation_id") or ins["insight_id"],
+            "sev": sev.title(),
+            "sevc": sev,
+            "topic": f"{str(a.get('name') or '—').title()} · {str(ins.get('concern') or '').replace('_', ' ')}",
+            "meta": f"Farmer {ins.get('farmer_id')} · {loc.get('district') or '—'}, {loc.get('state') or ''} · "
+            f"speaks {LANG_NAME.get(ins.get('conversation_language'), '—')} · {short(ins['created_at'])}",
+            "asked": ins.get("query_summary") or "—",
+        },
+        key=f"intake|{ins['insight_id']}",
+        on_dropped_change=lambda: _set_stage(flow, 1),
+    )
 
 
 def render(tab, batch):
@@ -825,9 +1158,12 @@ def render(tab, batch):
     set once per script run for every function above."""
     global data
     data = batch
-    labels = {f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
-              f"{'survey' if o['decision'].survey else 'no survey ' + o['decision'].rule}": (i, o) for i, o in data.rows}
-    use_zone("india")   # one farmer's screen: the phone, the send time and the dates are in India time
+    labels = {
+        f"{i.get('insight_id')} · {(i.get('asset') or {}).get('name')} · {i.get('resolution_type')} · "
+        f"{'survey' if o['decision'].survey else 'no survey ' + o['decision'].rule}": (i, o)
+        for i, o in data.rows
+    }
+    use_zone("india")  # one farmer's screen: the phone, the send time and the dates are in India time
     with tab:
         by_id = {i.get("insight_id"): (i, o) for i, o in data.rows}
         picks = {k: v for k, v in EXAMPLE.items() if k in by_id}
@@ -841,29 +1177,47 @@ def render(tab, batch):
         # One level row: the case and the channel on the left, the insight buttons at the right edge. Everything that
         # changes the preview itself lives in the two view headers below (What if… left, language + restart right).
         bar = st.columns([2.2, 1.3, 2.1], vertical_alignment="bottom")
-        acts = bar[2].container(horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small",
-                                key="studio_acts")
+        acts = bar[2].container(
+            horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small", key="studio_acts"
+        )
         if own:
             pick = None
             a0 = (sub["insight"].get("asset") or {}) if sub else {}
-            what = (f"{str(a0.get('name') or '').title()}: {str(sub['insight'].get('concern') or '').replace('_', ' ')}"
-                    if sub else "draft, no report yet")
-            bar[0].markdown(f'<div class="mel-source"><div class="mel-k">Source</div><b>Your insight</b>'
-                            f'<span>{escape(what)}</span></div>', unsafe_allow_html=True)
-            acts.button("Hide editor" if st.session_state["editor_open"] else "Edit insight", key="own_toggle",
-                        icon=":material/edit:", on_click=_toggle_editor)
+            what = (
+                f"{str(a0.get('name') or '').title()}: {str(sub['insight'].get('concern') or '').replace('_', ' ')}"
+                if sub
+                else "draft, no report yet"
+            )
+            bar[0].markdown(
+                f'<div class="mel-source"><div class="mel-k">Source</div><b>Your insight</b>'
+                f"<span>{escape(what)}</span></div>",
+                unsafe_allow_html=True,
+            )
+            acts.button(
+                "Hide editor" if st.session_state["editor_open"] else "Edit insight",
+                key="own_toggle",
+                icon=":material/edit:",
+                on_click=_toggle_editor,
+            )
             acts.button("Back to the demos", key="own_back", on_click=_back_to_demos)
         else:
             # The picker's widget key is dropped while own mode hides it; last_pick (plain state) brings it back.
             st.session_state.setdefault("studio_pick", st.session_state.get("last_pick", next(iter(picks), BROWSE)))
-            pick = bar[0].selectbox("Conversation", [*picks, BROWSE], key="studio_pick",
-                                    format_func=lambda k: f"Example: {picks[k]}" if k in picks else k,
-                                    on_change=lambda: st.session_state.update(browse_pop=st.session_state.studio_pick == BROWSE))
+            pick = bar[0].selectbox(
+                "Conversation",
+                [*picks, BROWSE],
+                key="studio_pick",
+                format_func=lambda k: f"Example: {picks[k]}" if k in picks else k,
+                on_change=lambda: st.session_state.update(browse_pop=st.session_state.studio_pick == BROWSE),
+            )
             st.session_state["last_pick"] = pick
             # Browse: the filters and the conversation list sit behind one Search button; picking a conversation folds it
             # away (the popover's key holds its open state). Its widgets still run while it is closed, so they keep values.
-            search = (acts.popover("Search", icon=":material/search:", key="browse_pop", on_change="rerun")
-                      if pick == BROWSE else None)
+            search = (
+                acts.popover("Search", icon=":material/search:", key="browse_pop", on_change="rerun")
+                if pick == BROWSE
+                else None
+            )
             if sub:
                 acts.button("Your insight", key="own_show", icon=":material/person:", on_click=_show_own)
             acts.button("Add your own insight", key="own_add", icon=":material/add:", on_click=_open_own)
@@ -875,9 +1229,15 @@ def render(tab, batch):
             ins, out = (sub["insight"], sub["out"]) if sub else (None, None)
             if sub:
                 a0 = sub["insight"].get("asset") or {}
-                kicker, title = "Your insight", f"{str(a0.get('name') or '').title()}: {str(sub['insight'].get('concern') or '').replace('_', ' ')}"
-                note = (f"Submitted {long(sub['insight']['created_at'])}." + (f" {sub['note']}" if sub["note"] else "")
-                        + (f" {cc.reading_note(sub['fields'])}" if sub.get("read") and sub.get("fields") else ""))
+                kicker, title = (
+                    "Your insight",
+                    f"{str(a0.get('name') or '').title()}: {str(sub['insight'].get('concern') or '').replace('_', ' ')}",
+                )
+                note = (
+                    f"Submitted {long(sub['insight']['created_at'])}."
+                    + (f" {sub['note']}" if sub["note"] else "")
+                    + (f" {cc.reading_note(sub['fields'])}" if sub.get("read") and sub.get("fields") else "")
+                )
             elif not st.session_state["editor_open"]:  # hidden before any report exists: say what to do next
                 st.info("Your insight has no report yet. Press Edit insight to finish it, or pick a demo above.")
         elif pick != BROWSE:
@@ -887,25 +1247,44 @@ def render(tab, batch):
             search.markdown("**Search conversations**")
             f = search.columns(2)
             f_dec = f[0].selectbox("Decision", ["All", "Survey", "No survey"], key="f_dec")
-            f_rule = f[1].selectbox("Rule", ["All", *RULE_LABEL], key="f_rule",
-                                    format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}")
+            f_rule = f[1].selectbox(
+                "Rule",
+                ["All", *RULE_LABEL],
+                key="f_rule",
+                format_func=lambda r: r if r == "All" else f"{r} {RULE_LABEL[r]}",
+            )
             f = search.columns(2)
-            f_res = f[0].selectbox("Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in data.rows})], key="f_res")
-            f_asset = f[1].selectbox("Crop / animal", ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in data.rows})],
-                                     key="f_asset")
-            shown = [k for k, (i, o) in labels.items()
-                     if (f_dec == "All" or (f_dec == "Survey") == o["decision"].survey)
-                     and (f_rule == "All" or o["decision"].rule == f_rule)
-                     and (f_res == "All" or str(i.get("resolution_type")) == f_res)
-                     and (f_asset == "All" or str((i.get("asset") or {}).get("name")) == f_asset)]
+            f_res = f[0].selectbox(
+                "Advice type", ["All", *sorted({str(i.get("resolution_type")) for i, _ in data.rows})], key="f_res"
+            )
+            f_asset = f[1].selectbox(
+                "Crop / animal",
+                ["All", *sorted({str((i.get("asset") or {}).get("name")) for i, _ in data.rows})],
+                key="f_asset",
+            )
+            shown = [
+                k
+                for k, (i, o) in labels.items()
+                if (f_dec == "All" or (f_dec == "Survey") == o["decision"].survey)
+                and (f_rule == "All" or o["decision"].rule == f_rule)
+                and (f_res == "All" or str(i.get("resolution_type")) == f_res)
+                and (f_asset == "All" or str((i.get("asset") or {}).get("name")) == f_asset)
+            ]
             if not shown:  # never st.stop() here: it would also stop the tabs after this one
                 search.warning("No conversations match these filters; showing all.")
                 shown = list(labels)
-            key = search.selectbox(f"Conversation ({len(shown):,} match; type to search)", shown, key="browse_conv",
-                                   on_change=lambda: st.session_state.update(browse_pop=False))
+            key = search.selectbox(
+                f"Conversation ({len(shown):,} match; type to search)",
+                shown,
+                key="browse_conv",
+                on_change=lambda: st.session_state.update(browse_pop=False),
+            )
             ins, out = labels[key]
             a0 = ins.get("asset") or {}
-            kicker, title = "Browsed insight", f"{str(a0.get('name') or '').title()}: {str(ins.get('concern') or '').replace('_', ' ')} ({ins.get('insight_id')})"
+            kicker, title = (
+                "Browsed insight",
+                f"{str(a0.get('name') or '').title()}: {str(ins.get('concern') or '').replace('_', ' ')} ({ins.get('insight_id')})",
+            )
         if ins is not None:
             if kicker != "Demo insight":  # the example is already named in the selector; no repeated heading
                 report_strip(kicker, title, note)
@@ -922,11 +1301,13 @@ def render(tab, batch):
             attention, pretend_att = getattr(d, "attention", None), next(iter(PRETEND_ATT))
             col_a, col_f = st.columns([1.05, 1], gap="large")
             # Two headers of the same height, so the agent's panel and the phone start on the same line.
-            head = col_a.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
-                                   key="agent_head")
+            head = col_a.container(
+                horizontal=True, horizontal_alignment="distribute", vertical_alignment="center", key="agent_head"
+            )
             head.markdown('<div class="mel-sec">Agent\'s view</div>', unsafe_allow_html=True)
-            fhead = col_f.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
-                                    key="farmer_head")
+            fhead = col_f.container(
+                horizontal=True, horizontal_alignment="distribute", vertical_alignment="center", key="farmer_head"
+            )
             fhead.markdown('<div class="mel-sec">Farmer\'s view</div>', unsafe_allow_html=True)
             if d.survey:
                 # The farmer's controls sit at the right of the Farmer's view header (William's ask): the English/Hindi
@@ -934,29 +1315,49 @@ def render(tab, batch):
                 # decision 4 Nov); scoring and the CLI keep them off.
                 # English by default so judges can read along. The phone's key includes the language, so each
                 # language keeps its own place in the survey.
-                tools = fhead.container(horizontal=True, width="content", gap="small", vertical_alignment="center",
-                                        key="farmer_ctl")
+                tools = fhead.container(
+                    horizontal=True, width="content", gap="small", vertical_alignment="center", key="farmer_ctl"
+                )
                 tools.markdown('<span class="mel-lang">English</span>', unsafe_allow_html=True)
                 hindi = tools.toggle("Hindi", key="lang_hi")
                 langs = list(out["surveys"])
                 lang = "hi-IN" if hindi and "hi-IN" in langs else ("en-IN" if "en-IN" in langs else langs[0])
                 # Icon-only: the label is the accessible name, hidden visually by app/theme.py (.st-key-studio_restart).
-                tools.button("Restart survey", key="studio_restart", icon=":material/restart_alt:", width="content",
-                             help="Start over: hand the conversation to the agent again", on_click=_restart_flow, args=(flow,))
+                tools.button(
+                    "Restart survey",
+                    key="studio_restart",
+                    icon=":material/restart_alt:",
+                    width="content",
+                    help="Start over: hand the conversation to the agent again",
+                    on_click=_restart_flow,
+                    args=(flow,),
+                )
                 # Icon-only like Restart: the label stays as the accessible name, clipped off screen by app/theme.py.
-                with head.popover("What if…", icon=":material/tune:", key="studio_whatif",
-                                  help="What if… pretend a different history or activity for this farmer (demo only)"):
+                with head.popover(
+                    "What if…",
+                    icon=":material/tune:",
+                    key="studio_whatif",
+                    help="What if… pretend a different history or activity for this farmer (demo only)",
+                ):
                     pretend = st.selectbox("Pretend this farmer's survey history", PRETEND)
-                    pretend_att = st.selectbox("Pretend activity pattern", list(PRETEND_ATT),
-                                               help="The pack's activity is flat with no designed surges, so this made-up "
-                                                    "pattern shows how a surge or steady-high farmer is treated differently.")
+                    pretend_att = st.selectbox(
+                        "Pretend activity pattern",
+                        list(PRETEND_ATT),
+                        help="The pack's activity is flat with no designed surges, so this made-up "
+                        "pattern shows how a surge or steady-high farmer is treated differently.",
+                    )
                 if PRETEND_ATT[pretend_att] is not None:
                     attention = PRETEND_ATT[pretend_att]
                 mem = copy.copy(data.memory())
                 mem.responses = defaultdict(list)
                 when = lambda days: (datetime.fromisoformat(ins["created_at"]) - timedelta(days=days)).isoformat()
-                fake = lambda status, ans, days=2: {"farmer_id": ins["farmer_id"], "status": status, "answers": ans,
-                                                    "recorded_at": when(days), "counts_toward_cap": True}
+                fake = lambda status, ans, days=2: {
+                    "farmer_id": ins["farmer_id"],
+                    "status": status,
+                    "answers": ans,
+                    "recorded_at": when(days),
+                    "counts_toward_cap": True,
+                }
                 if pretend.startswith("said the input"):
                     mem.record_response(fake("completed", {"q1": "no", "q3": "not_nearby"}))
                 elif pretend.startswith("said it was too"):
@@ -971,20 +1372,27 @@ def render(tab, batch):
                     farmer_copy = clean(surveys_now.get(ins["conversation_language"]) or surveys_now["hi-IN"])
                     out = {**out, "surveys": surveys_now, "handoff": build_handoff(ins, farmer_copy, attention)}
                 elif own:
-                    bedrock_note = (sub or {}).get("bedrock_note")   # own_insight_run already wrote it with Bedrock
+                    bedrock_note = (sub or {}).get("bedrock_note")  # own_insight_run already wrote it with Bedrock
                 else:
-                    out, bedrock_note = bedrock_surveys(ins, out, attention)   # the questions Bedrock wrote, not the template
+                    out, bedrock_note = bedrock_surveys(
+                        ins, out, attention
+                    )  # the questions Bedrock wrote, not the template
                 h = out["handoff"]
                 first_ch = h["channel_order"][0]["channel"]  # P2's recommended send time is for this channel
-                ch = bar[1].selectbox("Channel", CHANNELS, index=CHANNELS.index(first_ch), format_func=CH_NAME.get,
-                                      help="Defaults to the first channel the scheduler tries for this farmer.")
+                ch = bar[1].selectbox(
+                    "Channel",
+                    CHANNELS,
+                    index=CHANNELS.index(first_ch),
+                    format_func=CH_NAME.get,
+                    help="Defaults to the first channel the scheduler tries for this farmer.",
+                )
                 if ch == "voice":
                     sound_button(tools)
                 notes = [(r, us_text(w)) for r, w in history_notes(ins, mem, attention)]
                 sv = clean(out["surveys"][lang])
             else:
                 bar[1].selectbox("Channel", ["—"], disabled=True, help="No survey, so there is nothing to preview.")
-    
+
             agent_box, phone_box = col_a.container(key="flow_agent"), col_f.container(key="flow_phone")
             st.session_state[f"{flow}|survey"] = d.survey
             chat = st.session_state.get(f"{flow}|chat", [])
@@ -993,8 +1401,14 @@ def render(tab, batch):
                 if d.survey and stage >= 2:
                     # The Restart icon above is the only reset control; it sends the flow back to the start.
                     pkey = f"preview|{ins['insight_id']}|{ch}|{lang}|{pretend}|{pretend_att}|{mem is not None}"
-                    rec = render_channel_preview(sv, ch, key=pkey, send_at=d.send_time["send_at"] if ch == first_ch else None,
-                                                 restart=st.session_state.pop(f"{flow}|fresh", False), show_restart=False)
+                    rec = render_channel_preview(
+                        sv,
+                        ch,
+                        key=pkey,
+                        send_at=d.send_time["send_at"] if ch == first_ch else None,
+                        restart=st.session_state.pop(f"{flow}|fresh", False),
+                        show_restart=False,
+                    )
                     if ch == "voice":
                         voice_readout(sv, pkey, rec)
                     # Provenance lines go under the phone so its top lines up with the agent's view in the other column.
@@ -1004,70 +1418,134 @@ def render(tab, batch):
                         sheet = pd.read_csv(HINDI_SHEET, dtype=str, keep_default_na=False)
                         done = int((sheet["reviewer_ok(Y/N)"].str.strip() != "").sum())
                         if done < len(sheet):
-                            st.caption(f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker")
+                            st.caption(
+                                f"Hindi pending review: {done} of {len(sheet)} lines checked by a native speaker"
+                            )
                     html('<i class="mel-dim"></i>' if rec else '<i class="mel-lit"></i>')
                 elif not d.survey and stage >= 1:
                     who = "A person calls this farmer instead." if d.rule == "R2" else "Nothing is sent to this farmer."
-                    html(f'<div class="mel-empty"><b>No survey</b>{escape(who)}<br>{d.rule} · {escape(RULE_LABEL[d.rule])}</div>')
+                    html(
+                        f'<div class="mel-empty"><b>No survey</b>{escape(who)}<br>{d.rule} · {escape(RULE_LABEL[d.rule])}</div>'
+                    )
                     with st.expander("Developer details: no-survey record (JSON)"):
                         st.json(out["no_survey"])
                 else:
-                    html('<i class="mel-dim"></i><div class="mel-phone-wait"><b>The farmer\'s phone</b>'
-                         f'<span>{"Waiting for the agent to write the survey" if stage == 0 else "Survey ready. Waiting for Send to the farmer"}</span></div>')
-            for c in chat:   # answered once, with the facts of that moment; placed in the log where it was typed
+                    html(
+                        '<i class="mel-dim"></i><div class="mel-phone-wait"><b>The farmer\'s phone</b>'
+                        f"<span>{'Waiting for the agent to write the survey' if stage == 0 else 'Survey ready. Waiting for Send to the farmer'}</span></div>"
+                    )
+            for c in chat:  # answered once, with the facts of that moment; placed in the log where it was typed
                 c.setdefault("a", answer(c, ins, out, d, notes, sv, rec, h, lang))
                 c.setdefault("at", "review" if rec else "agent" if c["stage"] else "top")
             with agent_box:
-                html('<i class="mel-dim"></i>' if stage >= 2 and d.survey and rec is None else '<i class="mel-lit"></i>')
-                term = st.container(key="term_box", gap=None)   # the terminal and its input line, one block
+                html(
+                    '<i class="mel-dim"></i>' if stage >= 2 and d.survey and rec is None else '<i class="mel-lit"></i>'
+                )
+                term = st.container(key="term_box", gap=None)  # the terminal and its input line, one block
                 with term:
                     if stage == 0:
                         intake_card(ins, flow)
                     else:
                         st.session_state[f"{flow}|shown"] = agent_view(
-                            ins, out, d, notes, attention, review_steps(ins, out, h, sv, rec, lang, ch) if rec else None,
-                            chat, st.session_state.get(f"{flow}|shown", 0))
-                    st.chat_input("Ask the agent: why, quality, next… or type send",
-                                  key=f"ask|{flow}", on_submit=_ask, args=(flow,))
+                            ins,
+                            out,
+                            d,
+                            notes,
+                            attention,
+                            review_steps(ins, out, h, sv, rec, lang, ch) if rec else None,
+                            chat,
+                            st.session_state.get(f"{flow}|shown", 0),
+                        )
+                    st.chat_input(
+                        "Ask the agent: why, quality, next… or type send",
+                        key=f"ask|{flow}",
+                        on_submit=_ask,
+                        args=(flow,),
+                    )
                 if stage == 0:
-                    st.button("Hand it to the agent", key="flow_hand", type="tertiary", icon=":material/south:",
-                              on_click=_set_stage, args=(flow, 1), help="Does the same as dragging the card onto the terminal")
+                    st.button(
+                        "Hand it to the agent",
+                        key="flow_hand",
+                        type="tertiary",
+                        icon=":material/south:",
+                        on_click=_set_stage,
+                        args=(flow, 1),
+                        help="Does the same as dragging the card onto the terminal",
+                    )
                 elif stage == 1 and d.survey:
-                    st.button("Send to the farmer", key="flow_send", type="primary", icon=":material/send:",
-                              width="stretch", on_click=_set_stage, args=(flow, 2))
+                    st.button(
+                        "Send to the farmer",
+                        key="flow_send",
+                        type="primary",
+                        icon=":material/send:",
+                        width="stretch",
+                        on_click=_set_stage,
+                        args=(flow, 2),
+                    )
             steps_slot.markdown(flow_steps(stage, d.survey, rec is not None), unsafe_allow_html=True)
-            focus = ("phone" if stage >= 2 and d.survey and rec is None else "review" if rec else "agent") if stage else ""
+            focus = (
+                ("phone" if stage >= 2 and d.survey and rec is None else "review" if rec else "agent") if stage else ""
+            )
             if st.session_state.get(f"{flow}|focus", "") != focus:
                 st.session_state[f"{flow}|focus"] = focus
-                target = {"agent": (".st-key-flow_agent", "start"), "phone": (".st-key-flow_phone", "center"),
-                          "review": (".st-key-flow_agent", "start")}.get(focus)
+                target = {
+                    "agent": (".st-key-flow_agent", "start"),
+                    "phone": (".st-key-flow_phone", "center"),
+                    "review": (".st-key-flow_agent", "start"),
+                }.get(focus)
                 if target:
-                    st.html(f"""<script>setTimeout(() => document.querySelector('{target[0]}')?.scrollIntoView({{block: '{target[1]}',
+                    st.html(
+                        f"""<script>setTimeout(() => document.querySelector('{target[0]}')?.scrollIntoView({{block: '{target[1]}',
       behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'}}), 400);</script>""",
-                            unsafe_allow_javascript=True)
-    
+                        unsafe_allow_javascript=True,
+                    )
+
             if d.survey and stage >= 1:
                 surveys = out["surveys"]
                 if surveys[lang].get("_history"):
-                    generic = template_items(ins, lang)      # never a model call: the comparison is with the plain template
+                    generic = template_items(ins, lang)  # never a model call: the comparison is with the plain template
                     with st.expander(f"Generic vs adapted questions ({LANG_NAME.get(lang, lang)})"):
                         n_rows = max(len(generic), len(sv["items"]))
-                        table(pd.DataFrame([{
-                            "#": k + 1,
-                            "Generic (no history)": generic[k]["prompt"] if k < len(generic) else "(none)",
-                            "Adapted to this farmer": sv["items"][k]["prompt"] if k < len(sv["items"]) else "(none)"}
-                            for k in range(n_rows)]), hide_index=True, width="stretch")
+                        table(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "#": k + 1,
+                                        "Generic (no history)": generic[k]["prompt"] if k < len(generic) else "(none)",
+                                        "Adapted to this farmer": sv["items"][k]["prompt"]
+                                        if k < len(sv["items"])
+                                        else "(none)",
+                                    }
+                                    for k in range(n_rows)
+                                ]
+                            ),
+                            hide_index=True,
+                            width="stretch",
+                        )
                 if surveys[lang].get("_source") == "bedrock":
                     tmpl = template_items(ins, lang)
                     with st.expander(f"Template vs Bedrock questions ({LANG_NAME.get(lang, lang)})"):
                         n_rows = max(len(tmpl), len(sv["items"]))
-                        table(pd.DataFrame([{
-                            "#": k + 1,
-                            "Checked template": tmpl[k]["prompt"] if k < len(tmpl) else "(none)",
-                            "Written by Bedrock": sv["items"][k]["prompt"] if k < len(sv["items"]) else "(none)"}
-                            for k in range(n_rows)]), hide_index=True, width="stretch")
-                with st.expander("How the agent wrote this survey: Evidence → Analyst → Verifier → Synthesizer",
-                                 icon=":material/smart_toy:"):
+                        table(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "#": k + 1,
+                                        "Checked template": tmpl[k]["prompt"] if k < len(tmpl) else "(none)",
+                                        "Written by Bedrock": sv["items"][k]["prompt"]
+                                        if k < len(sv["items"])
+                                        else "(none)",
+                                    }
+                                    for k in range(n_rows)
+                                ]
+                            ),
+                            hide_index=True,
+                            width="stretch",
+                        )
+                with st.expander(
+                    "How the agent wrote this survey: Evidence → Analyst → Verifier → Synthesizer",
+                    icon=":material/smart_toy:",
+                ):
                     agent_panel(ins, attention, mem)
                 with st.expander("Developer details: survey, channel payload, hand-off and answer record (JSON)"):
                     st.caption(f"Survey ({LANG_NAME.get(lang, lang)})")
@@ -1080,6 +1558,8 @@ def render(tab, batch):
                         st.caption("Answer record: not yet (the farmer has not finished)")
                     else:
                         bad = errors("response", rec)
-                        st.caption("Answer record " + ("passes the response schema ✓" if not bad else f"FAILS the response schema: {bad[:2]}"))
+                        st.caption(
+                            "Answer record "
+                            + ("passes the response schema ✓" if not bad else f"FAILS the response schema: {bad[:2]}")
+                        )
                         st.json(rec, expanded=False)
-    

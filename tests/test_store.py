@@ -1,4 +1,5 @@
 """P1: mel.store, the API's SQLite database."""
+
 from datetime import timedelta
 
 import pytest
@@ -25,9 +26,9 @@ def test_handoff_round_trip_and_flow_lookup():
     assert s.handoff(h["handoff_id"]) == (h, "sent", "")
     assert s.handoff_by_flow(h["farmerchat_flow"]["flow_id"])[0] == h
     assert s.farmer_handoffs(h["survey"]["farmer_id"]) == [h]
-    s.put_handoff(h, "skipped", "over the cap")                     # an upsert replaces the decision
+    s.put_handoff(h, "skipped", "over the cap")  # an upsert replaces the decision
     assert s.handoff(h["handoff_id"])[1:] == ("skipped", "over the cap")
-    assert s.farmer_handoffs(h["survey"]["farmer_id"]) == []        # skipped holds no weekly slot
+    assert s.farmer_handoffs(h["survey"]["farmer_id"]) == []  # skipped holds no weekly slot
     assert s.counts()["handoffs"] == 1
 
 
@@ -45,7 +46,7 @@ def test_responses_are_stored_once_and_feed_follow_ups_and_opt_outs():
     flow = h["farmerchat_flow"]["flow_id"]
     rec = simulate(h["survey"], h["channel_order"][0]["channel"], "completed", seed=0)
     assert s.put_response(rec, flow) is True
-    assert s.put_response(rec, flow) is False                      # a retry changes nothing
+    assert s.put_response(rec, flow) is False  # a retry changes nothing
     assert s.response(rec["response_key"]) == rec
     assert s.follow_ups() == []
     flagged = dict(rec, response_key="rk-flagged", needs_follow_up=True)
@@ -55,7 +56,7 @@ def test_responses_are_stored_once_and_feed_follow_ups_and_opt_outs():
     fid = h["survey"]["farmer_id"]
     assert s.opted_out(fid) is False
     s.opt_out(fid, rec["response_key"], rec["recorded_at"])
-    s.opt_out(fid, "rk-later", rec["recorded_at"])                   # the first opt-out stands
+    s.opt_out(fid, "rk-later", rec["recorded_at"])  # the first opt-out stands
     assert s.opted_out(fid) is True and s.counts()["opt_outs"] == 1
 
 

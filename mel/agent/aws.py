@@ -2,6 +2,7 @@
 
 Every function is a no-op (or a local fallback) when its setting is missing, so the agent runs the same on a laptop.
 """
+
 import json
 import time
 from functools import lru_cache
@@ -19,12 +20,14 @@ def _s3_split(url: str) -> tuple[str, str]:
 def _insights_by_id(source: str) -> dict:
     if source.startswith("s3://"):
         import boto3
+
         b, k = _s3_split(source)
         text = boto3.client("s3").get_object(Bucket=b, Key=k)["Body"].read().decode("utf-8")
         rows = [json.loads(line) for line in text.splitlines() if line.strip()]
     else:
         from mel.data import load_insights
         from pathlib import Path
+
         rows = load_insights(Path(source) if source else None)
     return {r.get("insight_id"): r for r in rows if isinstance(r, dict)}
 
@@ -43,13 +46,17 @@ def save_result(result: dict, client=None) -> str | None:
     if not dest:
         return None
     b, prefix = _s3_split(dest)
-    key = f"{prefix.rstrip('/')}/{result.get('insight_id', 'unknown')}/{time.strftime('%Y%m%dT%H%M%S')}.json".lstrip("/")
+    key = f"{prefix.rstrip('/')}/{result.get('insight_id', 'unknown')}/{time.strftime('%Y%m%dT%H%M%S')}.json".lstrip(
+        "/"
+    )
     c = client
     if c is None:
         import boto3
+
         c = boto3.client("s3")
-    c.put_object(Bucket=b, Key=key, Body=json.dumps(result, ensure_ascii=False).encode("utf-8"),
-                 ContentType="application/json")
+    c.put_object(
+        Bucket=b, Key=key, Body=json.dumps(result, ensure_ascii=False).encode("utf-8"), ContentType="application/json"
+    )
     return f"s3://{b}/{key}"
 
 
@@ -59,13 +66,20 @@ def metric_data(result: dict) -> list[dict]:
     surveys = result.get("surveys") or {}
     writer = next((s.get("_model") for s in surveys.values() if s.get("_model")), "templates")
     dims = [{"Name": "Writer", "Value": str(writer)[:250]}]
-    pts = [("Runs", 1, "Count"), ("Seconds", m.get("seconds", 0), "Seconds"),
-           ("ModelCalls", m.get("calls", 0), "Count"), ("InputTokens", m.get("input_tokens", 0), "Count"),
-           ("OutputTokens", m.get("output_tokens", 0), "Count"), ("CostUSD", m.get("cost_usd") or 0, "None")]
+    pts = [
+        ("Runs", 1, "Count"),
+        ("Seconds", m.get("seconds", 0), "Seconds"),
+        ("ModelCalls", m.get("calls", 0), "Count"),
+        ("InputTokens", m.get("input_tokens", 0), "Count"),
+        ("OutputTokens", m.get("output_tokens", 0), "Count"),
+        ("CostUSD", m.get("cost_usd") or 0, "None"),
+    ]
     if surveys:
-        pts += [("Revisions", m.get("revisions", 0), "Count"),
-                ("TemplateFallbacks", sum(1 for s in surveys.values() if s.get("_fallback_reason")), "Count"),
-                ("Surveys", 1, "Count")]
+        pts += [
+            ("Revisions", m.get("revisions", 0), "Count"),
+            ("TemplateFallbacks", sum(1 for s in surveys.values() if s.get("_fallback_reason")), "Count"),
+            ("Surveys", 1, "Count"),
+        ]
     else:
         pts += [("NoSurvey", 1, "Count")]
     return [{"MetricName": n, "Value": float(v), "Unit": u, "Dimensions": dims} for n, v, u in pts]
@@ -80,9 +94,9 @@ def put_metrics(result: dict, client=None) -> bool:
         c = client
         if c is None:
             import boto3
+
             c = boto3.client("cloudwatch")
-        c.put_metric_data(Namespace=env("MEL_METRICS_NAMESPACE", "FasalPulse/Agent"),
-                          MetricData=metric_data(result))
+        c.put_metric_data(Namespace=env("MEL_METRICS_NAMESPACE", "FasalPulse/Agent"), MetricData=metric_data(result))
         return True
     except Exception:
         return False

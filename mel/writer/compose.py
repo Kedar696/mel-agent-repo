@@ -8,12 +8,13 @@ Contract signatures (Team Contracts, P4):
 English (en-IN) is the evaluation baseline; Hindi comes from the same code when passed hi-IN.
 Every survey carries self_eval: schema_valid, relevance_score, gives_new_advice, asks_personal_info.
 """
+
 import re
 
 from mel.config import LANGS
 from . import llm
 from .guards import check_survey, self_eval
-from .relevance import relevance   # re-exported
+from .relevance import relevance  # re-exported
 from .templates import template_items, question_count, build_items, STYLE
 
 BASELINE_LANG = "en-IN"
@@ -50,17 +51,22 @@ def _window(decision) -> dict:
 
 def _base(insight: dict, lang: str, send_window: dict) -> dict:
     return {
-        "survey_id": survey_id_for(insight), "farmer_id": insight["farmer_id"],
-        "source_insight_ids": [insight["insight_id"]], "language": lang,
-        "send_window": send_window, "rationale": RATIONALE[insight["resolution_type"]],
+        "survey_id": survey_id_for(insight),
+        "farmer_id": insight["farmer_id"],
+        "source_insight_ids": [insight["insight_id"]],
+        "language": lang,
+        "send_window": send_window,
+        "rationale": RATIONALE[insight["resolution_type"]],
     }
 
 
 def _finish(s: dict, insight: dict, source: str, model: str = "", fallback: str = "") -> dict:
     s["self_eval"] = self_eval(s, insight)
-    s["_source"] = source           # keys starting with _ are stripped before writing; the UI reads them
-    if model: s["_model"] = model
-    if fallback: s["_fallback_reason"] = fallback
+    s["_source"] = source  # keys starting with _ are stripped before writing; the UI reads them
+    if model:
+        s["_model"] = model
+    if fallback:
+        s["_fallback_reason"] = fallback
     return s
 
 
@@ -75,7 +81,7 @@ def _try_model(base: dict, insight: dict, lang: str, attention=None, source_item
     items = llm.llm_items(insight, lang, n_items=n, source_items=source_items)
     if not items:
         return None, "model_unavailable_or_unreadable"
-    if len(items) != n:        # the 2-vs-3 rule (and steady_high cap) holds on the model path too
+    if len(items) != n:  # the 2-vs-3 rule (and steady_high cap) holds on the model path too
         return None, "wrong_question_count"
     cand = base | {"items": items}
     bad = check_survey(cand)
@@ -103,11 +109,13 @@ def history_notes(insight: dict, memory, attention=None) -> list[tuple[str, str]
     if memory is None:
         return []
     from .history import personalize
+
     return personalize(build_items(insight, STYLE, attention), insight, memory, attention)[1]
 
 
-def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=None, attention=None,
-                   source_items=None) -> dict:
+def compose_survey(
+    decision, insight: dict, lang: str = BASELINE_LANG, memory=None, attention=None, source_items=None
+) -> dict:
     """One survey in one language: Bedrock when switched on and everything passes, otherwise the template. Never raises for a model problem.
     With `memory` (history.FarmerMemory), the history rules adapt the template; a personalised survey always uses the template.
     `attention` (activity-attention, off by default): `surge` keeps up to 3 questions (H4 skipped), `steady_high` caps at 2.
@@ -121,10 +129,15 @@ def compose_survey(decision, insight: dict, lang: str = BASELINE_LANG, memory=No
             return _finish(cand, insight, "llm", llm.write_model())
     else:
         why = "model_off"
-        base["rationale"] = (base["rationale"] + " Personalised: "
-                             + "; ".join(f"{rule} {reason}" for rule, reason in notes))[:400]
-    s = _finish(base | {"items": template_items(insight, lang, memory=memory, attention=attention)}, insight,
-                "template", fallback="" if why == "model_off" else why)
+        base["rationale"] = (
+            base["rationale"] + " Personalised: " + "; ".join(f"{rule} {reason}" for rule, reason in notes)
+        )[:400]
+    s = _finish(
+        base | {"items": template_items(insight, lang, memory=memory, attention=attention)},
+        insight,
+        "template",
+        fallback="" if why == "model_off" else why,
+    )
     s["_history"] = notes
     return s
 
@@ -133,9 +146,9 @@ def write_surveys(insight: dict, send_window: dict, langs=LANGS, memory=None, at
     """Returns {lang: survey}. The farmer's copy is surveys[insight['conversation_language']].
     English first: a Bedrock-written English survey is translated into Hindi, not written again."""
     done, source = {}, None
-    for lang in sorted(langs, key=lambda l: norm_lang(l) != "en-IN"):   # English is written first, whatever the order
+    for lang in sorted(langs, key=lambda l: norm_lang(l) != "en-IN"):  # English is written first, whatever the order
         s = compose_survey({"send_window": send_window}, insight, lang, memory, attention, source_items=source)
         done[norm_lang(lang)] = s
         if source is None and norm_lang(lang) == "en-IN" and s.get("_source") == "llm":
             source = s["items"]
-    return {norm_lang(lang): done[norm_lang(lang)] for lang in langs}      # in the caller's order, as before
+    return {norm_lang(lang): done[norm_lang(lang)] for lang in langs}  # in the caller's order, as before

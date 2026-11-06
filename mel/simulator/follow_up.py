@@ -38,9 +38,18 @@ def follow_up_tickets(records, surveys) -> list[dict]:
             value = rec["answers"].get(item["item_id"])
             reason = _trigger(item, value) if item["item_id"] in rec["answers"] else None
             if reason:
-                tickets.append({"response_key": rec["response_key"], "farmer_id": rec["farmer_id"],
-                                "survey_id": rec["survey_id"], "channel": rec["channel"],
-                                "recorded_at": rec["recorded_at"], "reason": reason,
-                                "item_id": item["item_id"], "value": value, "rec": rec})
+                tickets.append(
+                    {
+                        "response_key": rec["response_key"],
+                        "farmer_id": rec["farmer_id"],
+                        "survey_id": rec["survey_id"],
+                        "channel": rec["channel"],
+                        "recorded_at": rec["recorded_at"],
+                        "reason": reason,
+                        "item_id": item["item_id"],
+                        "value": value,
+                        "rec": rec,
+                    }
+                )
                 break
     return tickets

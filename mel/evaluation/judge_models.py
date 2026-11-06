@@ -21,6 +21,7 @@ Credentials come from the AWS account (paste the event's temporary keys into the
 Region: MEL_BEDROCK_REGION, else AWS_REGION / AWS_DEFAULT_REGION, else us-east-1. A model the account cannot use
 (not enabled, provisioned-only, no Converse support) is listed with its error and skipped; nothing is guessed.
 """
+
 import argparse
 import json
 import time
@@ -32,11 +33,13 @@ from mel.writer import llm
 from . import judge as J
 
 RESULTS = ROOT / "docs" / "results" / "judge_models.json"
-PRICES = ROOT / "docs" / "results" / "bedrock_prices.json"   # {model id: {"in": USD per 1M tokens, "out": ..., "source"}}
-QUALITY_MARGIN_R = 0.10     # "close to the best": ranking match at most this much below the most accurate model
-QUALITY_MARGIN_GAP = 0.15   # ... and an average gap at most this much larger
-SEASON_SURVEYS = 2616       # surveys in the full 6,999-insight run, for the "whole season" cost
-MAX_TOKENS = 1000      # room for models that think before answering; the judge's own default is 200
+PRICES = (
+    ROOT / "docs" / "results" / "bedrock_prices.json"
+)  # {model id: {"in": USD per 1M tokens, "out": ..., "source"}}
+QUALITY_MARGIN_R = 0.10  # "close to the best": ranking match at most this much below the most accurate model
+QUALITY_MARGIN_GAP = 0.15  # ... and an average gap at most this much larger
+SEASON_SURVEYS = 2616  # surveys in the full 6,999-insight run, for the "whole season" cost
+MAX_TOKENS = 1000  # room for models that think before answering; the judge's own default is 200
 
 
 def region() -> str:
@@ -83,8 +86,15 @@ def discover(bedrock) -> list[dict]:
             call, via = profiles[mid], "inference profile"
         else:
             call, via = None, "provisioned throughput only (skipped)"
-        out.append({"model_id": mid, "call_id": call, "provider": m.get("providerName", ""),
-                    "name": m.get("modelName", mid), "via": via})
+        out.append(
+            {
+                "model_id": mid,
+                "call_id": call,
+                "provider": m.get("providerName", ""),
+                "name": m.get("modelName", mid),
+                "via": via,
+            }
+        )
     return sorted(out, key=lambda r: (r["provider"].lower(), r["name"].lower()))
 
 
@@ -112,17 +122,22 @@ def fetch_prices(pricing, region_code: str, models: list[dict]) -> dict:
     for code in ("AmazonBedrock", "AmazonBedrockFoundationModels"):
         try:
             pages = pricing.get_paginator("get_products").paginate(
-                ServiceCode=code, Filters=[{"Type": "TERM_MATCH", "Field": "regionCode", "Value": region_code}])
+                ServiceCode=code, Filters=[{"Type": "TERM_MATCH", "Field": "regionCode", "Value": region_code}]
+            )
             for page in pages:
                 for raw in page.get("PriceList", []):
                     p = json.loads(raw) if isinstance(raw, str) else raw
                     a = (p.get("product") or {}).get("attributes") or {}
-                    what = " ".join(str(a.get(k, "")) for k in ("usagetype", "inferenceType", "feature", "operation")).lower()
+                    what = " ".join(
+                        str(a.get(k, "")) for k in ("usagetype", "inferenceType", "feature", "operation")
+                    ).lower()
                     if "token" not in what or any(x in what.replace(" ", "") for x in skip):
                         continue
                     side = "in" if "input" in what else "out" if "output" in what else None
                     name = _norm(a.get("model") or a.get("modelName") or a.get("titanModel") or "")
-                    mid = by_name.get(name) or next((v for k, v in by_name.items() if name and (name in k or k in name)), None)
+                    mid = by_name.get(name) or next(
+                        (v for k, v in by_name.items() if name and (name in k or k in name)), None
+                    )
                     if not (side and mid):
                         continue
                     for term in ((p.get("terms") or {}).get("OnDemand") or {}).values():
@@ -175,9 +190,12 @@ def choose(rows: list[dict]) -> dict:
         return {"most_accurate": None, "best_value": None}
     top = ranked[0]
     tr, tg = top.get("rank_r"), top.get("mean_abs_diff")
-    close = [r for r in ranked
-             if (tr is None or (r.get("rank_r") is not None and r["rank_r"] >= tr - QUALITY_MARGIN_R))
-             and (tg is None or (r.get("mean_abs_diff") is not None and r["mean_abs_diff"] <= tg + QUALITY_MARGIN_GAP))]
+    close = [
+        r
+        for r in ranked
+        if (tr is None or (r.get("rank_r") is not None and r["rank_r"] >= tr - QUALITY_MARGIN_R))
+        and (tg is None or (r.get("mean_abs_diff") is not None and r["mean_abs_diff"] <= tg + QUALITY_MARGIN_GAP))
+    ]
     priced = [r for r in close if r.get("usd_per_1000_surveys") is not None]
     pick = min(priced, key=lambda r: (r["usd_per_1000_surveys"], r["rank"])) if priced else None
     for r in rows:
@@ -221,10 +239,16 @@ class _SweepClient:
         for _ in range(3):
             sys_, usr = (None, system + "\n\n" + user) if self._no_system else (system, user)
             try:
-                text = c.converse(self.model_id, sys_, usr, purpose="judge", max_tokens=MAX_TOKENS,
-                                  temperature=None if self._no_temperature else 0)
+                text = c.converse(
+                    self.model_id,
+                    sys_,
+                    usr,
+                    purpose="judge",
+                    max_tokens=MAX_TOKENS,
+                    temperature=None if self._no_temperature else 0,
+                )
                 return text, dict(c.last_usage)
-            except Exception as e:      # ModelUnavailable from P4's client
+            except Exception as e:  # ModelUnavailable from P4's client
                 msg = str(e).lower()
                 if "temperature" in msg and not self._no_temperature:
                     self._no_temperature = True
@@ -246,17 +270,23 @@ def evaluate_model(model: dict, pairs, runtime_factory, full: bool = False, cach
         if full:
             row["judge_relevance_all"] = J.judge_batch(pairs, client, cache_dir=cache_dir)["judge_relevance"]
     except Exception as e:
-        return {**row, "status": "error", "error": f"{type(e).__name__}: {e}"[:300],
-                "calls": client.calls}
-    n_surveys = sum(v for k, v in cal["judge_scores"].items() if k is not None)   # None = answer we could not read
+        return {**row, "status": "error", "error": f"{type(e).__name__}: {e}"[:300], "calls": client.calls}
+    n_surveys = sum(v for k, v in cal["judge_scores"].items() if k is not None)  # None = answer we could not read
     use = _usage(pairs, client, cache_dir)
     avg = (sum(int(k) * v for k, v in cal["judge_scores"].items() if k is not None) / n_surveys) if n_surveys else None
-    return {**row, "status": "ok" if n_surveys else "no usable answers",
-            "surveys_scored": n_surveys, "within_1": cal["within_1"], "exact": cal["exact"],
-            "mean_abs_diff": cal["mean_abs_diff"], "rank_r": cal["rank_r"],
-            "avg_score": round(avg, 2) if avg is not None else None,
-            "score_counts": {str(k): v for k, v in cal["judge_scores"].items()},
-            "new_calls": client.calls, **use}
+    return {
+        **row,
+        "status": "ok" if n_surveys else "no usable answers",
+        "surveys_scored": n_surveys,
+        "within_1": cal["within_1"],
+        "exact": cal["exact"],
+        "mean_abs_diff": cal["mean_abs_diff"],
+        "rank_r": cal["rank_r"],
+        "avg_score": round(avg, 2) if avg is not None else None,
+        "score_counts": {str(k): v for k, v in cal["judge_scores"].items()},
+        "new_calls": client.calls,
+        **use,
+    }
 
 
 def _usage(pairs, client, cache_dir) -> dict:
@@ -273,18 +303,23 @@ def _usage(pairs, client, cache_dir) -> dict:
         if shown["items"]:
             rows.append(J.judge_survey(shown, by_gid[gid], client, cache_dir))
     n = len(rows)
-    return {"calls": n, "input_tokens": sum(x.get("input_tokens", 0) for x in rows),
-            "output_tokens": sum(x.get("output_tokens", 0) for x in rows),
-            "seconds_per_call": round(sum(x.get("seconds", 0) for x in rows) / n, 2) if n else None}
+    return {
+        "calls": n,
+        "input_tokens": sum(x.get("input_tokens", 0) for x in rows),
+        "output_tokens": sum(x.get("output_tokens", 0) for x in rows),
+        "seconds_per_call": round(sum(x.get("seconds", 0) for x in rows) / n, 2) if n else None,
+    }
 
 
 def rank(rows: list[dict], n_surveys: int = 20) -> list[dict]:
     """Best judge first: the ones that answered (almost) every survey, by how closely they follow people's
     ranking (r), then by the smallest average gap. Models that failed go last, in name order."""
+
     def key(r):
         good = r.get("status") == "ok" and (r.get("surveys_scored") or 0) >= n_surveys - 2
         rr = r.get("rank_r")
         return (0 if good else 1, -(rr if rr is not None else -9), r.get("mean_abs_diff") or 9, r["name"].lower())
+
     out = sorted(rows, key=key)
     pos = 0
     for r in out:
@@ -296,23 +331,38 @@ def rank(rows: list[dict], n_surveys: int = 20) -> list[dict]:
     return out
 
 
-def sweep(models, runtime_factory, pairs=None, workers: int = 6, full: bool = False, cache_dir=J.CACHE,
-          prices: dict | None = None) -> dict:
+def sweep(
+    models,
+    runtime_factory,
+    pairs=None,
+    workers: int = 6,
+    full: bool = False,
+    cache_dir=J.CACHE,
+    prices: dict | None = None,
+) -> dict:
     pairs = pairs if pairs is not None else J.golden_pairs()
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
         rows = list(ex.map(lambda m: evaluate_model(m, pairs, runtime_factory, full, cache_dir), models))
     people = J.calibrate(pairs, _NoModel(), cache_dir=None) if pairs else {}
     rows = rank(rows)
     add_costs(rows, prices if prices is not None else load_prices())
-    return {"date": time.strftime("%Y-%m-%d %H:%M"), "region": region(), "rubric": J.RUBRIC_VERSION,
-            "surveys": 20, "people_vs_people": people.get("people_vs_people"),
-            "people_rank_r": people.get("people_rank_r"), **choose(rows),
-            "quality_margin": {"rank_r": QUALITY_MARGIN_R, "mean_abs_diff": QUALITY_MARGIN_GAP},
-            "season_surveys": SEASON_SURVEYS, "models": rows}
+    return {
+        "date": time.strftime("%Y-%m-%d %H:%M"),
+        "region": region(),
+        "rubric": J.RUBRIC_VERSION,
+        "surveys": 20,
+        "people_vs_people": people.get("people_vs_people"),
+        "people_rank_r": people.get("people_rank_r"),
+        **choose(rows),
+        "quality_margin": {"rank_r": QUALITY_MARGIN_R, "mean_abs_diff": QUALITY_MARGIN_GAP},
+        "season_surveys": SEASON_SURVEYS,
+        "models": rows,
+    }
 
 
 class _NoModel:
     """Lets calibrate() compute the people-only numbers without a model (every judge score comes back None)."""
+
     model_id = "none"
 
     def complete(self, system, user):
@@ -344,17 +394,20 @@ def main():
     ap.add_argument("--full", action="store_true")
     a = ap.parse_args()
     import boto3
+
     models = discover(boto3.client("bedrock", region_name=region()))
     if a.only:
         keep = [s.strip().lower() for s in a.only.split(",") if s.strip()]
         models = [m for m in models if any(k in m["model_id"].lower() for k in keep)]
     if a.prices:
         got = fetch_prices(boto3.client("pricing", region_name="us-east-1"), region(), models)
-        merged = {**got, **load_prices()}          # anything already in the file (checked by a person) wins
+        merged = {**got, **load_prices()}  # anything already in the file (checked by a person) wins
         PRICES.write_text(json.dumps(dict(sorted(merged.items())), indent=2) + "\n", encoding="utf-8")
-        print(f"Prices for {len(merged)} of {len(models)} models -> {PRICES.relative_to(ROOT)} "
-              f"({len(got)} from the AWS Price List API). Check them against the Bedrock pricing page; "
-              'add any missing model as  "<model id>": {"in": <USD per 1M input tokens>, "out": <...>, "source": "..."}.')
+        print(
+            f"Prices for {len(merged)} of {len(models)} models -> {PRICES.relative_to(ROOT)} "
+            f"({len(got)} from the AWS Price List API). Check them against the Bedrock pricing page; "
+            'add any missing model as  "<model id>": {"in": <USD per 1M input tokens>, "out": <...>, "source": "..."}.'
+        )
         missing = [m["model_id"] for m in models if m["call_id"] and not price_for(m, merged)]
         if missing:
             print("No price yet:", ", ".join(missing))
@@ -365,22 +418,40 @@ def main():
             p = price_for(m, pr)
             m["usd_per_1M_in/out"] = f"{p['in']} / {p['out']}" if p else ""
         _print(models, ["provider", "name", "model_id", "call_id", "via", "usd_per_1M_in/out"])
-        print(f"\n{len(models)} text models in {region()}; {sum(1 for m in models if m['call_id'])} callable; "
-              f"{sum(1 for m in models if price_for(m, pr))} priced (run --prices to fetch prices).")
+        print(
+            f"\n{len(models)} text models in {region()}; {sum(1 for m in models if m['call_id'])} callable; "
+            f"{sum(1 for m in models if price_for(m, pr))} priced (run --prices to fetch prices)."
+        )
         return
     t0 = time.perf_counter()
     res = sweep(models, lambda: llm.client().runtime(), workers=a.workers, full=a.full)
     RESULTS.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    cols = ["rank", "pick", "provider", "name", "within_1", "mean_abs_diff", "rank_r", "avg_score", "surveys_scored",
-            "usd_per_1000_surveys", "seconds_per_call", "status"] + (["judge_relevance_all"] if a.full else [])
+    cols = [
+        "rank",
+        "pick",
+        "provider",
+        "name",
+        "within_1",
+        "mean_abs_diff",
+        "rank_r",
+        "avg_score",
+        "surveys_scored",
+        "usd_per_1000_surveys",
+        "seconds_per_call",
+        "status",
+    ] + (["judge_relevance_all"] if a.full else [])
     _print(res["models"], cols)
     errs = [r for r in res["models"] if r.get("status") in ("error", "no usable answers")]
     for r in errs:
         print(f"  {r['model_id']}: {r.get('error', r['status'])}")
-    print(f"\nMost accurate: {res['most_accurate']}. Best value (cheapest within the quality margin): "
-          f"{res['best_value'] or 'none: no priced model is close enough; run --prices'}.")
-    print(f"People vs people: {res['people_vs_people']}. Wrote {RESULTS.relative_to(ROOT)} "
-          f"in {time.perf_counter() - t0:.0f} s.")
+    print(
+        f"\nMost accurate: {res['most_accurate']}. Best value (cheapest within the quality margin): "
+        f"{res['best_value'] or 'none: no priced model is close enough; run --prices'}."
+    )
+    print(
+        f"People vs people: {res['people_vs_people']}. Wrote {RESULTS.relative_to(ROOT)} "
+        f"in {time.perf_counter() - t0:.0f} s."
+    )
 
 
 if __name__ == "__main__":

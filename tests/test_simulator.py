@@ -1,4 +1,5 @@
 """P3: every channel x case record is schema-valid; reference grid records validate."""
+
 import json
 
 from mel.config import FIXTURES, CHANNELS
@@ -33,6 +34,7 @@ def test_reference_grid_valid():
 def test_render_matches_reference_files():
     """Our channel payloads equal the pack's reference renders, field by field."""
     from mel.data import list_scenarios
+
     for sc in list_scenarios():
         s = load_scenario(sc)
         for lang, survey in s["surveys"].items():
@@ -63,8 +65,12 @@ def test_simulate_matches_all_183_reference_records():
         channel, qtype, case = p.parent.parent.name, p.parent.name, p.stem
         ref = json.loads(p.read_text(encoding="utf-8"))
         got = simulate(surveys[qtype], channel, case)
-        assert got == ref, (channel, qtype, case,
-                            {k: (ref.get(k), got.get(k)) for k in set(ref) | set(got) if ref.get(k) != got.get(k)})
+        assert got == ref, (
+            channel,
+            qtype,
+            case,
+            {k: (ref.get(k), got.get(k)) for k in set(ref) | set(got) if ref.get(k) != got.get(k)},
+        )
 
 
 def test_simulate_is_deterministic():

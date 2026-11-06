@@ -7,6 +7,7 @@ picker, Telegram inline keyboards, the app/web bottom sheet, the voice keypad) a
 mel/simulator/simulate.py (cases, timestamps, raw events). Nothing here invents a farmer answer: a
 record only ever carries what was tapped or typed on the screen.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -33,22 +34,27 @@ def first_stage(channel: str) -> str:
 @dataclass
 class PreviewState:
     """Where the farmer is in one survey attempt on one channel."""
+
     channel: str
-    ids: tuple                      # item ids in survey order
-    values: dict                    # item id -> the values its buttons carry
-    stage: str = "question"         # invite | question | picker | ended
-    step: int = 0                   # index of the question on screen
+    ids: tuple  # item ids in survey order
+    values: dict  # item id -> the values its buttons carry
+    stage: str = "question"  # invite | question | picker | ended
+    step: int = 0  # index of the question on screen
     taps: dict = field(default_factory=dict)  # item id -> value, in tap order (never a default)
-    ending: str | None = None       # one of ENDINGS once stage == "ended"
-    ended_from: str | None = None   # the stage the farmer was in when it ended
-    typed: str | None = None        # the message the farmer typed instead of tapping
-    rev: int = 0                    # bumps on every change, so the screen can animate only what is new
+    ending: str | None = None  # one of ENDINGS once stage == "ended"
+    ended_from: str | None = None  # the stage the farmer was in when it ended
+    typed: str | None = None  # the message the farmer typed instead of tapping
+    rev: int = 0  # bumps on every change, so the screen can animate only what is new
 
     @classmethod
     def new(cls, survey: dict, channel: str) -> "PreviewState":
         items = survey["items"]
-        return cls(channel, tuple(it["item_id"] for it in items),
-                   {it["item_id"]: tuple(v for _, v in choices(it)) for it in items}, stage=first_stage(channel))
+        return cls(
+            channel,
+            tuple(it["item_id"] for it in items),
+            {it["item_id"]: tuple(v for _, v in choices(it)) for it in items},
+            stage=first_stage(channel),
+        )
 
     @property
     def n(self) -> int:
@@ -192,11 +198,20 @@ def build_record(survey: dict, channel: str, state: PreviewState, send_at: str |
     if how in ("finished", "closed"):  # P3's submit-once sheet keeps the given answers (some steps skipped)
         closed = how == "closed"
         rec = simulate_sheet(survey, channel, list(taps), closed=closed, answers=taps)
-        rec.update(timestamps=full["timestamps"], recorded_at=full["recorded_at"],
-                   raw_event=f"Close tapped at step {state.step + 1} of {state.n}" if closed else None)
+        rec.update(
+            timestamps=full["timestamps"],
+            recorded_at=full["recorded_at"],
+            raw_event=f"Close tapped at step {state.step + 1} of {state.n}" if closed else None,
+        )
         return _skips(rec, state)
-    case = {"dismissed": "sheet_dismissed", "declined": "farmer_declined", "opted_out": "farmer_opted_out",
-            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped", "missed": "voice_no_answer"}[how]
+    case = {
+        "dismissed": "sheet_dismissed",
+        "declined": "farmer_declined",
+        "opted_out": "farmer_opted_out",
+        "free_text": "free_text_instead_of_choice",
+        "dropped": "voice_call_dropped",
+        "missed": "voice_no_answer",
+    }[how]
     base = simulate(survey, channel, case, send_at=at)
     if how == "dismissed" and state.step:  # skipped to here, then closed or skipped again: nothing answered
         base["raw_event"] = f"sheet closed at step {state.step + 1} of {state.n}, nothing answered"
@@ -238,18 +253,26 @@ def _reseat(base: dict, full: dict, survey: dict, state: PreviewState) -> dict:
             elif shown == "skipped":
                 e["attempts"] = 1
         items.append(e)
-    rec = {**base, "items": items, "answers": {i: taps[i] for i in state.ids if i in taps}, "complete": False,
-           "needs_follow_up": full["needs_follow_up"], "follow_up_reasons": full["follow_up_reasons"],
-           # FarmerChat's store answers once answers are submitted and the attempt is over (simulate.py).
-           "farmerchat_reply": ({"http_status": 201, "outcome": "accepted"}
-                                if taps and base["retry_decision"] in ("none", "give_up") else None)}
+    rec = {
+        **base,
+        "items": items,
+        "answers": {i: taps[i] for i in state.ids if i in taps},
+        "complete": False,
+        "needs_follow_up": full["needs_follow_up"],
+        "follow_up_reasons": full["follow_up_reasons"],
+        # FarmerChat's store answers once answers are submitted and the attempt is over (simulate.py).
+        "farmerchat_reply": (
+            {"http_status": 201, "outcome": "accepted"}
+            if taps and base["retry_decision"] in ("none", "give_up")
+            else None
+        ),
+    }
     if how == "dropped":  # a cut call has an answer event only if something was answered before the cut
         ts = {**base["timestamps"], "answered": full["timestamps"]["answered"] if taps else None}
         # Nothing answered: the cut is logged two minutes after the farmer picked up (`opened`), never
         # before it (the reference record stamps sent+2, which predates its own opened time).
         cut = fmt_ist(parse_ist(ts["opened"] or ts["sent"]) + timedelta(minutes=2))
-        rec.update(timestamps=ts, answered_by=survey["farmer_id"] if taps else None,
-                   recorded_at=ts["answered"] or cut)
+        rec.update(timestamps=ts, answered_by=survey["farmer_id"] if taps else None, recorded_at=ts["answered"] or cut)
     return rec
 
 
@@ -258,8 +281,9 @@ def _msg(who, text, at, **extra):
     return {"who": who, "text": text, "at": at, **extra}
 
 
-def chat_log(survey: dict, channel: str, state: PreviewState, t0: datetime,
-             follow_up: bool = False) -> tuple[list[dict], dict | None]:
+def chat_log(
+    survey: dict, channel: str, state: PreviewState, t0: datetime, follow_up: bool = False
+) -> tuple[list[dict], dict | None]:
     """WhatsApp / Telegram: the messages so far (oldest first) and the question on screen now, each
     with its IST time. Bot messages keep the buttons the farmer saw (`buttons`, or `picker` for a
     WhatsApp list). A WhatsApp tap comes back as the farmer's message; a Telegram tap edits the

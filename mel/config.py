@@ -3,6 +3,7 @@
 Every MEL_* setting is read through env() at call time (so a test can change it with monkeypatch): the process
 environment first, then the repo's .env (copy .env.example; never committed), then the default. Nothing else in
 the repo reads os.environ for a MEL_* name."""
+
 import json
 import os
 from datetime import timedelta, timezone
