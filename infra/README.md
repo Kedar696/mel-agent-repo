@@ -7,7 +7,7 @@ secrets are in any file: the state (`terraform.tfstate`) and `*.tfvars` are git-
 
 | Piece | Where | Status (6 Nov) |
 |---|---|---|
-| **Agent side**: private S3 bucket, Bedrock Guardrail, least-privilege execution role, CloudWatch dashboard, optional budget, the agent's image registry + ARM CodeBuild project, the **AgentCore runtime** `fasal_pulse` | `terraform/agent.tf` (us-west-2) | In the state. The runtime the AgentCore toolkit launched on 5 Nov was imported; the next `apply -var agent_image_tag=<sha>` rolls it to an image our own build pushed |
+| **Agent side**: private S3 bucket, Bedrock Guardrail, least-privilege execution role, CloudWatch dashboard, optional budget, the agent's image registry + ARM CodeBuild project, the **AgentCore runtime** `fasal_pulse` | `terraform/agent.tf` (us-west-2) | In the state. The runtime the AgentCore toolkit launched on 5 Nov was imported on 6 Nov and rolled the same day to our own build (`fasal-pulse-agent:44ca6c5`, runtime version 3); the toolkit is no longer used |
 | **Streamlit UI** on **ECS Express Mode**: ECR repository, CodeBuild project (builds the `Dockerfile`'s `ui` target from GitHub), the three ECS roles, cluster, Express service (Fargate behind an HTTPS load balancer, one task) | `terraform/ui.tf` (us-east-1) | **Live** at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ ; the resources made by hand on 5 Nov were imported into the state on 6 Nov |
 
 ## Terraform (`terraform/`)
