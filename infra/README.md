@@ -1,90 +1,52 @@
 # Infrastructure
 
-One AWS account (the event's Workshop Studio sandbox), one infrastructure-as-code setup (`terraform/`), one
-Bedrock region for the models and the agent (us-west-2), one AgentCore runtime (made by `agentcore launch`,
-`docs/agentcore.md`) and one hosted link for the UI. Nothing is deployed by this repo's build or CI, and no AWS
-command that creates or changes a resource runs as part of them. There are no account IDs, access keys or
-secrets in any file.
+One AWS account (Will's Workshop Studio sandbox from the event), one infrastructure-as-code setup (`terraform/`), one
+Bedrock region for the models and the agent (us-west-2), one AgentCore runtime and one hosted link for the UI.
+Nothing is deployed by CI; no command that creates or changes a resource runs there. No account IDs, access keys or
+secrets are in any file: the state (`terraform.tfstate`) and `*.tfvars` are git-ignored because they hold ARNs.
 
-| Piece | Where | Status |
+| Piece | Where | Status (6 Nov) |
 |---|---|---|
-| Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | **Applied** in the account on 5 Nov (`terraform apply`, agent resources only); CI checks `terraform fmt -check` + `terraform validate` |
-| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds the `Dockerfile`'s `ui` target from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
-| The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | **Live**: runtime `fasal_pulse` in us-west-2 (5 Nov, `agentcore launch`, steps in `docs/agentcore.md`); the UI's `MEL_AGENTCORE_ARN` points at it, so "Run the agent" runs live |
+| **Agent side**: private S3 bucket, Bedrock Guardrail, least-privilege execution role, CloudWatch dashboard, optional budget, the agent's image registry + ARM CodeBuild project, the **AgentCore runtime** `fasal_pulse` | `terraform/agent.tf` (us-west-2) | In the state. The runtime the AgentCore toolkit launched on 5 Nov was imported; the next `apply -var agent_image_tag=<sha>` rolls it to an image our own build pushed |
+| **Streamlit UI** on **ECS Express Mode**: ECR repository, CodeBuild project (builds the `Dockerfile`'s `ui` target from GitHub), the three ECS roles, cluster, Express service (Fargate behind an HTTPS load balancer, one task) | `terraform/ui.tf` (us-east-1) | **Live** at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ ; the resources made by hand on 5 Nov were imported into the state on 6 Nov |
 
 ## Terraform (`terraform/`)
-- `main.tf`: the provider and the variables. One AWS provider covers both regions, because provider 6 lets each
-  resource set its own `region`.
-- `agent.tf`: private S3 bucket, Bedrock Guardrail and version, AgentCore execution role, CloudWatch dashboard,
-  optional budget. Outputs: `execution_role_arn` for `agentcore configure`, `agentcore_launch_env` for
-  `agentcore launch` (docs/agentcore.md).
-- `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service. Its task
-  role may only call `bedrock-agentcore:InvokeAgentRuntime` on this account's runtimes in the agent's region.
+- `main.tf`: provider (one, with a `region` per resource), the variables and the one buildspec both images use.
+- `agent.tf`: everything agent side, including `aws_bedrockagentcore_agent_runtime` with the agent's settings as a
+  map (bucket, guardrail, models, prices, metrics namespace; `terraform output agent_env` shows it).
+- `ui.tf`: everything UI side. The execution role, infrastructure role and cluster keep the names the service was
+  first made with by hand (`execution_role_name`, `infrastructure_role_name`, `cluster_name`): those names cannot
+  change in place. A fresh account can use any names.
+
+Credentials: the event page gives temporary keys; export them in the shell (or put them in `~/.aws/credentials`).
+Terraform itself: `brew install hashicorp/tap/terraform`, or the release zip from releases.hashicorp.com.
 
 ```bash
 cd infra/terraform
 terraform init
+terraform plan
 terraform apply
-aws codebuild start-build --project-name fasal-pulse-ui-build --region us-east-1
-terraform apply -var image_tag=<sha>
 ```
-The first apply makes everything except the UI service. The build's log ends with `PUSHED ...:<sha>`; the
-second apply, with that SHA, creates the service, and `terraform output ui_url` prints its address. Add
-`-var agentcore_arn=<runtime arn>` to make "Run the agent" call the runtime live, and
-`-var budget_email=<address>` for the budget alert. To stop paying: empty the bucket and the registry, then
-`terraform destroy`.
+`live.auto.tfvars` (git-ignored) holds the two image tags the services run (`image_tag`, `agent_image_tag`), so a plain
+`apply` keeps them. With both empty, the first apply makes everything except the two services.
 
-**In this account the UI already exists by hand** under the same names (repository, roles, cluster and service
-`fasal-pulse-ui`, see below), so either `terraform import` those or apply with another name
-(`-var ui_name=fp-tf-ui`). State stays in a local `terraform.tfstate` (git-ignored: it holds the account ID and
-ARNs); a team sharing one setup would add an S3 backend.
+## Build an image and roll a service
+Both images are built by CodeBuild from GitHub (no Docker on a laptop): the project clones `git_ref` (`main`), builds
+one target of the `Dockerfile` and pushes the short commit SHA and `latest`. The build log ends with
+`PUSHED <registry>:<sha>`.
+```bash
+aws codebuild start-build --project-name fasal-pulse-ui-build --region us-east-1
+aws codebuild start-build --project-name fasal-pulse-agent-build --region us-west-2
+terraform apply -var image_tag=<ui sha> -var agent_image_tag=<agent sha>
+```
+A branch instead of `main`: add `--environment-variables-override name=GIT_REF,value=<branch>,type=PLAINTEXT` to
+`start-build`. Watch a build: `aws codebuild batch-get-builds --ids <id> --query 'builds[0].buildStatus'`.
+The UI service rolls in place (same URL; about 5 minutes); the runtime gets a new version (the UI's
+`MEL_AGENTCORE_ARN` is `terraform output agentcore_arn`, applied with it). Try the agent:
+`python -m mel.agent --remote $(terraform output -raw agentcore_arn) I-001253`.
 
-## The Streamlit UI on ECS Express Mode (live since 5 Nov)
-The `ui` target of the one `Dockerfile` at the repo root packages `app/streamlit_app.py` with the
-participant pack and the recorded agent runs (`.dockerignore` decides what is copied in; the `api` and
-`agent` targets copy only what they import). CI builds the image and checks `/_stcore/health`.
-`terraform/ui.tf` is the same setup as infrastructure-as-code.
-
-Why Express Mode: App Runner stopped taking new customers on 30 April 2026, and Express Mode is the
-replacement AWS points to. One container image in; ECS creates the Fargate service, the HTTPS load
-balancer, the logs and the URL. The service runs **one task** (`MinTaskCount` = `MaxTaskCount` = 1)
-because Streamlit keeps each visitor's session inside the process. The task role may only call
-`bedrock-agentcore:InvokeAgentRuntime`, so the app needs no keys: once `MEL_AGENTCORE_ARN` is set,
-"Run the agent" in the Survey demo runs live on AgentCore; until then it shows the recorded runs.
-
-**Made by hand on 5 Nov** with the AWS CLI and the event's temporary credentials:
-1. `aws ecr create-repository --repository-name fasal-pulse-ui`
-2. Roles: `ecsTaskExecutionRole` (trust `ecs-tasks.amazonaws.com`, managed policy
-   `AmazonECSTaskExecutionRolePolicy`), `ecsInfrastructureRoleForExpressServices` (trust
-   `ecs.amazonaws.com`, managed policy `AmazonECSInfrastructureRoleforExpressGatewayServices`),
-   `fasal-pulse-ui-task` and `fasal-pulse-ui-codebuild` (inline policies = `ui_task` and `ui_build`
-   in `terraform/ui.tf`).
-3. CodeBuild project `fasal-pulse-ui-build` with the same buildspec, then
-   `aws codebuild start-build --project-name fasal-pulse-ui-build`: it clones GitHub, builds
-   the `ui` target on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
-4. `aws ecs create-cluster --cluster-name default`, then
-   ```bash
-   aws ecs create-express-gateway-service --service-name fasal-pulse-ui \
-     --execution-role-arn <ecsTaskExecutionRole arn> \
-     --infrastructure-role-arn <ecsInfrastructureRoleForExpressServices arn> \
-     --task-role-arn <fasal-pulse-ui-task arn> \
-     --primary-container '{"image":"<account>.dkr.ecr.us-east-1.amazonaws.com/fasal-pulse-ui:<sha>","containerPort":8501}' \
-     --health-check-path /_stcore/health --scaling-target '{"minTaskCount":1,"maxTaskCount":1}'
-   ```
-   The URL is `activeConfigurations[0].ingressPaths[0].endpoint` in
-   `aws ecs describe-express-gateway-service --service-arn <arn>`. The service was ACTIVE after about
-   5 minutes; its DNS name resolved about 10 minutes later.
-
-**After a merge to main:** `start-build` again, then roll the service to the new SHA:
-`aws ecs update-express-gateway-service --service-arn <arn> --primary-container '{"image":"...:<new sha>","containerPort":8501}'`.
-**Point it at AgentCore:** add `"environment":[{"name":"MEL_AGENTCORE_ARN","value":"<runtime arn>"}]`
-to that primary container. The app calls the runtime in the ARN's own region (`mel/agent/remote.py`): the agent
-runs in us-west-2 while this UI runs in us-east-1. The hand-made task role must allow `InvokeAgentRuntime` on
-`arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/*`; if it only lists us-east-1, the button shows an
-AccessDenied error and the recorded runs are still there.
-
-To stop paying: `aws ecs delete-express-gateway-service --service-arn <arn>` (and empty the registry).
-Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
+To stop paying: `terraform destroy` (empty the two registries and the bucket first). Cost while running: one 1 vCPU /
+2 GB Fargate task plus a load balancer, about US$2 a day; the runtime and Bedrock are billed per call.
 
 ### Why one copy
 The UI keeps each visitor's Streamlit session in its process, so the service runs a single task. The REST API
@@ -97,22 +59,16 @@ Every call but `/healthz` needs `Authorization: Bearer <MEL_API_TOKEN>`; pass it
 The agent's execution role allows exactly `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`,
 scoped to the model families it uses and the inference profiles in its region. There is **no** `bedrock:Converse`
 IAM action: the Converse and ConverseStream APIs are authorised by `InvokeModel` and
-`InvokeModelWithResponseStream` respectively (AWS docs, "Inference using the Converse API"). Those two actions
-therefore cover both the Invoke-style and the Converse-style calls P4's writer and P5's judge make.
+`InvokeModelWithResponseStream` respectively (AWS docs, "Inference using the Converse API").
 
 ## Production design only (NOT built)
-The team's AWS notes (`docs/TEAM.md`) list three services that belong to a real production
-system, not this hackathon build. They are **slide-only**; there is no code or template for them
-here:
-- **EventBridge / Step Functions** — the real "alarm clock": send at the right time, retry on
-  WhatsApp after 24 h. In this project the simulated clock does that deterministically.
-- **RDS for PostgreSQL** — the shared database more than one API copy would need. Here the API keeps a SQLite
-  file (`mel/store.py`).
-- **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
+Slide-only services from the team's AWS notes (`docs/TEAM.md`); there is no code or template for them here:
+- **EventBridge / Step Functions**: the real "alarm clock" (send at the right time, retry on WhatsApp after 24 h).
+  Here the simulated clock does that deterministically.
+- **RDS for PostgreSQL**: the shared database more than one API copy would need. Here the API keeps a SQLite file.
+- **Amazon Connect**: real automated phone calls for voice surveys. Here voice is simulated.
 
-## What we could and could not validate here
-- `terraform/`: `terraform fmt -check` and `terraform validate` pass (Terraform 1.17.1, AWS provider 6.72; CI
-  runs both). An offline apply against a mocked AWS provider ran clean. `tests/test_infra.py` checks the bucket,
-  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. Applied 5 Nov for the
-  agent side (`terraform apply` with `-target` on the `agent.tf` resources); the UI resources exist by hand under
-  the same names and are not in the state, so a full apply needs `terraform import` or another `ui_name`.
+## What CI checks
+`terraform fmt -check` and `terraform validate` (Terraform 1.17, AWS provider 6.72) on every PR, plus
+`tests/test_infra.py` (the bucket's privacy settings, the roles' actions, the dashboard's metrics, the runtime's
+settings map, the one-task service). Nothing in CI touches the account.

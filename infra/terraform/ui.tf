@@ -1,6 +1,6 @@
-# The Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode: the image
-# registry, a CodeBuild project that builds the Dockerfile's ui target straight from GitHub, the three ECS roles, a cluster and the
-# Express service (Fargate behind an HTTPS load balancer, one task).
+# The Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode: the image registry, a CodeBuild project that
+# builds the Dockerfile's ui target straight from GitHub, the three ECS roles, a cluster and the Express service
+# (Fargate behind an HTTPS load balancer, one task).
 
 # ---- The image registry and the build that fills it ---------------------------------------------
 resource "aws_ecr_repository" "ui" {
@@ -63,7 +63,7 @@ resource "aws_codebuild_project" "ui" {
   logs_config {
     cloudwatch_logs {
       status     = "ENABLED"
-      group_name = "/aws/codebuild/${var.ui_name}"
+      group_name = "/aws/codebuild/${var.ui_name}-build"
     }
   }
 
@@ -84,27 +84,21 @@ resource "aws_codebuild_project" "ui" {
       name  = "ECR_URI"
       value = aws_ecr_repository.ui.repository_url
     }
+    environment_variable {
+      name  = "TARGET"
+      value = "ui"
+    }
   }
 
   source {
     type      = "NO_SOURCE"
-    buildspec = <<-EOT
-      version: 0.2
-      phases:
-        pre_build:
-          commands:
-            - git clone --depth 1 --branch "$GIT_REF" "$REPO_URL" src
-            - aws ecr get-login-password | docker login --username AWS --password-stdin "$${ECR_URI%%/*}"
-        build:
-          commands:
-            - cd src && TAG=$(git rev-parse --short HEAD) && docker build --target ui -t "$ECR_URI:$TAG" -t "$ECR_URI:latest" . && docker push "$ECR_URI:$TAG" && docker push "$ECR_URI:latest" && echo "PUSHED $ECR_URI:$TAG"
-    EOT
+    buildspec = local.buildspec
   }
 }
 
 # ---- The three roles Express Mode needs ---------------------------------------------------------
 resource "aws_iam_role" "ui_execution" { # lets ECS pull the image and write logs
-  name               = "${var.ui_name}-execution"
+  name               = var.execution_role_name
   assume_role_policy = jsonencode(local.trust["ecs-tasks"])
 }
 
@@ -114,7 +108,7 @@ resource "aws_iam_role_policy_attachment" "ui_execution" {
 }
 
 resource "aws_iam_role" "ui_infrastructure" { # lets ECS create the load balancer, target groups, security groups, scaling
-  name               = "${var.ui_name}-infrastructure"
+  name               = var.infrastructure_role_name
   assume_role_policy = jsonencode(local.trust["ecs"])
 }
 
@@ -145,7 +139,12 @@ resource "aws_iam_role_policy" "ui_task" {
 # ---- The service --------------------------------------------------------------------------------
 resource "aws_ecs_cluster" "ui" {
   region = var.ui_region
-  name   = var.ui_name
+  name   = var.cluster_name
+}
+
+locals {
+  # "Run the agent" calls this runtime: the one agent.tf manages, unless another ARN is given.
+  agentcore_arn = var.agentcore_arn != "" ? var.agentcore_arn : try(aws_bedrockagentcore_agent_runtime.agent[0].agent_runtime_arn, "")
 }
 
 resource "aws_ecs_express_gateway_service" "ui" {
@@ -162,7 +161,7 @@ resource "aws_ecs_express_gateway_service" "ui" {
     image          = "${aws_ecr_repository.ui.repository_url}:${var.image_tag}"
     container_port = 8501
     dynamic "environment" {
-      for_each = var.agentcore_arn == "" ? [] : [var.agentcore_arn]
+      for_each = local.agentcore_arn == "" ? [] : [local.agentcore_arn]
       content {
         name  = "MEL_AGENTCORE_ARN"
         value = environment.value
@@ -170,8 +169,9 @@ resource "aws_ecs_express_gateway_service" "ui" {
     }
   }
 
-  # One task only: Streamlit keeps each visitor's session inside the process.
-  scaling_target = [{ min_task_count = 1, max_task_count = 1, auto_scaling_metric = null, auto_scaling_target_value = null }]
+  # One task only: Streamlit keeps each visitor's session inside the process (the metric and target are the service's
+  # defaults, written out so the plan stays clean).
+  scaling_target = [{ min_task_count = 1, max_task_count = 1, auto_scaling_metric = "AVERAGE_CPU", auto_scaling_target_value = 60 }]
 
   depends_on = [aws_iam_role_policy_attachment.ui_execution, aws_iam_role_policy_attachment.ui_infrastructure]
 }
