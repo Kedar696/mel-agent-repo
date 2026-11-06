@@ -123,7 +123,8 @@ class ModelClient:
         self._runtime, self.max_attempts, self.base_delay, self._sleep = runtime, max_attempts, base_delay, sleep
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}   # tokens of the last converse() (cache hit: as made)
 
-    def _rt(self):
+    def runtime(self):
+        """The one bedrock-runtime client (Converse and ApplyGuardrail both go through it). Raises ModelUnavailable."""
         if self._runtime is None:
             try:
                 import boto3
@@ -179,7 +180,7 @@ class ModelClient:
             t0 = time.perf_counter()
             try:
                 kw = {"system": [{"text": system}]} if system else {}   # some models take no system prompt: pass None
-                resp = self._rt().converse(
+                resp = self.runtime().converse(
                     modelId=model_id, **kw,
                     messages=[{"role": "user", "content": [{"text": user}]}],
                     inferenceConfig={"maxTokens": max_tokens, **({} if temperature is None else {"temperature": temperature})})

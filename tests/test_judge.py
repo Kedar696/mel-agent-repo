@@ -41,8 +41,7 @@ def test_judge_caches_so_reruns_are_free(pairs, tmp_path):
 
 
 def test_batch_reports_average_tokens_and_cost(pairs, tmp_path, monkeypatch):
-    monkeypatch.setenv("MEL_JUDGE_PRICE_IN", "1.0")
-    monkeypatch.setenv("MEL_JUDGE_PRICE_OUT", "5.0")
+    monkeypatch.setenv("MEL_BEDROCK_PRICES", '{"fake-small-model": {"in": 0.001, "out": 0.005}}')   # USD per 1,000
     r = J.judge_batch(pairs[:3], FakeClient(), cache_dir=tmp_path)
     assert r["n"] == r["n_scored"] == len(pairs[:3]) and r["judge_relevance"] == 4.0
     assert r["input_tokens"] == 300 * r["n"] and r["cost_usd"] == pytest.approx(r["n"] * 400 / 1e6)

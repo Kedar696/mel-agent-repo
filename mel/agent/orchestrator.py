@@ -22,7 +22,7 @@ from a local run or from AgentCore. The last event has step "result". Nothing he
 import time
 
 from mel.channels import render
-from mel.config import bedrock_region, env, flag
+from mel.config import env, flag
 from mel.data.validate import errors as schema_errors
 from mel.decision import decide
 from mel.pipeline import clean
@@ -107,10 +107,9 @@ def verify(survey: dict, insight: dict, n_items: int, *, template: dict | None =
 
 def bedrock_guardrail(guardrail_id: str, version: str = "DRAFT", runtime=None):
     """A Verifier check through Amazon Bedrock Guardrails (ApplyGuardrail on the survey text). Returns a callable
-    text -> reason or None. Needs a guardrail created in the account (MEL_GUARDRAIL_ID); never called otherwise."""
-    if runtime is None:
-        import boto3
-        runtime = boto3.client("bedrock-runtime", region_name=bedrock_region() or None)
+    text -> reason or None. Needs a guardrail created in the account (MEL_GUARDRAIL_ID); never called otherwise.
+    Uses the writer's bedrock-runtime client unless `runtime` is given (tests)."""
+    runtime = runtime or llm.client().runtime()
 
     def check(text: str):
         r = runtime.apply_guardrail(guardrailIdentifier=guardrail_id, guardrailVersion=version, source="OUTPUT",
