@@ -95,6 +95,17 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   Voice channel: the speaker beside Restart (tap = read the call aloud / mute, chevron = volume) plays the IVR lines through ElevenLabs (`app/tts.py`, needs `ELEVENLABS_API_KEY`
   in `.env`; see `.env.example`); off and silent without a key.
   **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
+- **UI rework (5 Nov, `willF-uiux`), supersedes the tab notes above and below:** two tabs only, **Dashboard** and
+  **Survey demo**; the Season and Follow-up queue tabs are gone (their mel/ code is untouched). Dashboard
+  (`app/dashboard.py`) is a console-style widget grid: Overview KPI strip + widgets from the batch the app already runs,
+  then **Evaluation**, which scores nothing until **Run evaluation** is pressed (`st.session_state.dash_eval`); the
+  Details expanders and the full-run note are gone. Survey demo opens on one example, **I-001996** (wheat, low turned
+  high; not in the mock sample, where it opens on Browse), and is a guided flow: drag the conversation card onto the
+  terminal (`st.components.v2` component `mel_intake`, or the "Hand it to the agent" button) → the agent's steps →
+  **Send to the farmer** lights the phone and dims the terminal → when the farmer finishes, the same terminal adds
+  Review, Assess (checks, P4 relevance, recorded judge score, verdict), Thinking and Plan (next survey: when, what, its
+  first question) via `review_steps` / `plan_next`. Restart sends the flow back to the start. Tests: `tests/test_app.py`
+  (was `tests/test_season_tab.py`).
 - **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
   (`demo/p4_standalone/`) is folded into the team app: Survey demo
   shows "What the agent remembers", a "pretend survey history" demo and generic vs
@@ -224,7 +235,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
   Details (crop or animal, problem, severity, advice type, days to act, check-back timing, 1-3 questions:
   `app/custom_context.apply_reading`), P2's rules set the window from those fields, and the agent writes and
   translates the questions (`run_agent(n_items=)`); the report says what the model read; a checkbox turns the
-  reading off. Tests in test_writer / test_agent / test_custom_context / test_season_tab.
+  reading off. Tests in test_writer / test_agent / test_custom_context / test_app.
 - **Cost tracking + full run (P5, 5 Nov, `p5-agent-orchestrator`):** `mel/evaluation/costs.py` (CostMeter reads
   `out/bedrock_calls.jsonl` from its start offset; ledger `docs/results/cost_history.jsonl`; projection x 2,616 surveys).
   `python -m mel.agent.batch [--sample N | --limit N] [--workers 8] [--max-usd 40] [--judge]`: thread pool, budget cap,
@@ -253,7 +264,7 @@ Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recomme
 - P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
   +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
   now 0.3; personas incl. P3's `sometimes_fails` (523 answers need a person); full data ~2,050 sends, ~5 s). Shows India
-  time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
+  time first (Eastern alongside). Test was `tests/test_season_tab.py`. Demo script Part 2b (optional). Tab removed 5 Nov (UI rework).
 - P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
   redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
   Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster drops a hand-off whose send window closed (`not_after`) as expired (done on `Semdon-P3`).

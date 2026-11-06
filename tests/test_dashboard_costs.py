@@ -20,7 +20,7 @@ FULL = {"surveys": 2616, "seconds": 900, "cost": {"spent_usd": 5.9}, "revisions"
 def _costs_app():
     import streamlit as st
     from app import dashboard
-    dashboard._costs(st.session_state["ledger"], st.session_state.get("full"))
+    dashboard._costs(st.session_state["ledger"], st.session_state.get("full"), 6999, 0.374)
 
 
 def _run(ledger, full=None):
@@ -31,9 +31,10 @@ def _run(ledger, full=None):
     return " ".join(m.value for m in at.markdown)
 
 
-def test_cost_section_with_and_without_a_full_run():
+def test_cost_calculator_with_and_without_a_full_run():
     screen = _run(LEDGER)
-    assert "$0.0023" in screen and "$2.26" in screen and "Not run yet" in screen  # latest batch run, no full run yet
+    assert "$0.0023" in screen and "$2.26" in screen and "not run yet" in screen  # priced from the latest batch run
+    assert "2,590" in screen and "$5.96" in screen       # 37% of 6,999 conversations = 2,590 surveys x $0.0023
     screen = _run(LEDGER, FULL)
-    assert "$5.90" in screen and "2,616 surveys in 15 min" in screen and "AI judge relevance 4.6" in screen
+    assert "$5.90" in screen and "2,616 surveys in 15 min" in screen
     assert _run([]) == ""

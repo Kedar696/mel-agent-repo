@@ -6,7 +6,7 @@ MM/DD/YYYY and 12-hour h:mm AM/PM. Aware datetimes and ISO timestamps (with an o
 a date-only value keeps its calendar date; a naive datetime is refused rather than guessed.
 
 Two zones (team decision 5 Nov): the numbers (Dashboard) stay in Eastern Time, the default; one farmer's screen
-(the Survey demo phone, the send time, the Follow-up queue's conversation log) shows India time, because that is
+(the Survey demo phone and the send time) shows India time, because that is
 where the farmer and Digital Green are. `use("india")` switches the rest of the script run; `use(None)` goes back.
 """
 import contextvars
