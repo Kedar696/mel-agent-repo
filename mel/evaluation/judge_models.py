@@ -27,6 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from mel.config import ROOT, bedrock_region
+from mel.writer import llm
 
 from . import judge as J
 
@@ -368,7 +369,7 @@ def main():
               f"{sum(1 for m in models if price_for(m, pr))} priced (run --prices to fetch prices).")
         return
     t0 = time.perf_counter()
-    res = sweep(models, lambda: boto3.client("bedrock-runtime", region_name=region()), workers=a.workers, full=a.full)
+    res = sweep(models, lambda: llm.client().runtime(), workers=a.workers, full=a.full)
     RESULTS.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     cols = ["rank", "pick", "provider", "name", "within_1", "mean_abs_diff", "rank_r", "avg_score", "surveys_scored",
             "usd_per_1000_surveys", "seconds_per_call", "status"] + (["judge_relevance_all"] if a.full else [])

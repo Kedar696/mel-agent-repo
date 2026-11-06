@@ -64,7 +64,7 @@ Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DI
   lenient. Write-up: `docs/results/judge_calibration.md` (PR `p5-hand-scores`). `--run` on all 94 rows: AI relevance
   **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Both commands now also write `docs/results/judge_summary.json`
   (committed; incl. `rank_r`); the app's Evaluation tab shows "Can we trust the AI judge?" from it, never calling
-  Bedrock. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
+  Bedrock. The judge goes through the writer's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
   the terminal (never chat/git) and `MEL_BEDROCK_REGION=us-west-2`.
 - Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
 - Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
