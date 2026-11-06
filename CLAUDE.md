@@ -3,8 +3,8 @@
 Read this first in every new session. Update **Status**, **Live stack** and **Open items** whenever work lands (and the
 date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-06 (cleanup series after the hackathon: one generator path, one Dockerfile, one config, one
-Bedrock client, correctness pass, app split by tab, repo hygiene; Terraform import of the live UI is next)_
+_Last updated: 2026-11-06 (cleanup series #49-#55 merged; the live stack is fully in Terraform state and both images
+run `main` at 44ca6c5)_
 
 ## What this is
 Built at the AWS "Breaking Barriers" hackathon (3-5 Nov 2026) for Digital Green (MEL = monitoring, evaluation,
@@ -59,8 +59,9 @@ Activity attention (off by default): `run ... --attention`. The agent alone: `py
 - `app/`: `streamlit_app.py` is the shell (reload guard, the batch, two tabs); `dashboard.py`; `survey_demo.py`
   (agent terminal, phone = `channel_preview.py` + `preview_state.py`, own insight = `custom_context.py`, voice =
   `tts.py`); `common.py` shared labels and display helpers; `display_time.py`; `theme.py`.
-- `infra/terraform/`: the one IaC (`agent.tf` us-west-2: S3, Guardrail, AgentCore role, dashboard, budget; `ui.tf`
-  us-east-1: ECR, CodeBuild, ECS roles, cluster, Express Mode service). Steps: `infra/README.md`, `docs/agentcore.md`.
+- `infra/terraform/`: the one IaC (`agent.tf` us-west-2: S3, Guardrail, AgentCore role, ECR, CodeBuild, the
+  runtime, dashboard, budget; `ui.tf` us-east-1: ECR, CodeBuild, ECS roles, cluster, Express Mode service; one
+  buildspec in `main.tf` builds either Dockerfile target). Steps: `infra/README.md`, `docs/agentcore.md`.
 - One multi-stage `Dockerfile` (targets `api` / `ui` / `agent`); `pyproject.toml` extras `api` / `agent` / `ui` / `dev`.
 - CI (`.github/workflows/ci.yml`, Python 3.12): `ruff check`, `ruff format --check`, pytest, `run --simulate`,
   `validate`, `eval`, `parity`, both images built and smoke-tested, `terraform fmt -check` + `validate`.
@@ -88,22 +89,26 @@ every call; `MEL_JUDGE_MODEL` + `MEL_JUDGE=1` (evaluation) or `MEL_AGENT_JUDGE=1
   surveys: within 1 point 97%, r 0.72 (`docs/results/judge_calibration.md`, `judge_models.json`).
 - Cleanup series (6 Nov): #49 one generator path + one Dockerfile + SQLite store (no RDS); #50 one config
   (`mel.config.env`); #51 one bedrock-runtime client; #52 correctness (cap moves clear every prior send, API off
-  the event loop, app on the CLI's scheduling path, AgentCore payload checked); #53 app split by tab; then this
-  hygiene PR (`ruff format` at 120 columns, process docs to `docs/archive/`, CODEOWNERS gone); next: Terraform
-  import of the hand-made UI resources and a relaunch of the runtime from the new `main`.
+  the event loop, app on the CLI's scheduling path, AgentCore payload checked); #53 app split by tab; #54 hygiene
+  (`ruff format` at 120 columns, process docs to `docs/archive/`, CODEOWNERS gone); #55 Terraform owns the live
+  stack (UI imported, runtime managed, one build path). All merged 6 Nov; CI green on `main` at 44ca6c5.
 
 ## Live stack (Will's Workshop Studio sandbox account; temporary credentials from the event page, a few hours each)
+- Everything live is in `infra/terraform/terraform.tfstate` (local, git-ignored, 27 resources; `terraform plan` is
+  clean). Image tags live in `infra/terraform/live.auto.tfvars` (git-ignored): `image_tag` (UI) and
+  `agent_image_tag` (runtime), both the short commit SHA of `main`, currently 44ca6c5.
 - UI: ECS Express Mode service `fasal-pulse-ui`, us-east-1, 1 vCPU / 2 GB, one task:
-  https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ (image tag = short commit SHA of `main`; roll it with
-  `aws codebuild start-build --project-name fasal-pulse-ui-build` then `terraform apply -var image_tag=<sha>` once the
-  UI is imported into the state, or `aws ecs update-express-gateway-service` until then; `infra/README.md`).
-- Agent: AgentCore runtime `fasal_pulse` (`arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/fasal_pulse-asfyZYEUQm`),
-  launched with the AgentCore toolkit (`docs/agentcore.md`; move the repo `Dockerfile` aside first). The UI's task
-  has `MEL_AGENTCORE_ARN` set, so "Run the agent" runs live. Guardrail `fasal-pulse-survey-guardrail` and the
-  data bucket come from `terraform apply` on `agent.tf` (in the state); the UI resources were made by hand under the
-  Terraform names and are not in the state yet.
+  https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ . The task has `MEL_AGENTCORE_ARN`, so
+  "Run the agent" runs on the runtime.
+- Agent: AgentCore runtime `fasal_pulse` (`arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/fasal_pulse-asfyZYEUQm`,
+  version 3, image `fasal-pulse-agent:44ca6c5`), `aws_bedrockagentcore_agent_runtime.agent` in `agent.tf`; the
+  toolkit is no longer used. Guardrail `fasal-pulse-survey-guardrail` and the data bucket are in the same state.
+- Roll a new `main`: `aws codebuild start-build --project-name fasal-pulse-agent-build --region us-west-2` and
+  `... fasal-pulse-ui-build --region us-east-1` (both clone `main`, `GIT_REF` overrides), read `PUSHED ...:<sha>`
+  from each log, put the SHAs in `live.auto.tfvars`, `terraform apply` (two in-place changes, no downtime), then
+  `python -m mel.agent --remote $(terraform output -raw agentcore_arn) I-001253`. Done this way on 6 Nov.
 - Cost: about $2 a day while the UI runs (Fargate + load balancer); Bedrock calls are cents. The account is wiped
-  when the event closes: everything is re-creatable from `infra/terraform/` + one `agentcore launch`.
+  when the event closes: everything is re-creatable from `infra/terraform/` (apply, two builds, apply again).
 
 ## Decisions already made (don't re-litigate)
 - Streamlit stays the UI (split by tab, not replaced). Bedrock is the model path, via the account's IAM role, no key.
@@ -115,9 +120,11 @@ every call; `MEL_JUDGE_MODEL` + `MEL_JUDGE=1` (evaluation) or `MEL_AGENT_JUDGE=1
 - Code layout is `ruff format` at 120 columns; lint rules are pyflakes + bugbear (`pyproject.toml`).
 
 ## Open items
-- Terraform: import the 13 hand-made UI resources (`ui.tf`) so `terraform plan` is clean; relaunch the runtime from
-  the new `main`; check whether the AWS provider now has `aws_bedrockagentcore_agent_runtime` (then the runtime moves
-  into Terraform too).
+- Fargate size: 1 vCPU / 2 GB is a guess; read the task's memory in CloudWatch after a day of use and drop to
+  0.5 / 1 GB (`cpu` / `memory` in `ui.tf`) if it fits, roughly halving the daily cost.
+- The Terraform state is a local file on Will's Mac (`terraform.tfstate` + the `.before-import` backup, both
+  git-ignored). A lost state means `terraform import` for all 27 resources: names in `ui.tf` / `agent.tf`, ids with
+  an `@us-east-1` suffix for the UI side, the runtime by its id, CodeBuild projects and the Express service by ARN.
 - Hindi native review: 0 of 441 lines in `docs/p4/hindi_review_sheet.csv` checked; the app labels Hindi "pending
   review" until every row has a Y/N. Blind sheet `docs/results/blind_sheet.csv` (Bedrock vs templates) is unscored.
 - `mel/writer/history.py personalize`: after an H3/H4 trim drops the personalised H1/H2 question, the H1/H2 note (and
@@ -133,4 +140,6 @@ every call; `MEL_JUDGE_MODEL` + `MEL_JUDGE=1` (evaluation) or `MEL_AGENT_JUDGE=1
 ## Environment notes
 - macOS, zsh, Python 3.13 in `.venv` (the project requires 3.12+; CI runs 3.12). `gh` is authenticated. Use
   `.venv/bin/python` explicitly: a bare `python` can resolve to the Xcode Python 3.9.
-- No Docker or Terraform on this Mac: image builds run in CI / CodeBuild; Terraform runs in CloudShell or CI.
+- No Docker on this Mac: image builds run in CodeBuild (and CI). Terraform: `brew install hashicorp/tap/terraform`
+  needs the Xcode Command Line Tools; otherwise unzip the macOS build from releases.hashicorp.com and put it on
+  `PATH`. Run it from `infra/terraform/` with the event credentials exported in the same shell.
