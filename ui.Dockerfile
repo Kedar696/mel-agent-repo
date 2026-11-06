@@ -1,5 +1,5 @@
 # Streamlit UI image for the Fasal Pulse - MEL Survey Agent (app/streamlit_app.py). Owner: P2 (Will).
-# Built on AWS by the CodeBuild project in infra/ui-express.yaml and run by its ECS Express Mode
+# Built on AWS by the CodeBuild project in infra/terraform/ui.tf and run by its ECS Express Mode
 # service (see infra/README.md). The build context is the repo root; ui.Dockerfile.dockerignore next
 # to this file decides what is copied in (.dockerignore belongs to the REST API image, Dockerfile).
 # No keys are baked in: on AWS the task role grants the app what it may call.

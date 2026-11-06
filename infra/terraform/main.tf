@@ -1,7 +1,7 @@
-# Terraform version of the two deployed CloudFormation templates, in one apply:
-#   agent.tf = infra/fasal-pulse.yaml (S3, Guardrail, AgentCore execution role, dashboard, budget)
-#   ui.tf    = infra/ui-express.yaml  (ECR, CodeBuild, ECS roles, cluster, Express Mode service)
-# Same resources, names and permissions. No account IDs or credentials here; state is local and git-ignored.
+# The whole AWS setup, in one apply:
+#   agent.tf = S3, Guardrail, AgentCore execution role, dashboard, budget (us-west-2)
+#   ui.tf    = ECR, CodeBuild, ECS roles, cluster, Express Mode service (us-east-1)
+# No account IDs or credentials here; state is local and git-ignored.
 # Steps: infra/README.md, "Terraform".
 
 terraform {

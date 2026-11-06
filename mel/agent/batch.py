@@ -171,11 +171,11 @@ def main():
             blocked = guard("Did you follow the advice you were given?")
         except Exception as e:
             raise SystemExit(f"Guardrail check failed in region {llm.region() or '(none set)'}: {e}\n"
-                             "Check that MEL_GUARDRAIL_ID / MEL_GUARDRAIL_VERSION come from the fasal-pulse stack's "
-                             "Outputs, and that the stack is in the same region as MEL_BEDROCK_REGION.") from e
+                             "Check that MEL_GUARDRAIL_ID / MEL_GUARDRAIL_VERSION come from `terraform output` "
+                             "(infra/terraform), and that its agent_region is MEL_BEDROCK_REGION.") from e
         if blocked:                             # it would reject every survey and send all of them to the template
             raise SystemExit(f"The guardrail blocks a harmless survey question ({blocked}). Loosen it in "
-                             "infra/fasal-pulse.yaml and update the stack, or unset MEL_GUARDRAIL_ID for this run.")
+                             "infra/terraform/agent.tf and apply again, or unset MEL_GUARDRAIL_ID for this run.")
     writer = llm.write_model() if llm.enabled() else None
     print(f"{len(insights)} insights · writer {writer or 'templates only (MEL_USE_LLM is off)'} · "
           f"{a.workers} workers" + (f" · cap ${a.max_usd:.2f}" if a.max_usd is not None else ""))

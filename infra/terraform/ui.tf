@@ -1,4 +1,4 @@
-# The Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode (same as infra/ui-express.yaml): the image
+# The Streamlit UI (app/streamlit_app.py) on Amazon ECS Express Mode: the image
 # registry, a CodeBuild project that builds ui.Dockerfile straight from GitHub, the three ECS roles, a cluster and the
 # Express service (Fargate behind an HTTPS load balancer, one task).
 
@@ -136,8 +136,8 @@ resource "aws_iam_role_policy" "ui_task" {
     Statement = [{
       Effect = "Allow"
       Action = "bedrock-agentcore:InvokeAgentRuntime"
-      # Either hackathon region: the agent runs in us-west-2 while this UI may run in us-east-1.
-      Resource = [for r in ["us-east-1", "us-west-2"] : "${local.arn}:bedrock-agentcore:${r}:${local.account}:runtime/*"]
+      # The agent's region (us-west-2), whichever region this UI runs in.
+      Resource = "${local.arn}:bedrock-agentcore:${var.agent_region}:${local.account}:runtime/*"
     }]
   })
 }

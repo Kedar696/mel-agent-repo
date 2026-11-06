@@ -1,23 +1,49 @@
 # Infrastructure
 
-These files **describe** how the REST API (`mel/api`) and the Streamlit UI could run on AWS. Nothing
-is deployed by this repo's build or CI, and no AWS command that creates or changes a resource is
-run as part of them. There are no account IDs, access keys or secrets in any file. Treat this as
-a design you can read and, if you choose, apply by hand later.
+One AWS account (the event's Workshop Studio sandbox), one infrastructure-as-code setup (`terraform/`), one
+Bedrock region for the models and the agent (us-west-2), one AgentCore runtime (made by `agentcore launch`,
+`docs/agentcore.md`) and one hosted link for the UI. Nothing is deployed by this repo's build or CI, and no AWS
+command that creates or changes a resource runs as part of them. There are no account IDs, access keys or
+secrets in any file.
 
-## Three templates (two deployed, one a design) and Terraform
-| Template | What it is | Status |
+| Piece | Where | Status |
 |---|---|---|
-| `fasal-pulse.yaml` (P5) | Everything around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget. | **Deployed** in the event account (us-west-2, stack `fasal-pulse`, 5 Nov). Steps: `docs/agentcore.md`. |
-| `cloudformation.yaml` (P1) | The **REST API** (`mel/api`) on App Runner, with its ECR repository and role. | Definition only (the rest of this README). |
-| `ui-express.yaml` (P2) | The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service. | **Live** in the event account (us-east-1, 5 Nov) at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the template holds the same settings). **Second copy, deployed from this template** in Michael's account (us-east-1, stack `fasal-pulse-ui`, image `13ef538`, 5 Nov) with `AgentCoreArn` set, so "Run the agent" runs live on AgentCore (~4 s, ~$0.004): https://fa-53ba052ceabd447d83bc7d8b64823279.ecs.us-east-1.on.aws/ . Use this one for the live demo; Will's copy is in another account and can't call the agent. |
-| `terraform/` (P2) | The two deployed templates above (`fasal-pulse.yaml` + `ui-express.yaml`) in **Terraform**: one `terraform apply` for both regions. | Definition, checked in CI (`terraform fmt -check`, `terraform validate`); not applied to a real account. Steps: "Terraform" below. |
+| Around the **agent on Bedrock AgentCore**: private S3 bucket, least-privilege execution role, Bedrock Guardrail, CloudWatch dashboard, optional budget | `terraform/agent.tf` (us-west-2) | Definition, checked in CI (`terraform fmt -check`, `terraform validate`); apply it before `agentcore launch` |
+| The **Streamlit UI** (`app/streamlit_app.py`) on **Amazon ECS Express Mode**: ECR repository, a CodeBuild project that builds `ui.Dockerfile` from GitHub, the three ECS roles, a cluster and the Express service | `terraform/ui.tf` (us-east-1) | **Live** since 5 Nov at https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ , created with the CLI commands in "The Streamlit UI on ECS Express Mode" below (the Terraform holds the same settings) |
+| The **agent itself** on AgentCore Runtime | `agentcore_app.py`, built and launched by the AgentCore toolkit | Steps in `docs/agentcore.md`. Set its ARN on the UI (`MEL_AGENTCORE_ARN`) and "Run the agent" runs live; until then the app shows the recorded runs |
+
+## Terraform (`terraform/`)
+- `main.tf`: the provider and the variables. One AWS provider covers both regions, because provider 6 lets each
+  resource set its own `region`.
+- `agent.tf`: private S3 bucket, Bedrock Guardrail and version, AgentCore execution role, CloudWatch dashboard,
+  optional budget. Outputs: `execution_role_arn` for `agentcore configure`, `agentcore_launch_env` for
+  `agentcore launch` (docs/agentcore.md).
+- `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service. Its task
+  role may only call `bedrock-agentcore:InvokeAgentRuntime` on this account's runtimes in the agent's region.
+
+```bash
+cd infra/terraform
+terraform init
+terraform apply
+aws codebuild start-build --project-name fasal-pulse-ui-build --region us-east-1
+terraform apply -var image_tag=<sha>
+```
+The first apply makes everything except the UI service. The build's log ends with `PUSHED ...:<sha>`; the
+second apply, with that SHA, creates the service, and `terraform output ui_url` prints its address. Add
+`-var agentcore_arn=<runtime arn>` to make "Run the agent" call the runtime live, and
+`-var budget_email=<address>` for the budget alert. To stop paying: empty the bucket and the registry, then
+`terraform destroy`.
+
+**In this account the UI already exists by hand** under the same names (repository, roles, cluster and service
+`fasal-pulse-ui`, see below), so either `terraform import` those or apply with another name
+(`-var ui_name=fp-tf-ui`). State stays in a local `terraform.tfstate` (git-ignored: it holds the account ID and
+ARNs); a team sharing one setup would add an S3 backend.
 
 ## The Streamlit UI on ECS Express Mode (live since 5 Nov)
 `ui.Dockerfile` at the repo root packages `app/streamlit_app.py` with the participant pack and the
 recorded agent runs; `ui.Dockerfile.dockerignore` next to it decides what is copied in (Docker uses
 `<Dockerfile>.dockerignore` when it exists; `.dockerignore` belongs to the API image). CI builds the
-image and checks `/_stcore/health`. `ui-express.yaml` is the same setup as infrastructure-as-code.
+image and checks `/_stcore/health`. `terraform/ui.tf` is the same setup as infrastructure-as-code.
 
 Why Express Mode: App Runner stopped taking new customers on 30 April 2026, and Express Mode is the
 replacement AWS points to. One container image in; ECS creates the Fargate service, the HTTPS load
@@ -26,16 +52,14 @@ because Streamlit keeps each visitor's session inside the process. The task role
 `bedrock-agentcore:InvokeAgentRuntime`, so the app needs no keys: once `MEL_AGENTCORE_ARN` is set,
 "Run the agent" in the Survey demo runs live on AgentCore; until then it shows the recorded runs.
 
-**Event account (us-east-1).** Created by hand on 5 Nov with the AWS CLI and the event's temporary
-credentials; the template creates the same things under the same names, so in this account deploy it
-only with another `Name` (or delete these first).
+**Made by hand on 5 Nov** with the AWS CLI and the event's temporary credentials:
 1. `aws ecr create-repository --repository-name fasal-pulse-ui`
 2. Roles: `ecsTaskExecutionRole` (trust `ecs-tasks.amazonaws.com`, managed policy
    `AmazonECSTaskExecutionRolePolicy`), `ecsInfrastructureRoleForExpressServices` (trust
    `ecs.amazonaws.com`, managed policy `AmazonECSInfrastructureRoleforExpressGatewayServices`),
-   `fasal-pulse-ui-task` and `fasal-pulse-ui-codebuild` (inline policies = `TaskRole` and `BuildRole`
-   in the template).
-3. CodeBuild project `fasal-pulse-ui-build` with the template's buildspec, then
+   `fasal-pulse-ui-task` and `fasal-pulse-ui-codebuild` (inline policies = `ui_task` and `ui_build`
+   in `terraform/ui.tf`).
+3. CodeBuild project `fasal-pulse-ui-build` with the same buildspec, then
    `aws codebuild start-build --project-name fasal-pulse-ui-build`: it clones GitHub, builds
    `ui.Dockerfile` on AWS (no Docker needed on a laptop) and pushes the short commit SHA and `latest`.
 4. `aws ecs create-cluster --cluster-name default`, then
@@ -54,120 +78,26 @@ only with another `Name` (or delete these first).
 **After a merge to main:** `start-build` again, then roll the service to the new SHA:
 `aws ecs update-express-gateway-service --service-arn <arn> --primary-container '{"image":"...:<new sha>","containerPort":8501}'`.
 **Point it at AgentCore:** add `"environment":[{"name":"MEL_AGENTCORE_ARN","value":"<runtime arn>"}]`
-to that primary container. Our runtime is `arn:aws:bedrock-agentcore:us-west-2:423685956569:runtime/fasal_pulse-ixRznG8rYr`:
-**us-west-2**, while this UI runs in us-east-1. The app now calls the runtime in the ARN's own region
-(`mel/agent/remote.py`), and `ui-express.yaml` allows both hackathon regions. The live service's task role was
-made with the CLI, so check that its `InvokeAgentRuntime` permission also covers
+to that primary container. The app calls the runtime in the ARN's own region (`mel/agent/remote.py`): the agent
+runs in us-west-2 while this UI runs in us-east-1. The hand-made task role must allow `InvokeAgentRuntime` on
 `arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/*`; if it only lists us-east-1, the button shows an
 AccessDenied error and the recorded runs are still there.
 
-**Fresh account, from the template:**
-```bash
-aws cloudformation deploy --template-file infra/ui-express.yaml --stack-name fasal-pulse-ui --capabilities CAPABILITY_IAM --region us-east-1
-aws codebuild start-build --project-name fasal-pulse-ui-build      # prints "PUSHED ...:<sha>" in its log
-aws cloudformation deploy --template-file infra/ui-express.yaml --stack-name fasal-pulse-ui --capabilities CAPABILITY_IAM --region us-east-1 --parameter-overrides ImageTag=<sha>
-```
-The first deploy makes the registry and the build project; the second, with an image to run, makes
-the service and prints its URL as the `Url` output. To stop paying, delete the stack (empty the
-registry first) or, in the event account, `aws ecs delete-express-gateway-service --service-arn <arn>`.
+To stop paying: `aws ecs delete-express-gateway-service --service-arn <arn>` (and empty the registry).
 Cost while running: one 1 vCPU / 2 GB Fargate task plus a load balancer, about US$2 a day.
 
-## Terraform (`infra/terraform/`)
-The same resources, names and permissions as `fasal-pulse.yaml` (agent side, us-west-2) and `ui-express.yaml`
-(UI, us-east-1), for teams that use Terraform instead of CloudFormation:
-- `agent.tf`: private S3 bucket, Bedrock Guardrail and version, AgentCore execution role, CloudWatch dashboard,
-  optional budget. Its outputs are the template's: `execution_role_arn` for `agentcore configure`,
-  `agentcore_launch_env` for `agentcore launch` (docs/agentcore.md).
-- `ui.tf`: ECR repository, CodeBuild project, the three ECS roles, cluster and the Express Mode service.
-- `main.tf`: the provider and the variables, with the template parameters' defaults. One AWS provider covers
-  both regions, because provider 6 lets each resource set its own `region`.
-
-The App Runner API (`cloudformation.yaml`) is not ported: App Runner takes no new customers. The AgentCore
-runtime itself is still made by `agentcore launch`, as with CloudFormation.
-
-**Fresh account:**
-```bash
-cd infra/terraform
-terraform init
-terraform apply
-aws codebuild start-build --project-name fasal-pulse-ui-build --region us-east-1
-terraform apply -var image_tag=<sha>
-```
-The first apply makes everything except the UI service. The build's log ends with `PUSHED ...:<sha>`; the
-second apply, with that SHA, creates the service, and `terraform output ui_url` prints its address. Add
-`-var agentcore_arn=<runtime arn>` to make "Run the agent" call the runtime live, and
-`-var budget_email=<address>` for the budget alert. To stop paying: empty the bucket and the registry, then
-`terraform destroy`.
-
-**Team accounts:** the default names are taken in both (Michael's: stacks `fasal-pulse` and
-`fasal-pulse-ui`; Will's: the hand-made UI), so apply there only with other ones
-(`-var project_name=fp-tf -var ui_name=fp-tf-ui`) or not at all.
-State stays in a local `terraform.tfstate` (git-ignored: it holds the account ID and ARNs); a team sharing
-one setup would add an S3 backend.
-
-## What each file does
-
-| File | Plain words |
-|---|---|
-| `cloudformation.yaml` | One AWS "recipe" that creates three things: a private image registry (**ECR**) to hold the API's Docker image, an **App Runner** service that pulls that image and runs it behind an HTTPS URL, and a small **IAM role** (a locked-down identity) the running API uses. The role may only call Amazon Bedrock to run a model and nothing else. |
-| `k8s/deployment.yaml` | The same API described for **Kubernetes** (Digital Green's EKS cluster): run **one** copy of the container, check it is alive on `/healthz`, run it as a non-root user with a read-only filesystem. |
-| `k8s/service.yaml` | A stable internal address inside the cluster that points at the running copy. |
-
 ### Why one copy only
-The API keeps its scheduler state (the weekly-cap ledger, the opt-out list and the queue of
-hand-offs) **in memory**. Two copies would each hold a different, out-of-step state and would
-disagree about what is due. So the Kubernetes Deployment sets `replicas: 1`, and App Runner runs
-a single small instance. Running more than one needs a shared store (see "Production design"
-below); that is not built.
+The REST API (`mel/api`, `Dockerfile`) and the UI keep their scheduler state (the weekly-cap ledger, the opt-out
+list and the queue of hand-offs) **in memory**. Two copies would each hold a different, out-of-step state and
+would disagree about what is due, so the service runs a single task. Running more than one needs a shared store
+(see "Production design" below); that is not built.
 
 ### IAM action names (so no one copies the wrong ones)
-The instance role allows exactly `bedrock:InvokeModel` and
-`bedrock:InvokeModelWithResponseStream`, scoped to foundation models and inference profiles in
-the chosen Bedrock region. There is **no** `bedrock:Converse` IAM action: the Converse and
-ConverseStream APIs are authorised by `InvokeModel` and `InvokeModelWithResponseStream`
-respectively (AWS docs, "Inference using the Converse API"). Those two actions therefore cover
-both the Invoke-style and the Converse-style calls P4's writer and P5's judge make.
-
-## How to deploy (by hand, if and when you decide to)
-You need the AWS CLI configured with the event's temporary credentials and a region where the
-Bedrock models are enabled. Replace `<region>` and `<account>` with real values.
-
-1. **Create the stack** (makes the ECR repo, the roles and the App Runner service):
-   ```bash
-   aws cloudformation deploy \
-     --template-file infra/cloudformation.yaml \
-     --stack-name mel-survey-agent-api \
-     --capabilities CAPABILITY_NAMED_IAM \
-     --parameter-overrides BedrockRegion=<region> \
-     --region <region>
-   ```
-2. **Build and push the image** to the ECR repo the stack created (its URI is a stack output,
-   `EcrRepositoryUri`):
-   ```bash
-   aws ecr get-login-password --region <region> \
-     | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
-   docker build -t mel-survey-agent-api .
-   docker tag mel-survey-agent-api:latest <account>.dkr.ecr.<region>.amazonaws.com/mel-survey-agent-api:latest
-   docker push <account>.dkr.ecr.<region>.amazonaws.com/mel-survey-agent-api:latest
-   ```
-   App Runner then runs that image; the public URL is the stack output `ServiceUrl`.
-
-For EKS instead of App Runner: push the image as above, point `k8s/deployment.yaml`'s `image:`
-at it, then `kubectl apply -f infra/k8s/`.
-
-## What it costs to leave running
-Rough, on-demand, one small instance (check current AWS pricing for your region):
-- **App Runner**: you pay for the provisioned instance (0.25 vCPU / 0.5 GB here) plus a little
-  for requests. A single small always-on instance is on the order of a few US dollars a month;
-  it is the main cost. **Pause or delete the service when you are not demoing.**
-- **ECR**: storage for the images only (cents per month for a handful of images; a lifecycle
-  rule keeps just the last 10).
-- **Bedrock**: pay-per-token, only when a model is actually called. Zero when idle.
-- **EKS** (if you use that path instead): an EKS cluster has its own hourly control-plane charge
-  on top of the node, so it costs more than App Runner to leave running for a demo.
-
-To stop paying, delete the stack: `aws cloudformation delete-stack --stack-name mel-survey-agent-api`
-(and delete the EKS resources with `kubectl delete -f infra/k8s/` if you used that path).
+The agent's execution role allows exactly `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`,
+scoped to the model families it uses and the inference profiles in its region. There is **no** `bedrock:Converse`
+IAM action: the Converse and ConverseStream APIs are authorised by `InvokeModel` and
+`InvokeModelWithResponseStream` respectively (AWS docs, "Inference using the Converse API"). Those two actions
+therefore cover both the Invoke-style and the Converse-style calls P4's writer and P5's judge make.
 
 ## Production design only (NOT built)
 The team's AWS notes (`docs/TEAM.md`) list three services that belong to a real production
@@ -180,14 +110,7 @@ here:
 - **Amazon Connect** — real automated phone calls for voice surveys. Here voice is simulated.
 
 ## What we could and could not validate here
-- `cloudformation.yaml`: validated with **cfn-lint** — no errors (one informational warning,
-  W3697, about the App Runner resource type). App Runner is kept because the team contract names
-  it as the optional demo link; the EKS path in `k8s/` is the alternative.
-- `k8s/*.yaml`: validated offline with **kubeconform** against the Kubernetes schemas — both
-  valid.
 - `terraform/`: `terraform fmt -check` and `terraform validate` pass (Terraform 1.17.1, AWS provider 6.72; CI
-  runs both). An offline apply against a mocked AWS provider ran clean, and its dashboard JSON was identical to
-  `fasal-pulse.yaml`'s. `tests/test_infra.py` checks the bucket, task-role and one-task settings. Never applied
-  to a real account.
-- No AWS account call was made for `cloudformation.yaml` or `terraform/`. `fasal-pulse.yaml` and the UI
-  were deployed in the event account as described above.
+  runs both). An offline apply against a mocked AWS provider ran clean. `tests/test_infra.py` checks the bucket,
+  the roles' actions, the dashboard metrics, the launch outputs and the one-task settings. Not yet applied to the
+  account: the UI there was made by hand as described above, and the agent's resources are still to be applied.

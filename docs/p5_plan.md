@@ -10,7 +10,7 @@ documents. Updated 4 Nov 2026 (evening).
 - A **run history**: every eval run saved, with a chart per dimension. At least one improvement shown.
 - The 3-minute demo, including the simulated clock moving through the season. Slides, two clean-checkout
   rehearsals, a backup video.
-- Bedrock is **required** for every model call (no longer optional). App Runner hosting stays optional.
+- Bedrock is **required** for every model call (no longer optional). A hosted link is optional.
 
 ## Where things stand (4 Nov, evening): FINAL contract checklist, P5 items
 | Checklist item | Status | What finishes it |
@@ -25,7 +25,7 @@ documents. Updated 4 Nov 2026 (evening).
 | H+36: every rule changed on purpose shown with its numbers | 🟡 README/app/script ✅ | **You:** one slide per change (R7 storage fix; send-time rule; P4 templates) |
 | H+36: 3-minute script + slides; 2 clean-checkout rehearsals; backup video | 🟡 script ✅, slide text ✅ | **You:** build the deck, rehearse twice from a fresh clone, record the video |
 | Done when: demo runs from a clean checkout following only the README | ⬜ | Rehearsal finds the gaps (note: `validate` needs `run --simulate` first) |
-| Optional: hosted link | 🟡 P4's demo is live | **You + P4:** host our app next to theirs on Streamlit Cloud (backup link, not AWS) |
+| Optional: hosted link | 🟡 P4's demo is live | Done 5 Nov: hosted on ECS Express Mode (`infra/README.md`) |
 
 **Findings worth showing:**
 - The answer-key send-time setting matches the key 100%, but only 26.5% of its send windows pass timeliness
@@ -42,7 +42,7 @@ documents. Updated 4 Nov 2026 (evening).
    weekly limit in `mel.cli run`.
 5. ✅ Decided 4 Nov: one demo (P4's folded into the team app), name "Fasal Pulse - MEL Survey Agent", H1–H4 moved into
    `mel/writer/history.py` (on in the app, off for scoring; run 6–7 shows the trade-off). P4 reviews the PR.
-6. Host our app on Streamlit Cloud next to P4's; add links between the two.
+6. ~~Host our app on Streamlit Cloud next to P4's~~ Hosted on ECS Express Mode instead (5 Nov).
 7. When Bedrock works: switch the judge to P4's `ModelClient`, run `--run` and `--calibrate`, record a run.
 8. Build the slide deck from `docs/slides_draft.md` (one slide per changed rule).
 9. Clean-checkout rehearsal ×2 following only the README; record the backup video.
