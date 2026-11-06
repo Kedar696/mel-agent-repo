@@ -106,7 +106,7 @@ CSS = """
 [data-testid="stAppViewContainer"]{background:var(--mel-ivory);color:var(--mel-ink)}
 [data-testid="stHeader"]{background:var(--mel-ivory)}
 [data-testid="stDecoration"]{display:none}
-[data-testid="stAppDeployButton"]{display:none}  /* deployment-only chrome; the menu stays for settings and rerun */
+[data-testid="stAppDeployButton"],[data-testid="stToolbar"],[data-testid="stStatusWidget"],[data-testid="stMainMenu"]{display:none}  /* Streamlit's own chrome: deploy, running man + Stop, the ⋮ menu (R still reruns) */
 [data-testid="stMainBlockContainer"]{max-width:1180px;padding-left:max(16px,2.5vw);padding-right:max(16px,2.5vw)}
 [data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] li{line-height:var(--mel-lh)}
 [data-testid="stMarkdownContainer"] p:lang(hi){line-height:var(--mel-lh-hi)}
