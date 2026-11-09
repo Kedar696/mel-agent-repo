@@ -1,7 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mel-agent"
-version = "0.1.0"
-requires-python = ">=3.11"
+version = "0.2.0"
+description = "Fasal Pulse: Digital Green's contextual MEL survey agent"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+# What every entry point needs (the schemas). Everything else is an extra: `pip install -e ".[api]"`.
+dependencies = ["jsonschema>=4.23"]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.115", "uvicorn>=0.30"]                               # the REST service (mel/api)
+agent = ["boto3>=1.34", "bedrock-agentcore"]                           # agentcore_app.py and the Bedrock writer
+ui = ["streamlit>=1.40", "pandas>=2.2", "openpyxl>=3.1", "altair>=5", "boto3>=1.34"]   # app/streamlit_app.py
+dev = ["mel-agent[api,ui]", "pytest>=8", "httpx>=0.27", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["mel*"]
+
+[tool.setuptools.package-data]
+mel = ["**/*.json", "**/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# `ruff check` and `ruff format` (pip install ruff); CI runs both. Lint rules: pyflakes (unused imports and
+# variables, undefined names, redefinitions) and bugbear's likely-bug checks. Layout: ruff's formatter at 120
+# columns, so every file reads the same whoever wrote it (6 Nov; one mechanical commit, no logic change).
+line-length = 120
+extend-exclude = ["demo", "mel-survey-agent-participant-pack", "v0-sketch", "out"]
+
+[tool.ruff.lint]
+select = ["F", "B"]
+ignore = ["B905"]                        # zip(strict=) is a style choice, not a bug
+per-file-ignores = { "__init__.py" = ["F401"] }   # packages re-export their public names

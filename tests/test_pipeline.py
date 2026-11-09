@@ -1,9 +1,9 @@
 """P5: end-to-end and eval tests."""
+
 import copy
 
 from mel.data import load_insights
-from mel.evaluation import (score_golden, run_scorecard, format_problems, safety_problems,
-                            load_history, record_run)
+from mel.evaluation import score_golden, run_scorecard, format_problems, safety_problems, load_history, record_run
 from mel.pipeline import run_insight, clean
 
 
@@ -66,13 +66,16 @@ def _a_surveyed_insight():
 
 def test_timeliness_passes_our_windows_and_catches_bad_ones():
     from mel.evaluation import timeliness_problems
+
     ins, win = _a_surveyed_insight()
     assert timeliness_problems(ins, win) == []
     created = ins["created_at"][:10]
     too_early = {"not_before": f"{created}T09:00:00+05:30", "not_after": win["not_after"]}
     assert any("before the action window ends" in p for p in timeliness_problems(ins, too_early))
-    at_night = {"not_before": win["not_before"].replace("T07:00", "T05:00"),
-                "not_after": win["not_after"].replace("T19:00", "T22:00")}
+    at_night = {
+        "not_before": win["not_before"].replace("T07:00", "T05:00"),
+        "not_after": win["not_after"].replace("T19:00", "T22:00"),
+    }
     probs = timeliness_problems(ins, at_night)
     assert any("opens at 05:00" in p for p in probs) and any("closes at 22:00" in p for p in probs)
     late = {"not_before": "2027-04-02T07:00:00+05:30", "not_after": "2027-04-05T19:00:00+05:30"}
@@ -82,6 +85,7 @@ def test_timeliness_passes_our_windows_and_catches_bad_ones():
 def test_timing_basis_switches_and_restores(monkeypatch):
     import os
     from mel.evaluation import timing_basis
+
     monkeypatch.delenv("MEL_TIMING_BASIS", raising=False)
     with timing_basis("answer_key"):
         assert os.environ["MEL_TIMING_BASIS"] == "answer_key"
@@ -90,6 +94,7 @@ def test_timing_basis_switches_and_restores(monkeypatch):
 
 def test_rules_changed_compares_each_run_with_the_previous(tmp_path):
     from mel.evaluation import rules_changed
+
     g = score_golden()
     c = run_scorecard(load_insights()[:5])
     path = tmp_path / "h.jsonl"
@@ -102,12 +107,13 @@ def test_rules_changed_compares_each_run_with_the_previous(tmp_path):
 
 def test_rules_changed_compares_within_the_same_send_time_rule(tmp_path):
     from mel.evaluation import rules_changed
+
     g, c = score_golden(), run_scorecard(load_insights()[:5])
     path = tmp_path / "h.jsonl"
-    record_run("base", g, c, path=path)                                   # 1 brief
+    record_run("base", g, c, path=path)  # 1 brief
     record_run("setting", {**g, "window_acc": 1.0}, c, path=path, timing_basis="answer_key")  # 2 answer_key
-    record_run("p4 brief", g, c, path=path)                               # 3 brief
-    record_run("p4 key", {**g, "window_acc": 1.0}, c, path=path, timing_basis="answer_key")   # 4 answer_key
+    record_run("p4 brief", g, c, path=path)  # 3 brief
+    record_run("p4 key", {**g, "window_acc": 1.0}, c, path=path, timing_basis="answer_key")  # 4 answer_key
     rows = {r["run"]: r for r in rules_changed(load_history(path))}
     assert rows[2]["vs_run"] == 1 and rows[3]["vs_run"] == 1 and rows[4]["vs_run"] == 2
     assert rows[3]["window_acc"][0] == rows[3]["window_acc"][1]
@@ -117,8 +123,12 @@ def test_sheet_keeps_the_farmers_actual_taps():
     """Survey Studio's tap-through passes the real taps to P3's simulate_sheet (answers=, added 4 Nov)."""
     from mel.data import errors
     from mel.simulator import simulate_sheet
-    sv = next(o["handoff"]["survey"] for o in (run_insight(i) for i in load_insights())
-              if o["decision"].survey and len(o["handoff"]["survey"]["items"]) >= 2)
+
+    sv = next(
+        o["handoff"]["survey"]
+        for o in (run_insight(i) for i in load_insights())
+        if o["decision"].survey and len(o["handoff"]["survey"]["items"]) >= 2
+    )
     q1, q2 = sv["items"][0], sv["items"][1]
     worst = {q1["item_id"]: q1["options"][-1]["value"], q2["item_id"]: q2["options"][-1]["value"]}
     closed = simulate_sheet(sv, "app", [q1["item_id"]], closed=True, answers=worst)

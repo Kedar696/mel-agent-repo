@@ -10,7 +10,7 @@ old P5+P6 → P4, old P8 → P5). All commitments kept.
 ## Who owns what
 | Person | Role | Owns (files) | Buddy / backup |
 |---|---|---|---|
-| **P1** | Data, Contracts & Integration | `mel/config.py`, `mel/data/`, `mel/pipeline.py`, `mel/cli.py`, `config/`, `scripts/`, `data/mock/`, `.github/`, `.kiro/`, `tests/test_data.py`, `tests/test_cli.py`, `tests/test_parity.py` | P5 |
+| **P1** | Data, Contracts & Integration | `mel/config.py`, `mel/data/` (incl. `activity.py`), `mel/pipeline.py`, `mel/cli.py`, `config/` (incl. `activity_attention.json`), `scripts/` (incl. `activity_report.py`), `data/mock/`, `.github/`, `.kiro/`, `tests/test_data.py`, `tests/test_cli.py`, `tests/test_parity.py`, `tests/test_activity.py` | P5 |
 | **P2** | Decision & Timing | `mel/decision/`, `mel/timing/`, `tests/test_decision.py`, `tests/test_timing.py` | P3 |
 | **P3** | Scheduler, Channels & Simulator | `mel/schedule/`, `mel/channels/`, `mel/simulator/`, `tests/test_schedule.py`, `tests/test_simulator.py` | P2 (also backs up P4) |
 | **P4** | Survey Writing & Safety | `mel/writer/` (templates, i18n, compose, llm, guards), `tests/test_writer.py` | P3 |
@@ -24,7 +24,7 @@ P4's surveys go to P3. Everyone sends final numbers to P5.
 ## Tech stack
 | Layer | Choice | Why |
 |---|---|---|
-| Language | Python 3.11+ (dev machine: 3.14), `.venv` | one language end to end |
+| Language | Python 3.12, `.venv` | one language end to end |
 | Contracts | JSON Schema 2020-12 via `jsonschema` | the pack's schemas are the grading contract |
 | Rules | `config/rules/rules.json`, `outcome_codes.json` | rules stay data, not hard-coded |
 | Decision / timing / schedule | plain Python, deterministic | must reproduce golden set + worked scenarios |
@@ -44,7 +44,11 @@ mel.data.errors(kind, obj) -> list[str]; validate(kind, obj); failed_fields(kind
 mel.data.why_junk(insight) -> list[str]; junk_row(insight) -> (category, detail) | None                              # P1
 mel.data.check_all_parity(pack=None) -> list[str]   (empty = workbooks, rules, schemas, scenarios, outcomes all agree) # P1
 mel.pipeline.run_insight(insight, farmer=None, history_hours=()) -> {"decision", "surveys", "handoff"} | {"decision", "no_survey"}  # P1
-mel.pipeline.run_pipeline(insights, limit=None, farmer=None, farmers=None) -> PipelineResult         # P1: filter + loop, writes nothing
+mel.pipeline.run_pipeline(insights, limit=None, farmer=None, farmers=None, history=False, attention=False) -> PipelineResult  # P1: filter + loop, writes nothing
+mel.data.ActivityHistory(insights).attention_for(insight) -> Attention   # P1: activity attention (off by default)
+#   attention=True: surge/steady_high/neutral tier rides on Decision.attention (like send_time); adjusts priority,
+#   question count and send time only. Never changes survey/no-survey, the rule or the window. CLI: `run --attention`.
+#   Report: scripts/activity_report.py -> docs/results/activity_attention.{md,json}. Settings: config/activity_attention.json.
 #   farmers = load_farmers(); each farmer's chat history is taken from `insights` (feeds P2's send time)
 #   PipelineResult.insights / .outputs (same order as the input) / .rows_processed / .counts()
 mel.pipeline.select_insights(insights, limit=None, farmer=None) -> list                              # P1: the shared --limit / --farmer filter
@@ -61,6 +65,10 @@ mel.schedule.build_handoff(insight, survey) -> handoff                          
 mel.schedule.CapLedger().allow(handoff) -> bool; OptOutList().record(resp) / .blocks(h)  # P3
 mel.channels.render(survey, channel) -> payload                                          # P3
 mel.simulator.simulate(survey, channel, case, seed, send_at=None) -> response             # P3
+mel.channels.FarmerReachability(load_farmers()).reachable(farmer_id, channel) -> bool    # P3
+#   Agreed default (5 Nov): farmers.csv has no reachability column, so every channel is reachable unless
+#   an explicit override (`unreachable_by_farmer`) says otherwise; `preferred_channel` is never read as
+#   "the other channels are unreachable". A real `reachable_channels` column would replace the override.
 #   send_at = decision.send_time["send_at"] for the first channel; the CLI and the app pass it
 mel.evaluation.score_golden(golden=None) -> metrics                                      # P5
 ```
@@ -77,7 +85,8 @@ mel.evaluation.score_golden(golden=None) -> metrics                             
   31 March window); 100% with 100% window match under the answer-key setting (`MEL_TIMING_BASIS=answer_key`).
   R7 now lets stored crops through. Details: `mel/timing/README.md`.
 - **P3:** priority, channel order, expiry and flow ids match the scenarios. Channel messages match the
-  pack's reference files exactly (tested). `OptOutList` and `CapLedger` exist but aren't used in the batch run.
+  pack's reference files exactly (tested). `OptOutList` and `CapLedger` are now applied in the batch run:
+  `mel.cli run` routes planned hand-offs through `mel.schedule.run_batch` (weekly cap, opt-outs, P4 quality gate).
   Not yet: two-in-a-week policy, late answers, app/web sent once, fallback across channels, the 183-record match.
 - **P4:** generic templates in both languages pass the guards; opt-in Claude writer with template fallback;
   basic relevance score on every survey. Not yet: problem-specific templates, Hindi review, stronger guards,
@@ -96,12 +105,26 @@ advice's check method names, if different, 3) WhatsApp, 4) voice, only for high 
 `python -m mel.cli run` writes these into `MEL_OUT_DIR` (default `./out`). Same input, same files, byte for byte.
 - `surveys/`, `handoffs/`, `no_survey/`, `responses/` (with `--simulate`): one JSON per artifact. `--clean` empties
   only these four folders first; anything else in the output folder stays.
+- **Weekly cap applied (5 Nov, `lucas-p1`):** `run` routes planned hand-offs through P3's `mel.schedule.run_batch`
+  (opt-out → P4 quality gate → weekly cap; `docs/cap_policy.md`). Only the hand-offs that actually go out are
+  written: `schedule.sent` + `schedule.moved`. A `merged` survey rides on its host (its `source_insight_ids` are
+  added there); `skipped`, `opted_out` and `rejected` surveys are not written. A moved survey's `surveys/` and
+  `handoffs/` files carry the moved `send_window`. With `--simulate`, each hand-off walks its channel order
+  (fallback, waits, send hours), so there can be **several response files per hand-off**. Decision counts
+  (`by_rule` R1–R8, `no_survey`, `junk`) do **not** change; the number of hand-off, survey and response files
+  drops. Full pack (6,999), threshold 0.3: 2,616 planned → 1,613 sent + 425 moved = **2,038 out**, 480 merged,
+  98 skipped, 0 rejected, 0 opted_out, **0 cap_violations**. Files: handoffs 2,616 → 2,038, responses 2,616 →
+  2,038, surveys 5,232 → 4,076; no_survey 4,383 unchanged. (Mock: all 16 fit the cap, so output is unchanged.)
 - `run_summary.json`: what this run did. Keys:
   - `input_path` (the insights file read), `rows_read`, `rows_processed` (after `--limit` / `--farmer`), `limit`, `farmer`
-  - `surveys` and `no_survey` (they add up to `rows_processed`), `junk_rows`
+  - `surveys` and `no_survey` (they add up to `rows_processed`), `junk_rows`. `surveys` is the hand-offs the
+    **pipeline planned**; `schedule.sent + schedule.moved` is how many actually go out.
   - `by_rule`: `R1` to `R8`, every key always present, counts every processed row (sums to `rows_processed`)
   - `by_language` (`hi-IN`, `en-IN`), `by_first_channel` (app, web, whatsapp, telegram, voice) and `by_priority`
-    (`high`, `normal`, `low`): these describe the hand-offs, so they only count rows that got a survey and each sums to `surveys`
+    (`high`, `normal`, `low`): these describe the planned hand-offs, so they only count rows that got a survey and each sums to `surveys`
+  - `schedule`: the `run_batch` count breakdown — `sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`,
+    `duplicates`, `prevented` (= skipped + opted_out + rejected, the gate working, **not** violations) and
+    `cap_violations` (an independent audit of the output; should be 0). Attention-on adds `by_tier` and `by_reason`.
 - `junk_report.csv`: columns `insight_id`, `category`, `detail`; one row per junk insight processed. Junk is what
   `why_junk` flags: labelled `quality_flag: junk`, or failing the insight schema. `schema_failure` rows list every
   failed field in `detail` (for example `query_summary`, `advice_summary`, `resolution_type`). Schema-valid junk is sorted by
@@ -160,7 +183,7 @@ in `infra/`; never put AWS keys in git or chat.
 | A shared online folder | **S3** | Data pack and our output files | P1 |
 | A locked box for keys | **Secrets Manager** | Keep keys out of the code | P1 |
 | Amazon's AI models | **Bedrock** | **Required**: the AI writer (P4) and the AI relevance judge (P5) | P4, P5 |
-| A web link for the demo | **App Runner** | Judges open a link; laptop demo stays the main plan | P5 with P1 |
+| A web link for the demo | **ECS Express Mode** | Judges open a link (`infra/README.md`); laptop demo stays the main plan | P2 |
 | Alarm clock and retry | **EventBridge / Step Functions** | *Slide only*: send at 07:00, retry on WhatsApp after 24 h | P3 notes → P5 slide |
 | Digital Green's database | **RDS for PostgreSQL** | *Slide only*: weekly limit and opt-outs in real life | P3 notes → P5 slide |
 | Automated phone calls | **Amazon Connect** | *Slide only*: real voice surveys | P3 notes → P5 slide |
@@ -180,6 +203,6 @@ in `infra/`; never put AWS keys in git or chat.
 - `main` always works. Branch per task: `p<N>-<topic>` (for example `p2-brief-rule`).
 - PRs reviewed by a downstream owner, usually your buddy. Tests and `mel.cli validate` must pass.
 - Never edit another owner's package without their OK (see `.github/CODEOWNERS`).
-- Changing a shared shape (function signature, schema, `requirements.txt`): post in chat first.
+- Changing a shared shape (function signature, schema, the dependencies in `pyproject.toml`): post in chat first.
 - Every question for Digital Green goes through P1.
 - Give teammates shell commands without trailing `# comments` (zsh passes them as arguments).

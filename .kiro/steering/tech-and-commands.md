@@ -1,7 +1,7 @@
 # Tech stack and commands
 
 ## Stack
-- Python 3.11+ (CI uses 3.12), virtualenv in `.venv`. `pytest` for tests. Streamlit for the UI.
+- Python 3.12 (CI uses 3.12), virtualenv in `.venv`. `pytest` for tests. Streamlit for the UI.
 - Contracts: JSON Schema 2020-12 in `config/schemas/` via `jsonschema`. Rules as data in `config/rules/`.
 - Decision, timing and schedule are plain deterministic Python. The LLM writer is opt-in and off by default.
 - `openpyxl` is imported only inside the functions that read Excel (`mel/data/excel.py`). Do not import it at module top.
@@ -29,7 +29,7 @@ python scripts/compare_golden.py OLD NEW
 | `MEL_DATA_DIR` | data folder; full pack: `mel-survey-agent-participant-pack/participant-pack/data` |
 | `MEL_OUT_DIR` | output folder; keep it outside the repo and outside OneDrive |
 | `MEL_TIMING_BASIS` | `brief` (default) or `answer_key` (P2) |
-| `MEL_USE_LLM`, `ANTHROPIC_API_KEY`, `MEL_MODEL` | opt-in Claude writer (P4) |
+| `MEL_USE_LLM`, `MEL_BEDROCK_REGION`, `MEL_BEDROCK_WRITE_MODEL`, `MEL_JUDGE_MODEL` | opt-in Bedrock writer and judge (P4, P5) |
 
 ## Full-pack reference numbers (base code, commit 5763855)
 Rule counts R1 723, R2 25, R3 1287, R4 875, R5 1312, R6 111, R7 115, R8 2551. Files: surveys 5102, handoffs 2551,

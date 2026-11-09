@@ -1,23 +1,25 @@
-# Fasal Pulse - MEL Survey Agent: project status for Claude
+# Fasal Pulse - MEL Survey Agent: project notes for Claude
 
-Read this first in every new session. Update the **Status** and **Open items** sections whenever work lands
-(and the date below), so the next session starts from the truth.
+Read this first in every new session. Update **Status**, **Live stack** and **Open items** whenever work lands (and the
+date below), so the next session starts from the truth.
 
-_Last updated: 2026-11-04 (p5-merge-all: P3/P4/P1 branches + judge in app)_
+_Last updated: 2026-11-06 (cleanup series #49-#55 merged; the live stack is fully in Terraform state and both images
+run `main` at 44ca6c5)_
 
 ## What this is
-Hackathon project for Digital Green (MEL = monitoring, evaluation, learning). Python tool that reads FarmerChat
-"insights" (farmer conversations), decides survey / no survey (rules R1–R8), writes 1–3 tap questions in hi-IN +
-en-IN, builds a scheduler hand-off, renders per channel (app, web, WhatsApp, Telegram, voice), and simulates
-answers. Scored against a 150-row golden set. Synthetic data only. Real delivery is out of scope.
+Built at the AWS "Breaking Barriers" hackathon (3-5 Nov 2026) for Digital Green (MEL = monitoring, evaluation,
+learning), now kept by one person (Will, P2 at the event). A Python agent reads FarmerChat "insights" (farmer
+conversations), decides survey / no survey (rules R1-R8), writes 1-3 tap questions in hi-IN + en-IN (Bedrock, or
+checked templates), builds a scheduler hand-off, renders per channel (app, web, WhatsApp, Telegram, voice) and
+simulates answers. Scored against a 150-row golden set. Synthetic data only (the participant pack); real delivery is
+out of scope.
 
-- Repo: https://github.com/michvinh-7/mel-agent-repo (branch `main`)
-- Organisers' brief: `mel-survey-agent-participant-pack/participant-pack/index.html`. The full pack is committed in
-  the repo at `mel-survey-agent-participant-pack/participant-pack/` (read-only reference). Mock subset: `data/mock/`.
-- Team plan, owners P1–P8, interfaces, brief gaps, AWS notes, glossary: `docs/TEAM.md`
-- Reusable prompts: `docs/prompts/` (team contract, individual contracts, update contracts, v0 sketch, update status)
+- Repo: https://github.com/michvinh-7/mel-agent-repo (branch `main`; Will has write access, no branch protection).
+- Organisers' brief and the full pack: `mel-survey-agent-participant-pack/participant-pack/` (read-only reference,
+  committed). Mock subset: `data/mock/`. Team-time notes (plan, glossary, AWS notes): `docs/TEAM.md`;
+  hackathon process documents: `docs/archive/`.
 
-## How to run (give users commands WITHOUT trailing `# comments`: their zsh treats `#` as an argument)
+## How to run (give the user commands WITHOUT trailing `# comments`: zsh treats `#` as an argument)
 ```
 source .venv/bin/activate
 pytest -q
@@ -27,136 +29,117 @@ python -m mel.cli eval
 python -m mel.cli parity
 streamlit run app/streamlit_app.py
 ```
-Full pack: `MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python -m mel.cli eval`.
-Write output outside the repo, and outside OneDrive on Windows, with `MEL_OUT_DIR=...`.
-`run` also writes `run_summary.json` and `junk_report.csv` into the output folder (described in `docs/TEAM.md`).
+Full pack: `MEL_DATA_DIR=mel-survey-agent-participant-pack/participant-pack/data python -m mel.cli eval` (and `run`).
+Write output outside the repo with `MEL_OUT_DIR=...`. `run` also writes `run_summary.json` and `junk_report.csv`.
+Activity attention (off by default): `run ... --attention`. The agent alone: `python -m mel.agent I-001253`
+(`--record` saves the demo picks to `docs/results/agent_runs/`, `--remote ARN` runs it on AgentCore).
+**Restart Streamlit after every `git pull` / branch switch** (the app reloads `mel/` and `app/` itself, but not always).
 
-## Status (mock data)
-- On `main` (4 Nov): PRs #1–#2 (P5), #3 (P2), #4 `p5-eval-v2`, #5 `p5-judge`, plus P1 (`lucas-p1`) and P4
-  (`kedar-p4`), P3 (`Semdon-P3`), P2 send time (#6, #7). Open: P5 `p5-full-data` (pushed, PR to open);
-  P4 `kedar-p4` one-line fix for their hosted demo.
-- 462 tests pass on `main` (~19 s), 463 on `p5-full-data`. `validate`: 0 invalid files. 57 insights → 16 surveys, 41 no-survey (mock).
-  CI (`.github/workflows/ci.yml`, Python 3.12) runs pytest, `run --simulate`, `validate`, `eval` on every PR.
-- Golden eval, full pack (150 rows), two send-time rules (P2's `MEL_TIMING_BASIS`):
-  brief (default) decision 99.3%, rule 99.3%, channel 100%, window match 0%, 1 miss (G-0145);
-  answer_key 100% / 100% / 100% / 100%, 0 misses. Item similarity **0.99** (P4's templates copy the answer
-  key's wording on purpose, `templates.STYLE='golden'`, so this is an in-sample match, not independent proof).
-- Batch scorecard on all 6,999 insights (`mel/evaluation/scorecard.py`): brief → 2,616 surveys, format 100%,
-  safety 100%, **timeliness 100%**, 0 failing-but-scheduled, relevance 0.69 (P4's stricter v2 score; was 0.83
-  under v1), ~3.1 ms/survey (~8 s total). Under answer_key, timeliness is **26.5%** (key windows open before
-  the farmer's action window ends): the case for brief. Only 19 of 94 answer-key windows are themselves timely.
-- Run history `docs/results/eval_history.jsonl`: 1 baseline (96.0%), 2 R7 storage fix (99.3%), 3 answer-key
-  setting, 4–5 P4 templates (item sim 0.50 → 0.99) under each rule. "Rules we changed" compares each run with
-  the last run under the same send-time rule. `python scripts/readme_numbers.py --write [--record "label"]
-  [--basis ...]` (logic in `mel/evaluation/report.py`) regenerates README block + `docs/results/scorecard.md`.
-- AI relevance judge `mel/evaluation/judge.py` (Bedrock Converse, off unless `MEL_JUDGE=1`, cached, logs
-  tokens/cost/time; rubric v1 in README). **Ran on Bedrock 4 Nov** (Claude Haiku 4.5, inference profile
-  `us.anthropic.claude-haiku-4-5-20251001-v1:0`, us-east-1; plain `anthropic.` id fails "on-demand throughput").
-  Hand scores: 5 people x 20 surveys = 100 rows in `docs/results/hand_scores.csv`. Calibration (judge scores the
-  sheet's exact question text via `survey_from_text`): AI vs person within 1 point 95%, gap 0.63, r=0.58 with the
-  team average; person vs person 83%, 0.82, r 0.00-0.49; "always 5" 79%, 0.79. AI used only 4/5 and is a bit
-  lenient. Write-up: `docs/results/judge_calibration.md` (PR `p5-hand-scores`). `--run` on all 94 rows: AI relevance
-  **4.82/5** (78x5, 15x4, 1x3; lost points = generic 2nd question), 65 s, ~44k tokens. Both commands now also write `docs/results/judge_summary.json`
-  (committed; incl. `rank_r`); the app's Evaluation tab shows "Can we trust the AI judge?" from it, never calling
-  Bedrock. Next: switch to P4's `ModelClient`. Bedrock from a laptop needs the event's temporary AWS keys pasted into
-  the terminal (never chat/git) and `AWS_DEFAULT_REGION=us-east-1`.
-- Channel renders match every reference file in `data/mock/scenarios/*/render` exactly (test enforces it).
-- Streamlit app loads the full pack (6,999) by default, mock sample only if the pack is missing or
-  `MEL_DATA_DIR` is set; first load ~25 s, clicks ~0.1 s. UI/UX redesign (branch `willF-uiux`, 4 Nov, not yet
-  merged): a compact masthead, then 3 tabs. **Dashboard** (default; below). **Survey demo**: a toolbar with the Demo picks list (four
-  demo picks: High goat, Medium lentil, Low stored mustard, no-survey critical cow, then Browse with filters) and
-  the primary **Add your own insight** button (own-insight mode replaces the picker with a "Source: Your insight" label and
-  shows the **Edit insight / Hide editor** toggle and **Back to the demos**; **Your insight** returns from demo mode;
-  the editor draft, result and last demo pick survive hiding and switches), a
-  report title line ("Your insight" / "Demo insight"), a settings bar (channel; language with **English default**, Hindi one tap away; an icon-only
-  **Restart** that resets the phone only; pretend history), then the green insight card | the interactive
-  channel preview (`app/channel_preview.py`, one 378x700 phone for all channels, restart/show_restart API) |
-  the scheduler hand-off, survey checks and the answer record; JSON in collapsed developer details. History
-  rules H1-H4 are always on in the app (the old toggle is gone). **Your own insight** (`app/custom_context.py`): the editor (farmer's question, advice, Details for crop/problem/severity/advice
-  type/timing/channel/language/district) runs once through `run_insight` on submit and then collapses; ids `I-9000NN`, real IST
-  `created_at`, session only, never in the batch or the numbers; empty advice = "No advice given yet." and R4;
-  tests in `tests/test_custom_context.py`. **Dashboard**: P3's weekly-limit decisions (full data:
-  1,614 sent, 452 moved, 442 merged, 108 skipped), then the send-time rule toggle, five-dimension scorecard,
-  brief-vs-answer-key comparison, rules-we-changed table and run-history chart; its metrics count up and the rule
-  bars grow in on first view (`COUNT_UP_JS`, ported from the Success Metrics site; none under reduced motion).
-  **Follow-up queue**: reason and channel filters with counts, a pick-one list (oldest answer first) and the open
-  ticket beside it: next step, conversation log (insight summaries, then the survey Q&A), record JSON.
-  The Simulate answers tab, the static all-questions panel and the data caption are gone. Theme: `app/theme.py`
-  + `.streamlit/config.toml` (Mukta, ivory/green/marigold, see `docs/uiux-design.md`). Dates and times on screen are
-  Eastern Time, MM/DD/YYYY, 12-hour via `app/display_time.py`; stored timestamps and JSON stay ISO/IST.
-  **Restart Streamlit after every `git pull` / stash pop / branch switch** (old `mel/` stays loaded otherwise).
-- **One demo, named "Fasal Pulse - MEL Survey Agent"** (decided 4 Nov). P4's standalone demo
-  (`demo/p4_standalone/`, hosted at https://fasal-pulse.streamlit.app/) is folded into the team app: Survey demo
-  shows "What the agent remembers", a "pretend survey history" demo and generic vs
-  adapted questions, and the integrated interactive channel preview (`app/channel_preview.py`; real taps on all 5
-  channels: finish, close, opt out, free text, hang up; answer record built by P3's simulator from the actual taps); Overview has "How it fits
-  FarmerChat". P3's `simulate_sheet` gained an optional `answers=` (real taps; P3 to review). Known P3 limit:
-  skipping a middle sheet question drops later answers, so the preview has no Skip button. History rules H1–H4 now live in
-  `mel/writer/history.py` (P4 owns; P5 moved them, P4 reviews): `run_pipeline(..., history=True)`,
-  `run_insight(..., memory=)`, `compose_survey(..., memory=)`. Default: **on in the app, off for scoring and the
-  CLI**. On full data they change 1,343 of 2,616 surveys (H1 964, H4 458; H2/H3 need earlier answers). Runs 6–7
-  score history on: item sim 0.99 → 0.93, P4 relevance 0.69 → 0.73, format/safety/timeliness still 100%.
-  Tests: `tests/test_history.py`. Our app can be hosted next to P4's on Streamlit Cloud as a backup link.
+## Layout
+- `mel/config.py`: paths, constants and **every setting**: `env(name, default)` reads the environment, then the
+  repo's `.env` (copy `.env.example`), then the default; `flag()`, `bedrock_region()`, `full_pack()`. Nothing else
+  reads `os.environ` for a `MEL_*` name.
+- `mel/data/`: loaders, JSON Schema validation, Excel parity with the pack, junk report, activity attention.
+- `mel/decision/rules.py` (R1-R8) and `mel/timing/` (send window, send time, crop calendar; `mel/timing/README.md`).
+- `mel/writer/`: templates (hi/en), guards (safety and format), relevance score + `RELEVANCE_THRESHOLD` (0.3),
+  history rules H1-H5, `llm.py` = the one Bedrock client (`ModelClient`: retries, on-disk cache, committed replay
+  file `docs/results/bedrock_cache.jsonl`, per-call log `out/bedrock_calls.jsonl`, prices).
+- `mel/agent/`: the agent (Evidence Extractor -> Analyst -> Verifier -> Synthesizer, bounded revision, streaming
+  events). `run_agent_to_end` is the one generator the CLI, the API, the evaluation and AgentCore all use
+  (`mel/pipeline.run_insight` wraps it). `batch.py` writes many with cost tracking; `aws.py` S3 + CloudWatch;
+  `remote.py` invokes the runtime; `payload_options` validates an AgentCore payload.
+- `mel/schedule/`: hand-off, priority, weekly cap (`CapLedger`: sent / moved / merged / skipped / opted_out),
+  `schedule_in_send_order` + `run_batch` (the one scheduling path: opt-out, quality gate, cap with deferred moves),
+  broadcaster, simulated clock, season driver, frequency ranker. `mel/channels/`: renders, reachability.
+  `mel/simulator/`: answer records (byte-for-byte the pack's reference grid), personas, hand-off walk.
+- `mel/evaluation/`: golden scoring, scorecard, AI judge (`judge.py`), judge model sweep, costs, run history,
+  README results block (`scripts/readme_numbers.py --write`).
+- `mel/api/app.py`: FastAPI, bearer token `MEL_API_TOKEN`, state in `mel/store.py` (SQLite, `MEL_DATABASE_URL`);
+  `uvicorn --factory mel.api.app:create_app`. `agentcore_app.py`: the AgentCore entrypoint.
+- `app/`: `streamlit_app.py` is the shell (reload guard, the batch, two tabs); `dashboard.py`; `survey_demo.py`
+  (agent terminal, phone = `channel_preview.py` + `preview_state.py`, own insight = `custom_context.py`, voice =
+  `tts.py`); `common.py` shared labels and display helpers; `display_time.py`; `theme.py`.
+- `infra/terraform/`: the one IaC (`agent.tf` us-west-2: S3, Guardrail, AgentCore role, ECR, CodeBuild, the
+  runtime, dashboard, budget; `ui.tf` us-east-1: ECR, CodeBuild, ECS roles, cluster, Express Mode service; one
+  buildspec in `main.tf` builds either Dockerfile target). Steps: `infra/README.md`, `docs/agentcore.md`.
+- One multi-stage `Dockerfile` (targets `api` / `ui` / `agent`); `pyproject.toml` extras `api` / `agent` / `ui` / `dev`.
+- CI (`.github/workflows/ci.yml`, Python 3.12): `ruff check`, `ruff format --check`, pytest, `run --simulate`,
+  `validate`, `eval`, `parity`, both images built and smoke-tested, `terraform fmt -check` + `validate`.
 
-## Team (5 people since 3 Nov; signed "Team Contracts" doc is the source of truth)
-P1 Data & Integration · P2 Decision & Timing · P3 Scheduler, Channels & Simulator · P4 Survey Writing & Safety ·
-P5 Evaluation & Demo. Old 8-person numbers (P6–P8) no longer exist; map old P2+P3→P2, P4+P7→P3, P5+P6→P4, P8→P5.
-Owners/files: `docs/TEAM.md`, `.github/CODEOWNERS` (usernames still `@p1..@p5` placeholders).
-Function-name choices pending for H+4: `docs/h4_interface_decisions.md` (recommendation: keep code names, add
-`run_pipeline`, `CapLedger.admit`, `simulate_handoff`, `item_similarity`).
+## Settings (all through `mel.config.env`; see `.env.example`)
+`MEL_USE_LLM=1` + `MEL_BEDROCK_WRITE_MODEL` (+ optional `MEL_BEDROCK_CHECK_MODEL`) turn the Bedrock writer on;
+`MEL_BEDROCK_REGION` (us-west-2 for this account); `MEL_BEDROCK_PRICES` or `docs/results/bedrock_prices.json` price
+every call; `MEL_JUDGE_MODEL` + `MEL_JUDGE=1` (evaluation) or `MEL_AGENT_JUDGE=1` (agent) turn the AI judge on;
+`MEL_GUARDRAIL_ID` / `MEL_GUARDRAIL_VERSION` add Bedrock Guardrails; `MEL_AGENTCORE_ARN` makes the app's
+"Run the agent" call the runtime; `MEL_TIMING_BASIS` brief (default) or answer_key; `MEL_CRITICAL_POLICY`;
+`MEL_DATA_DIR`, `MEL_OUT_DIR`, `MEL_CACHE_DIR`, `MEL_LLM_LOG`; `MEL_API_TOKEN`, `MEL_DATABASE_URL`;
+`ELEVENLABS_API_KEY` for the voice read-out. AWS credentials come from `~/.aws` or the task role, never from a file here.
 
-## Open items (owner)
-- P2: merged (PR #3): R7 storage exception, answer-key timing behind `MEL_TIMING_BASIS`, crop fallback;
-  see `mel/timing/README.md`. Left: G-0145 (one-day 31 March window), cauliflower G-0129 needs DG, confirm R2;
-  `compute_window()` must read P3's simulated clock. Suggestion from P5 (not yet sent): open at 09:00 within the
-  brief rule (+14 exact matches, still 100% timely), or "answer-key window when timely, else brief"
-  (window match ~20%, timeliness ~99%).
-- P2: send time added 11-04 (`mel/timing/send_time.py`, `Decision.send_time`, rules in `mel/timing/README.md`).
-  Wired: `run_pipeline(..., farmers=)` passes profile + chat history; CLI and app simulate at `send_at`; app
-  hand-off strip shows it. Hand-off JSON unchanged (organisers' schema forbids extra fields; `parity` checks it).
-- P3: merged into main 4 Nov (`Semdon-P3`): `CapLedger.admit` (sent/moved/merged/skipped/opted_out),
-  `simulate_handoff`, personas, `late` flag (off until P1 adds it to the response schema). Not started: SimClock,
-  `broadcast_due`, self_eval gate in the scheduler, 183-record match; batch wiring request to P1; a persona that
-  sometimes reports failure (so the follow-up queue can use real P3 outcomes).
-- P4: DONE: concern templates (top-10 x 5 types), Hindi gender, guards + schema check, relevance v2, Bedrock `ModelClient` (retries, cache, per-call token/cost/time log, template fallback, small-model check incl. contradiction), `compose_survey(decision, insight, lang)` with hi-IN/en-IN (English = baseline), self_eval on every survey, `scripts/p4_compare.py` (see `docs/p4/P4_PLAN.md`).
-  TODO: native Hindi review (`docs/p4/hindi_review_sheet.csv`), run the Bedrock path and the comparison against real Bedrock (only tested with a fake client so far), `boto3` in requirements (P1), agree relevance threshold with P5/P3, history-aware questions.
-- P5 (4 Nov, `p5-season`): **Season tab** (third tab) drives P3's `SeasonScheduler` (shared SimClock, +1 day /
-  +1 week / to end of March, "Send next step" manual trigger, persona picker, relevance-bar slider at provisional
-  0.5; full data: 2,066 queued, 1,711 sends, 355 blocked by the quality check, whole season ~6 s). Shows India
-  time first (Eastern alongside). Test: `tests/test_season_tab.py`. Demo script Part 2b (optional).
-- P5 (4 Nov, `p5-merge-all`): merged Semdon-P3, kedar-p4, lucas-p1 and the auto-reload fix onto Will's
-  redesign; `boto3` added to requirements; demo script speed now "under 4 ms, ~10 s". Ask the team: app shows
-  Eastern Time (Will's `display_time.py`) while farmers/DG use IST. P3 broadcaster still ignores `not_after`.
-- P5: plan + checklist status `docs/p5_plan.md`; demo script `docs/demo_script.md`; slide text
-  `docs/slides_draft.md`. Next: open the `p5-full-data` PR; post Scorecard fields + 3-part storyline in chat;
-  send the hand-scoring sheet; decide with P4 on one demo / one name / H1–H4; host our app next to P4's as a
-  backup link; judge calibrated on Bedrock (done 4 Nov); left: switch to P4's `ModelClient`;
-  window-overlap measure; real deck; two clean-checkout rehearsals; backup video.
-  Follow-up queue still forces each survey's trouble answer: P3's personas never report failure and `late` is
-  not in the response schema, so P3's outcomes would give an empty queue.
-- P1: merged: batch runner, `run_pipeline()`/`PipelineResult`, `--limit`/`--farmer`, junk report, Excel parity,
-  CI. Open: call `mel.evaluation.run_eval()` from `cmd_eval` (history on every eval); REST API + Dockerfile;
-  `infra/` + LICENSE + public repo; Bedrock account access (region/models) for P4 and P5; `boto3` in
-  requirements; `late` in the response schema (P3 request); P3's batch-wiring request (weekly limit and
-  opt-outs are applied in the app but not in `mel.cli run`); real usernames in
-  CODEOWNERS (still `@p1..@p5`).
-- Questions owed to Digital Green (P1 sends 5): 09:00 vs 07:00; critical → survey or human call; golden set v2;
-  MEL relevance rubric?; does our survey JSON match their agent-to-UI format? Plus: which Bedrock models/region.
-  `docs/questions_for_digital_green.md` drafts only the first 3; whether they were sent is unknown.
-- FINAL contract (4 Nov) also adds: REST API + Dockerfile + infra/ + LICENSE + public repo (P1); SimClock +
-  broadcaster stub + self_eval gate (P3); Bedrock `ModelClient`, BCP 47 `lang`, self_eval (P4). Its P2 section
-  still describes the R7 misses backwards (we said no-survey, key said survey); tell P2.
+## Status (6 Nov, after the cleanup series)
+- **874 tests pass** (`pytest -q`, about 3 min). `validate`: 12,535 full-pack output files, 0 invalid.
+- Golden, full pack (150 rows): brief decision 99.3%, rule 99.3%, channel 100%, window match 0%, one miss
+  (G-0145, kept R6 on purpose: `mel/timing/README.md`); answer_key 100% / 100% / 100% / 100%. Item similarity 0.99
+  (templates copy the key's wording, so in-sample).
+- Scorecard, all 6,999 insights: 2,616 surveys, format 100%, safety 100%, timeliness 100%, 0 failing-but-scheduled,
+  P4 relevance 0.81. Schedule (`run --simulate`): sent 1,613, moved 425, merged 480, skipped 98, rejected 0,
+  **cap_violations 0**. The app's Dashboard runs the same gate as the CLI (6 Nov), so its numbers match.
+- Bedrock full run (ledger run 5, Haiku 4.5 writer, Gemma 3 12B judge, us-west-2): 2,616 surveys for $2.61
+  ($0.00102 per survey, both languages), Bedrock wrote en 97% / hi 96%, 160 template fallbacks, judge 4.93.
+  Every pack survey replays for $0 from `docs/results/bedrock_cache.jsonl`. Judge calibration vs 5 people x 20
+  surveys: within 1 point 97%, r 0.72 (`docs/results/judge_calibration.md`, `judge_models.json`).
+- Cleanup series (6 Nov): #49 one generator path + one Dockerfile + SQLite store (no RDS); #50 one config
+  (`mel.config.env`); #51 one bedrock-runtime client; #52 correctness (cap moves clear every prior send, API off
+  the event loop, app on the CLI's scheduling path, AgentCore payload checked); #53 app split by tab; #54 hygiene
+  (`ruff format` at 120 columns, process docs to `docs/archive/`, CODEOWNERS gone); #55 Terraform owns the live
+  stack (UI imported, runtime managed, one build path). All merged 6 Nov; CI green on `main` at 44ca6c5.
+
+## Live stack (Will's Workshop Studio sandbox account; temporary credentials from the event page, a few hours each)
+- Everything live is in `infra/terraform/terraform.tfstate` (local, git-ignored, 27 resources; `terraform plan` is
+  clean). Image tags live in `infra/terraform/live.auto.tfvars` (git-ignored): `image_tag` (UI) and
+  `agent_image_tag` (runtime), both the short commit SHA of `main`, currently 44ca6c5.
+- UI: ECS Express Mode service `fasal-pulse-ui`, us-east-1, 1 vCPU / 2 GB, one task:
+  https://fa-bb1bdead4fb64190b7a68b8d8eae6ff2.ecs.us-east-1.on.aws/ . The task has `MEL_AGENTCORE_ARN`, so
+  "Run the agent" runs on the runtime.
+- Agent: AgentCore runtime `fasal_pulse` (`arn:aws:bedrock-agentcore:us-west-2:<account>:runtime/fasal_pulse-asfyZYEUQm`,
+  version 3, image `fasal-pulse-agent:44ca6c5`), `aws_bedrockagentcore_agent_runtime.agent` in `agent.tf`; the
+  toolkit is no longer used. Guardrail `fasal-pulse-survey-guardrail` and the data bucket are in the same state.
+- Roll a new `main`: `aws codebuild start-build --project-name fasal-pulse-agent-build --region us-west-2` and
+  `... fasal-pulse-ui-build --region us-east-1` (both clone `main`, `GIT_REF` overrides), read `PUSHED ...:<sha>`
+  from each log, put the SHAs in `live.auto.tfvars`, `terraform apply` (two in-place changes, no downtime), then
+  `python -m mel.agent --remote $(terraform output -raw agentcore_arn) I-001253`. Done this way on 6 Nov.
+- Cost: about $2 a day while the UI runs (Fargate + load balancer); Bedrock calls are cents. The account is wiped
+  when the event closes: everything is re-creatable from `infra/terraform/` (apply, two builds, apply again).
 
 ## Decisions already made (don't re-litigate)
-- Streamlit stays the real UI. `v0-sketch/` (git-ignored) is a design reference only.
-- Bedrock is **required** for every model call (FINAL contract, 4 Nov), via the account's IAM role, no key.
-  Everything else on AWS is after core targets; App Runner optional; EventBridge/RDS/Connect are slide-only.
-- Rules follow the brief as the baseline; deliberate changes must be shown with numbers in the demo.
+- Streamlit stays the UI (split by tab, not replaced). Bedrock is the model path, via the account's IAM role, no key.
+- One AWS account, one IaC (`infra/terraform/`), one Bedrock region (us-west-2) for models and agent, one runtime,
+  one hosted link. No RDS: the API's state is a SQLite file. EventBridge / Connect / RDS are slide-only.
+- Rules follow the brief as the baseline; deliberate changes are shown with numbers (`docs/results/`).
+- Everything goes through `mel.agent.run_agent` (generation) and `schedule_in_send_order` / `run_batch` (scheduling);
+  no second path for the app, the API or the evaluation.
+- Code layout is `ruff format` at 120 columns; lint rules are pyflakes + bugbear (`pyproject.toml`).
+
+## Open items
+- Fargate size: 1 vCPU / 2 GB is a guess; read the task's memory in CloudWatch after a day of use and drop to
+  0.5 / 1 GB (`cpu` / `memory` in `ui.tf`) if it fits, roughly halving the daily cost.
+- The Terraform state is a local file on Will's Mac (`terraform.tfstate` + the `.before-import` backup, both
+  git-ignored). A lost state means `terraform import` for all 27 resources: names in `ui.tf` / `agent.tf`, ids with
+  an `@us-east-1` suffix for the UI side, the runtime by its id, CodeBuild projects and the Express service by ARN.
+- Hindi native review: 0 of 441 lines in `docs/p4/hindi_review_sheet.csv` checked; the app labels Hindi "pending
+  review" until every row has a Y/N. Blind sheet `docs/results/blind_sheet.csv` (Bedrock vs templates) is unscored.
+- `mel/writer/history.py personalize`: after an H3/H4 trim drops the personalised H1/H2 question, the H1/H2 note (and
+  the rationale) still claims it; kept for byte-stable output, worth fixing with the next template change.
+- Questions for Digital Green (`docs/questions_for_digital_green.md`) were never sent.
 
 ## How the user likes to work
-- Plain English; most teammates are new to this and to AWS. Explain technical terms the first time.
-- Prompts and team-facing docs go in `docs/prompts/` or `docs/`, and get listed in `docs/prompts/README.md`.
-- Commit/push only when asked. Never commit `.env`, keys, `.venv/`, `out/`, `v0-sketch/`.
+- Plain English; conclusion first. Commit/push only when asked; PRs to `main`, the user merges.
+  Never commit `.env`, keys, `.venv/`, `out/`, `v0-sketch/`.
+- Regression bar for any change: `pytest -q`, golden 99.3 / 99.3 / 100 unchanged, full-pack schedule counts
+  unchanged, `validate` 0 invalid, CI green.
 
 ## Environment notes
-- macOS, zsh, Python 3.14 in `.venv`. No `gh` CLI. The full pack is committed in the repo (see the pack location above).
+- macOS, zsh, Python 3.13 in `.venv` (the project requires 3.12+; CI runs 3.12). `gh` is authenticated. Use
+  `.venv/bin/python` explicitly: a bare `python` can resolve to the Xcode Python 3.9.
+- No Docker on this Mac: image builds run in CodeBuild (and CI). Terraform: `brew install hashicorp/tap/terraform`
+  needs the Xcode Command Line Tools; otherwise unzip the macOS build from releases.hashicorp.com and put it on
+  `PATH`. Run it from `infra/terraform/` with the event credentials exported in the same shell.

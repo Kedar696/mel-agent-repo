@@ -8,6 +8,9 @@ from mel.timing import send_window, expires_at, is_past_harvest
 
 decision = decide(insight)
 window = decision.send_window  # {not_before, not_after}, or None
+
+decision = decide(insight, now=sched.clock.now())  # with P3's simulated clock
+window = send_window(insight, now=sched.clock.now())
 ```
 
 ## Decision order
@@ -15,11 +18,11 @@ window = decision.send_window  # {not_before, not_after}, or None
 | Rule | Result | Trigger |
 |---|---|---|
 | R1 | No survey | Junk, invalid schema, or impossible timestamp |
-| R2 | No survey; human call required | Critical severity, as specified by the v1 answer key |
+| R2 | No survey; human call required | Critical severity, as specified by the v1 answer key (`MEL_CRITICAL_POLICY=survey` turns R2 off) |
 | R3 | No survey | General information without actionable advice |
 | R4 | No survey | Waiting for more details |
 | R5 | No survey | Verification not needed |
-| R6 | No survey | No usable send window remains before season end |
+| R6 | No survey | No usable send window remains before season end; with `now`, too little of the window is left (`window_passed`) |
 | R7 | No survey | Standing-crop advice would arrive after the harvest period |
 | R8 | Survey | All preceding checks pass |
 
@@ -55,6 +58,21 @@ The compatibility policy is inferred from v1 examples, not independently validat
 agronomic scheduling guidance. Keep brief mode as the delivery baseline until the
 organizer resolves the conflict. Unknown policy names raise a configuration error.
 
+## Simulated clock (`now`)
+
+`send_window(insight, now=...)` and `decide(insight, now=...)` take the simulated clock's
+instant (P3's `SeasonScheduler.clock.now()`, tz-aware; a naive datetime is an error). P2
+never reads the system clock. With `now=None` (the default) nothing changes: the window
+is planned from the insight's own date, so scoring, the CLI and the app are unaffected.
+
+- Clock before the planned opening: the window is unchanged.
+- Clock past the opening: the window opens at the next send hour (now if between 07:00
+  and 19:00, else 07:00 that morning or the next) and keeps its planned end.
+- Fewer than the brief's two days left (the same rule as the season-end clip): no window,
+  so `decide` returns R6 with reason `window_passed`. Answer-key mode, which allows
+  shorter windows, only needs some time left.
+- R7 then checks the harvest against the moved opening day.
+
 ## Harvest checks
 
 Only rows whose `growth_stage` is `harvest` determine the standing-crop cutoff.
@@ -65,9 +83,9 @@ the configured season end; a missing name remains unknown.
 
 R7 exempts insights explicitly marked `post_harvest` or `storage_post_harvest`:
 stored produce may still need follow-up after the field crop has been harvested.
-It does not infer a storage stage from free text. The reference's cauliflower R7
-row lacks a structured storage marker, even though its text mentions storage;
-that ambiguity needs organizer clarification before changing this rule further.
+It does not infer a storage stage from free text, and the answer key agrees: G-0129
+and G-0136 both say "stored cauliflower", but only G-0129 sets `growth_stage:
+post_harvest`, and the key expects R8 for G-0129 and R7 for G-0136. Both match today.
 
 ## Send time
 
@@ -122,9 +140,37 @@ meet the action deadline, next-day, minimum-width and season-end constraints.
 The mock end-to-end runs, including simulated responses, report zero invalid files
 under both policies. These checks cover P2 behavior, not question-writing quality.
 
-The brief mismatch is G-0145: the answer key accepts a one-day 31 March window,
-while the brief requires two days. Its 0% exact-window score follows from the
-documented policy differences, not a claim that worked-example timing failed.
-Critical-case handling also differs between the brief's high-priority rule and
-the answer key's human-call rule. R2 currently preserves the existing answer-key
-cascade; organizer confirmation is still needed for real use.
+The 0% exact-window score follows from the documented policy differences, not a
+claim that worked-example timing failed.
+
+## Open cases, decided (5 Nov)
+
+| Case | Decision | Why |
+|---|---|---|
+| G-0145 (maize, 28 March) | Keep R6 under the brief; answer-key mode gives the key's R8 | The brief says a window "is at least two days wide, and nothing is sent after 31 March". Only 31 March is left, so the brief allows no window. This is the one brief-mode miss (149/150). |
+| G-0129 / G-0136 (stored cauliflower) | No change | Storage is read from `growth_stage` / `concern`, never from the text. The key labels both rows that way (above). |
+| R2 (critical severity) | Answer key by default; `MEL_CRITICAL_POLICY=survey` gives the brief's reading | The key wants no survey and a human call for all 6 critical rows. The brief only lists critical as high priority. The contract says: until Digital Green answers, keep both behind a setting, default = answer key. |
+
+Any of these changes only if Digital Green answers otherwise or ships a new golden set.
+
+## Weather-dependent advice (written down 5 Nov, not modelled)
+
+Some advice depends on the weather. The brief's mustard example says "spray within 2 days if no rain is
+forecast", and the Vision doc asks how the send window should be set then. Today these windows are planned
+like any other, from `action_window_days` and the verification timing. The pack has no weather data (P3 found
+the same, `docs/archive/p3_frequency_scheduling.md`), and no field says that advice depends on the weather. Only the
+free text says it (1,169 of 6,999 full-pack advice summaries mention rain, fog, frost, the forecast or the
+weather), and P2 never reads free text.
+
+How we would handle it, once an insight carries a structured condition (say `weather_condition: "no_rain"`)
+and FarmerChat passes in the district forecast (it already has weather data through AgMCP):
+
+- Only days that meet the condition count toward the action window. If rain is forecast on one of the two
+  days, the farmer has until day 3 to spray, so the window opens a day later. The rest of the brief rule
+  stays: 07:00 to 19:00, at least two days wide, nothing after 31 March, and R6 when no room is left.
+- The shift is capped (for example at 5 days), so a long wet spell can't push the survey past the point where
+  the farmer still remembers the advice.
+- Only the window moves. The survey or no-survey decision (R1–R8) never depends on the weather. Without a
+  forecast, the window stays as it is today. No weather is invented.
+
+This is question 10 in `docs/questions_for_digital_green.md`.

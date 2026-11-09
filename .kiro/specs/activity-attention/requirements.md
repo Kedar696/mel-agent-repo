@@ -29,11 +29,14 @@ explainable and reproducible.
    parity-checked folders (`config/rules/`, `config/schemas/`).
 4. It SHALL count **distinct `conversation_id`s**, not insights. It SHALL exclude junk rows (per
    `mel.data.why_junk`) and exclude the current conversation from history.
+5. The **dataset start** SHALL be computed from valid, non-junk rows only. Rows with an unparseable or missing
+   `created_at`, or a missing `farmer_id`, SHALL NOT crash the run and SHALL NOT count as activity.
 
 ### R-2 The metrics each insight is scored on
 For each insight the module SHALL compute, over the farmer's non-junk history before `created_at`:
 1. `baseline_per_week`: conversations from 70 to 14 days before the insight, divided by the number of weeks of
-   that window that the data actually covers (use whatever part of the 70–14-day period the data covers; never
+   the 70→14-day window that fall at or after the **dataset start** (use whatever part of the period the data
+   covers; measure the covered span only from the dataset start, never from the farmer's first chat, and never
    divide by a period longer than the data spans).
 2. `recent_count`: conversations in the last 14 days before the insight, **including the current one**.
 3. `high_weight`: the existing high-priority test (resolution `escalate_to_expert`, severity `high`/`critical`,
@@ -53,10 +56,12 @@ The module SHALL assign the first tier that matches, in this order:
 6. **neutral** (reason `none`): everyone else.
 
 ### R-4 The attention result goes on the Decision, not the hand-off
-1. The result SHALL be exposed as `Decision.attention`, a dict with keys `tier`, `reason`,
-   `baseline_per_week`, `recent_count`, `weight`, `explanation` (and nothing a sender needs that the hand-off
-   schema would forbid). This follows the `send_time` pattern: the hand-off/survey schemas forbid extra fields,
-   so new data rides on the Decision object only.
+1. The result SHALL be exposed as a real `Decision.attention` field (a dataclass field, not a dynamic
+   `setattr`), a dict with keys `tier`, `reason`, `baseline_per_week`, `recent_count`, `weight`, `explanation`,
+   or `None` when attention is off. This follows the `send_time` pattern: the hand-off/survey schemas forbid
+   extra fields, so new data rides on the Decision object only. Because `pick_send_time` runs inside `decide()`,
+   the attention result SHALL be available to `decide()` so send time can read it (R-5.2); attention SHALL still
+   never change survey vs no-survey, the rule, or the send window.
 2. `weight` SHALL be `1.5` for surge, `1.0` for neutral, `0.5` for steady_high.
 3. `explanation` SHALL be one plain-English sentence.
 4. The hand-off JSON and the survey JSON SHALL stay schema-valid and gain **no** new fields. Hand-off
@@ -84,19 +89,29 @@ When attention is on:
 2. **Promotion to `high` from `activity_jump` at most once per farmer per rolling 7 days.** Because `high`
    skips the weekly cap, a surge (`activity_jump`) survey SHALL be promoted to `high` only if no earlier
    `activity_jump` promotion to `high` for that farmer falls within the prior 7 days; later ones in that window
-   keep `normal`. (A survey already `high` by the brief's rules is unaffected by this budget.)
+   keep `normal`. (A survey already `high` by the brief's rules, and `quiet_then_high_weight` surges, are
+   unaffected by this budget.) This limit SHALL be decided in `run_pipeline` — working through each farmer's
+   insights from the **unfiltered** list in `created_at` order and deciding whether the promotion is allowed
+   **before** `build_handoff`, so that `priority`, `channel_order`, `wait_hours` and `frequency_cap.exempt` all
+   agree. `mel.cli run` does not use `CapLedger`, so the limit SHALL NOT live in a send or admit loop. Input
+   order, `--farmer` and `--limit` SHALL NOT change the result.
 3. **Opt-outs still block everything.** An opted-out farmer gets nothing, surge or not.
 4. **H3 fatigue still shortens surveys**, including for surge farmers.
 5. The **3-question schema limit** still applies: surge "up to 3" SHALL NOT invent questions the template does
    not have.
-6. The surge question limit SHALL work with history **on or off**, and on **both** the template and the
-   model-written (LLM) paths.
+6. The surge and steady_high question limits SHALL work with history **on or off**, and on **both** the
+   template and the model-written (LLM) paths. Because `template_items` only calls `personalize` when memory is
+   present, the steady_high cap of 2 SHALL be applied in `question_count` (and the template/LLM item builders),
+   not only inside `personalize`, so it still holds with history off. `attention` SHALL also be passed to
+   `history_notes`, so a surge survey never reports an `H4` note when H4 was not applied.
 
 ### R-7 Off by default; identical output when off
 1. `run_pipeline` SHALL gain `attention=False`; the CLI SHALL gain a `--attention` flag (default off).
    Scoring (`eval`, scorecard, golden) SHALL default attention **off**. The app SHALL default attention **on**.
 2. WHEN attention is off THEN decisions, rules, channels, priorities, question counts, send times, hand-offs
-   and all written files SHALL be identical to the current code, for all 6,999 insights.
+   and all written files SHALL be identical to the current code, for all 6,999 insights. `by_tier` and
+   `by_reason` SHALL be added to `run_summary.json` **only when attention is on**; with attention off the
+   summary file SHALL stay identical to today (the keys are absent).
 
 ### R-8 Filtering must not change a farmer's result
 WHEN `--farmer` or `--limit` narrows a run THEN each remaining farmer's attention result SHALL be identical to
@@ -104,8 +119,8 @@ its result in a full run. Attention history SHALL be computed from the **unfilte
 already is), not from the filtered subset.
 
 ### R-9 Visibility
-1. The Streamlit app SHALL show a **"Highlighted farmers"** list, sorted by `weight` then recency, each with
-   its `explanation` sentence.
+1. The Streamlit app SHALL show a **"Highlighted farmers"** list of **surge insights only** (never
+   steady_high), sorted by `weight` then recency, each with its `explanation` sentence.
 2. Survey Studio SHALL show the `tier` and `reason` for the selected insight.
 3. The app's **follow-up queue** SHALL sort by `weight` first.
 4. `run_summary.json` SHALL gain counts by `tier` and by `reason` (present and zero when attention is off).

@@ -4,16 +4,21 @@ These are the "alarm clock" pieces the demo's Season screen drives (docs/TEAM.md
 are deterministic: time only moves when advance() is called, and broadcast_due() acts only
 when called. The checklist (item 2) pins the behaviour these tests lock in.
 """
+
 import copy
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mel.config import IST
 from mel.data import load_scenario, errors
 from mel.schedule import (
-    SimClock, Broadcaster, Broadcast,
-    build_handoff, quality_failures, passes_quality, within_send_hours,
+    SimClock,
+    Broadcaster,
+    Broadcast,
+    build_handoff,
+    quality_failures,
+    passes_quality,
+    within_send_hours,
 )
 
 
@@ -24,8 +29,10 @@ def _clear_handoff(scenario="1-mustard-aphid-spray"):
     s = load_scenario(scenario)
     h = build_handoff(s["insight"], s["surveys"]["hi-IN"])
     h["survey"]["self_eval"] = {
-        "schema_valid": True, "relevance_score": 0.8,
-        "gives_new_advice": False, "asks_personal_info": False,
+        "schema_valid": True,
+        "relevance_score": 0.8,
+        "gives_new_advice": False,
+        "asks_personal_info": False,
     }
     return h
 
@@ -92,10 +99,13 @@ def test_clock_accepts_tzaware_datetime_and_normalises_to_ist():
 
 # ============================================================ quality gate (P4 threshold)
 def _survey_with(**self_eval):
-    base = {"schema_valid": True, "relevance_score": 0.8,
-            "gives_new_advice": False, "asks_personal_info": False}
+    """A real, guard-clean survey with the given self_eval. (The gate also runs P4's
+    check_survey, so a bare {"self_eval": ...} dict with no items is correctly rejected.)"""
+    s = copy.deepcopy(load_scenario("1-mustard-aphid-spray")["surveys"]["hi-IN"])
+    base = {"schema_valid": True, "relevance_score": 0.8, "gives_new_advice": False, "asks_personal_info": False}
     base.update(self_eval)
-    return {"self_eval": base}
+    s["self_eval"] = base
+    return s
 
 
 def test_quality_gate_passes_a_clean_survey():
@@ -117,8 +127,10 @@ def test_quality_gate_rejects_bad_self_eval_flags():
 
 def test_quality_gate_rejects_missing_or_out_of_range_score():
     assert quality_failures(_survey_with(relevance_score=None), relevance_threshold=0.5)
-    assert quality_failures({"self_eval": {"schema_valid": True, "gives_new_advice": False,
-                                           "asks_personal_info": False}}, relevance_threshold=0.5)
+    assert quality_failures(
+        {"self_eval": {"schema_valid": True, "gives_new_advice": False, "asks_personal_info": False}},
+        relevance_threshold=0.5,
+    )
     assert quality_failures(_survey_with(relevance_score=1.5), relevance_threshold=0.5)
 
 
@@ -150,7 +162,7 @@ def test_queue_orders_by_window_start_not_insertion():
     early["handoff_id"] = "H-EARLY"
     early["send_window"]["not_before"] = "2026-11-01T07:00:00+05:30"
     bc = Broadcaster()
-    bc.queue(late)   # inserted first, but opens later
+    bc.queue(late)  # inserted first, but opens later
     bc.queue(early)  # inserted second, but opens earlier
     assert [h["handoff_id"] for h in bc.pending] == ["H-EARLY", late["handoff_id"]]
 
@@ -165,7 +177,8 @@ def test_queue_is_idempotent_on_handoff_id():
 
 def test_broadcast_due_holds_before_window_opens():
     h = _clear_handoff()
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-01T07:00:00+05:30"), relevance_threshold=0.5)
     assert [b.action for b in res] == ["pending"]
     assert len(bc) == 1  # stays queued
@@ -173,7 +186,8 @@ def test_broadcast_due_holds_before_window_opens():
 
 def test_broadcast_due_sends_when_due_and_in_hours():
     h = _clear_handoff()  # window opens 2026-12-06T07:00
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-06T07:00:00+05:30"), relevance_threshold=0.5)
     assert res == [Broadcast("sent", h)]
     assert len(bc) == 0  # sent work leaves the queue
@@ -181,7 +195,8 @@ def test_broadcast_due_sends_when_due_and_in_hours():
 
 def test_broadcast_due_waits_outside_send_hours():
     h = _clear_handoff()
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-06T22:00:00+05:30"), relevance_threshold=0.5)
     assert res[0].action == "waiting"
     assert len(bc) == 1  # held for a later trigger
@@ -189,7 +204,8 @@ def test_broadcast_due_waits_outside_send_hours():
 
 def test_broadcast_due_drops_expired_work():
     h = _clear_handoff()  # expires 2026-12-11T19:00
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-20T07:00:00+05:30"), relevance_threshold=0.5)
     assert res[0].action == "expired"
     assert len(bc) == 0  # dropped, never sent
@@ -198,7 +214,8 @@ def test_broadcast_due_drops_expired_work():
 def test_broadcast_due_rejects_survey_below_threshold():
     h = _clear_handoff()
     h["survey"]["self_eval"]["relevance_score"] = 0.3
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-06T07:00:00+05:30"), relevance_threshold=0.5)
     assert res[0].action == "rejected"
     assert len(bc) == 0  # a failing survey is not held, it is dropped
@@ -207,14 +224,16 @@ def test_broadcast_due_rejects_survey_below_threshold():
 def test_broadcast_due_sends_at_exact_threshold():
     h = _clear_handoff()
     h["survey"]["self_eval"]["relevance_score"] = 0.5
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     res = bc.broadcast_due(_at("2026-12-06T07:00:00+05:30"), relevance_threshold=0.5)
     assert res[0].action == "sent"
 
 
 def test_broadcast_due_requires_explicit_threshold():
     h = _clear_handoff()
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     with pytest.raises(TypeError):
         bc.broadcast_due(_at("2026-12-06T07:00:00+05:30"))  # threshold is keyword-only, required
 
@@ -222,9 +241,11 @@ def test_broadcast_due_requires_explicit_threshold():
 def test_season_walk_is_deterministic_and_eventually_sends():
     """Advancing the clock day by day: the hand-off is pending until its window opens, then
     sent. Two independent walks produce the same action sequence (determinism)."""
+
     def walk():
         h = _clear_handoff()
-        bc = Broadcaster(); bc.queue(h)
+        bc = Broadcaster()
+        bc.queue(h)
         clock = _at("2026-12-01T07:00:00+05:30")
         actions = []
         for _ in range(10):
@@ -279,9 +300,26 @@ def test_broadcaster_drives_real_pipeline_handoffs():
 
 def test_due_now_is_readonly_view():
     h = _clear_handoff()
-    bc = Broadcaster(); bc.queue(h)
+    bc = Broadcaster()
+    bc.queue(h)
     before = _at("2026-12-01T07:00:00+05:30")
-    assert bc.due_now(before) == []        # window not open
+    assert bc.due_now(before) == []  # window not open
     opened = _at("2026-12-06T07:00:00+05:30")
     assert [x["handoff_id"] for x in bc.due_now(opened)] == [h["handoff_id"]]
     assert len(bc) == 1  # due_now does not remove anything
+
+
+def test_quality_cache_rechecks_a_changed_survey():
+    """P5's cache in quality_failures must never hide a change: same content -> same answer, edited -> re-checked."""
+    import copy
+    from mel.schedule.broadcast import quality_failures
+    from mel.data import load_insights
+    from mel.pipeline import run_pipeline
+
+    h = next(o["handoff"] for o in run_pipeline(load_insights(None)).outputs if "handoff" in o)
+    s = copy.deepcopy(h["survey"])
+    assert quality_failures(s, 0.0) == quality_failures(copy.deepcopy(s), 0.0) == []
+    s["items"][0]["options"][0]["label"] = "x" * 40  # now too long for a tap label
+    assert any("label_too_long" in f for f in quality_failures(s, 0.0))
+    s["self_eval"]["relevance_score"] = 0.1
+    assert quality_failures(s, 0.5) != quality_failures(s, 0.0)  # threshold is part of the key

@@ -1,0 +1,71 @@
+pair,insight_id,crop_or_animal,advice_type,farmer_asked,advice_given,survey_A,survey_B,score_A,score_B,better,scorer,notes
+1,I-002209,gram,plan_created,Farmer asks how to handle zinc shortage in gram (branching).,"Gave a plan in stages: first apply zinc as per soil test advice and repeat the soil test next season, then watch for new leaves on stunted plants and take the next step if needed.","Q1. Did you apply zinc to your gram as advised?  [Yes / No]
+Q2. How much did the new leaves improve after zinc application?  [scale 1-5]","Q1. Did you apply zinc?  [Yes / Not yet / No]
+Q2. Is the plan working for your gram so far?  [Yes / Too early to say / No]",,,,,
+2,I-003321,potato,plan_created,Farmer reports dark water-soaked patches on leaves with white growth underneath in potato (tuber bulking).,"Gave a plan in stages: first spray a recommended fungicide for late blight as per the label and repeat as advised while fog continues, then watch for new dark patches after foggy days and take the next step if needed.","Q1. Did you spray for late blight?  [Yes / Not yet / No]
+Q2. Is the plan working for your potato so far?  [Yes / Too early to say / No]","Q1. Did you spray the fungicide for late blight on your potato as advised?  [Yes / No]
+Q2. After spraying, did the dark patches on potato leaves stop spreading?  [Yes / No]",,,,,
+3,I-003141,gram,direct_action,Farmer asks how to handle sulphur shortage in gram (branching).,Advised to apply a sulphur fertiliser as per soil test advice.,"Q1. Did you apply sulphur?  [Yes / Not yet / No]
+Q2. How is your gram now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]","Q1. Did you apply sulphur fertiliser to your gram?  [Yes / No]
+Q2. Did the gram plants show better growth after applying sulphur?  [Yes / No]
+Q3. What happened to your gram after sulphur application?  [Better growth / No change / Plants damaged / Could not get]",,,,,
+4,I-003376,wheat,wait_and_monitor,Farmer asks about yellow rust in wheat.,Advised to wait and watch for new yellow stripes on the upper leaves over the next few days before acting.,"Q1. Did you watch the wheat leaves for new yellow stripes over the next few days?  [Yes / No]
+Q2. Did the yellow stripes appear on the upper leaves as expected?  [Yes / No]","Q1. Have you seen new yellow stripes on the upper leaves?  [Yes / No / Did not check]
+Q2. Do you need more help?  [Yes / No]",,,,,
+5,I-003826,wheat,direct_action,Farmer asks how to handle nitrogen shortage in wheat (tillering).,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you apply urea after irrigation to your wheat?  [Yes / No]
+Q2. Did the wheat plants look greener and healthier after the urea?  [Yes / No]
+Q3. How much did the wheat improve after you top-dressed urea?  [scale 1-5]","Q1. Did you top-dress urea?  [Yes / Not yet / No]
+Q2. How is your wheat now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]",,,,,
+6,I-001042,gram,direct_action,Farmer reports seedlings cut at the base overnight in gram (sowing and emergence).,Advised to apply a recommended soil insecticide as per the label near damaged rows.,"Q1. Did you apply the soil insecticide near the damaged gram rows?  [Yes / No]
+Q2. Did the cutting of gram seedlings stop after you applied it?  [Yes / No]
+Q3. How much of your gram seedlings were saved after the treatment?  [scale 1-5]","Q1. Did you treat the affected patches?  [Yes / Not yet / No]
+Q2. How is your gram now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]",,,,,
+7,I-006030,wheat,plan_created,Farmer follows up on lodging in wheat after trying earlier advice.,"Gave a plan in stages: first stop irrigation on windy days and do not add more nitrogen, then watch for more plants falling and take the next step if needed.","Q1. Did you avoid irrigation on windy days?  [Yes / Not yet / No]
+Q2. Is the plan working for your wheat so far?  [Yes / Too early to say / No]","Q1. Did you stop irrigation on windy days like advised?  [Yes / No]
+Q2. Did the wheat plants stop falling over after you followed the plan?  [Yes / No]",,,,,
+8,I-001001,wheat,direct_action,Farmer adds wheat to their profile and asks about afternoon wilting.,Advised to give a light irrigation and feel if the soil below the top layer has dried.,"Q1. Did you give a light irrigation?  [Yes / Not yet / No]
+Q2. How is your wheat now?  [Better / Same / Worse]","Q1. Did you give light irrigation to your wheat field?  [Yes / No]
+Q2. After irrigation, did the wilting reduce in afternoon?  [Yes / No]",,,,,
+9,I-004012,cow,plan_created,Farmer asks how to handle milk drop in winter in their cow.,"Gave a plan in stages: first give warm water, a balanced feed with mineral mixture and some green fodder, then watch for milk yield over the next week and take the next step if needed.","Q1. Did you give your cow warm water and balanced feed with mineral mixture as suggested?  [Yes / No]
+Q2. How much did your cow's milk yield improve after following the feeding plan?  [scale 1-5]","Q1. Did you give warm water and balanced feed?  [Yes / Not yet / No]
+Q2. Is the plan working for your cow so far?  [Yes / Too early to say / No]",,,,,
+10,I-000613,pea,direct_action,Farmer reports older leaves turning yellow from the tip in pea (seedling) and asks what is wrong.,Advised to top-dress urea after irrigation as per soil test advice.,"Q1. Did you top-dress urea?  [Yes / Not yet / No]
+Q2. How is your pea now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]","Q1. Did you top-dress urea after irrigation on your pea seedlings?  [Yes / No]
+Q2. Did the yellowing of older leaves stop after you applied urea?  [Yes / No]
+Q3. How much did the pea seedlings improve after the urea application?  [scale 1-5]",,,,,
+11,I-004442,goat,escalate_to_expert,Farmer asks how to handle deworming in their goat.,Advised to call the nearest veterinary doctor because deworming needs a closer look.,"Q1. Did you meet the veterinary doctor?  [Yes / Not yet / Could not reach]
+Q2. Did their advice help?  [Yes / No / Not met yet]","Q1. Did you call the veterinary doctor about goat deworming?  [Yes / No]
+Q2. Did the veterinary doctor's deworming treatment help your goat?  [Yes / No]",,,,,
+12,I-006434,lentil,direct_action,Farmer reports insects in stored lentil in lentil (threshing and storage) and asks what is wrong.,"Advised to clean the store, sun-dry the produce again and use airtight bins.","Q1. Did you clean the store before storing lentils?  [Yes / No]
+Q2. Did sun-drying and airtight bins help keep insects away?  [Yes / No]","Q1. Did you re-dry and use airtight bins?  [Yes / Not yet / No]
+Q2. How is your lentil now?  [Better / Same / Worse]",,,,,
+13,I-001831,potato,direct_action,Farmer asks how to handle zinc shortage in potato.,Advised to apply zinc as per soil test advice and repeat the soil test next season.,"Q1. Did you apply zinc?  [Yes / Not yet / No]
+Q2. How is your potato now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]","Q1. Did you apply zinc to your potato field as advised?  [Yes / No]
+Q2. Did the zinc application help reduce the nutrient problem?  [Yes / No]
+Q3. Did you do a soil test again next season as suggested?  [Yes / No]",,,,,
+14,I-006116,potato,direct_action,Farmer reports soft rotting tubers in the harvested heap in potato (sorting and cold storage) and asks what is wrong.,"Advised to remove rotten tubers, dry the rest in shade and send only healthy tubers to cold storage.","Q1. Did you remove the rotten tubers from your potato heap?  [Yes / No]
+Q2. After drying in shade, did the healthy tubers stay fresh in cold storage?  [Yes / No]","Q1. Did you sort out rotten tubers?  [Yes / Not yet / No]
+Q2. How is your potato now?  [Better / Same / Worse]",,,,,
+15,I-006158,mustard,wait_and_monitor,Farmer reports insects in stored mustard in mustard (threshing and storage) and asks what is wrong.,Advised to wait and watch for insects in the bins over the next few days before acting.,"Q1. Did you watch the stored mustard bins for insects over the next few days?  [Yes / No]
+Q2. How much did the insect problem change after waiting and watching?  [scale 1-5]","Q1. Have you seen insects in the bins?  [Yes / No / Did not check]
+Q2. Do you need more help?  [Yes / No]",,,,,
+16,I-001679,maize,plan_created,Farmer wants to plan ahead for uneven emergence in maize.,"Gave a plan in stages: first fill the gaps quickly with fresh treated seed or seedlings, then watch for how the new seedlings come up and take the next step if needed.","Q1. Did you fill the gaps in your maize field with fresh treated seed or seedlings?  [Yes / No]
+Q2. How well did the new seedlings grow compared to the older ones?  [scale 1-5]","Q1. Did you fill the gaps in the field?  [Yes / Not yet / No]
+Q2. Is the plan working for your maize so far?  [Yes / Too early to say / No]",,,,,
+17,I-004927,goat,escalate_to_expert,Farmer adds their goat to their profile and asks about cold stress.,Advised to call the nearest veterinary doctor because cold stress needs a closer look.,"Q1. Did you meet the veterinary doctor?  [Yes / Not yet / Could not reach]
+Q2. Did their advice help?  [Yes / No / Not met yet]","Q1. Did you call a veterinary doctor about your goat?  [Yes / No]
+Q2. Did the veterinary doctor help your goat get better?  [Yes / No]",,,,,
+18,I-004425,mustard,wait_and_monitor,Farmer reports black and orange bugs sucking young plants in mustard (maturity) and asks what is wrong.,Advised to wait and watch for bugs on the seedlings over the next few days before acting.,"Q1. Did you watch for black and orange bugs on mustard seedlings?  [Yes / No]
+Q2. Did the bugs go away on their own after waiting?  [Yes / No]","Q1. Have you seen bugs on the seedlings?  [Yes / No / Did not check]
+Q2. Do you need more help?  [Yes / No]",,,,,
+19,I-004600,cauliflower,do_not_act,Farmer reports insects in stored cauliflower in cauliflower (sale) and asks what is wrong.,"Advised not to mix chemicals into grain for eating for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your cauliflower now?  [Better / Same / Worse]","Q1. Did you keep the stored cauliflower separate without mixing chemicals?  [Yes / No]
+Q2. Did the insects reduce or stop on their own after storage?  [Yes / No]",,,,,
+20,I-002824,wheat,do_not_act,Farmer reports plants drying in patches and pulling out easily in wheat (seedling and crown root initiation) and asks what is wrong.,"Advised not to leave undecomposed dung in the field for now, because it would not help at this stage.","Q1. Did you stop putting undecomposed dung in the wheat field?  [Yes / No]
+Q2. How much did the drying patches improve after not adding dung?  [scale 1-5]","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your wheat now?  [Better / Same / Worse]",,,,,

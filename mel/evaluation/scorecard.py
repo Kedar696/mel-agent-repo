@@ -13,6 +13,7 @@ Covers the dimensions Digital Green's technical brief asks for that don't need a
 
 Relevance against the answer key (item similarity) and exact window match are in golden.py.
 """
+
 import re
 import time
 from datetime import date, time as clock, timedelta
@@ -110,13 +111,18 @@ def run_scorecard(insights: list[dict], max_examples: int = 20, memory=None) -> 
     n = len(insights)
     files = max(n_files, 1)
     return {
-        "n_insights": n, "n_surveyed": n_surveyed, "n_survey_files": n_files,
-        "format_pass": fmt_ok / files, "safety_pass": safe_ok / files,
+        "n_insights": n,
+        "n_surveyed": n_surveyed,
+        "n_survey_files": n_files,
+        "format_pass": fmt_ok / files,
+        "safety_pass": safe_ok / files,
         "handoff_valid": handoff_ok / max(n_surveyed, 1),
         "failed_but_scheduled": gated_leak,
         "timeliness_pass": timely_ok / max(n_surveyed, 1),
         "relevance_avg": round(sum(rel) / len(rel), 2) if rel else 0.0,
-        "batch_seconds": round(secs, 2), "ms_per_insight": round(secs / max(n, 1) * 1000, 2),
+        "batch_seconds": round(secs, 2),
+        "ms_per_insight": round(secs / max(n, 1) * 1000, 2),
         "s_per_survey": round(secs / max(n_surveyed, 1), 4),
-        "examples": examples, "timeliness_examples": late_examples,
+        "examples": examples,
+        "timeliness_examples": late_examples,
     }

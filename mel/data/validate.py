@@ -1,4 +1,5 @@
 """JSON Schema validation for insight / survey / schedule_handoff / response / no_survey / bottom_sheet. Owner: P1."""
+
 import json
 from functools import lru_cache
 

@@ -1,66 +1,70 @@
-# Request to P1: wire OptOutList + CapLedger into the batch run
+# Request to P1: run the batch through P3's scheduler
 
 From: P3 (Scheduler, Channels & Simulator)
-To: P1 (owner of `mel/cli.py` and `mel/pipeline.py`)
-Status: **proposed, not applied.** P3 has not edited `cli.py` or `pipeline.py`.
+To: P1 (owner of `mel/cli.py`)
+Status: **proposed, not applied.** P3 has not edited `cli.py` or `pipeline.py`. Updated 5 Nov.
 
 ## Why
-The brief requires that an opted-out farmer receives no future surveys and that the 1-per-7-day
-cap is enforced across the batch. `OptOutList` and `CapLedger.admit()` now implement both
-(P3-owned, in `mel/schedule/handoff.py`), but the batch loop that actually sends/simulates lives
-in P1's `cli.py`, so P3 cannot enable it there without coordination.
+`python -m mel.cli run` writes and simulates every hand-off the pipeline makes. It does not apply
+the weekly limit, opt-outs or the survey quality gate, so the CLI output breaks the brief:
 
-The pieces P3 provides and that this change calls are all public and tested:
-- `mel.schedule.OptOutList` — `.record(response)`, `.blocks(handoff_or_farmer_id)`
-- `mel.schedule.CapLedger` — `.admit(handoff, opt_out=None) -> Admit` (sent/moved/merged/skipped/opted_out)
-- `mel.simulator.simulate(survey, channel, case, seed)` — unchanged signature
+| full pack (6,999 insights) | today's `run` | with `run_batch` (threshold 0.5 stand-in) |
+|---|---|---|
+| hand-offs written | 2,616 | 1,688 (1,372 sent + 316 moved) |
+| merged into an earlier survey | 0 | 324 |
+| skipped (weekly limit) | 0 | 52 |
+| rejected by the quality gate | 0 | 552 (all relevance below 0.5) |
+| non-high surveys under 7 days apart to one farmer | many | 0 (independent audit) |
 
-## Proposed change to `mel/cli.py` `cmd_run` (drop-in)
-Process hand-offs in send order, gate each through the opt-out list and the cap, and only
-simulate the ones actually sent/moved/merged. Opt-outs discovered during simulation feed back
-into the list so later surveys to that farmer are blocked.
+P3's side is done and tested: `mel.schedule.run_batch` (opt-out → quality gate → cap, in send
+order, simulated channel fallback, opt-outs fed back). Rule counts R1-R8 do not change; the
+number of hand-off, survey and response files does, which `docs/TEAM.md` asks to explain in the PR.
 
+## The change to `cmd_run` (replaces the loop over `result.outputs`)
 ```python
-def cmd_run(a):
-    from mel.simulator import simulate
-    from mel.schedule import CapLedger, OptOutList
-    stats, admit_stats = Counter(), Counter()
-    ledger, opt_out = CapLedger(), OptOutList()
+from mel.schedule import run_batch, FrequencyScheduler
+from mel.channels import FarmerReachability
 
-    runs = [run_insight(ins) for ins in load_insights(Path(a.insights) if a.insights else None)]
-    for out in runs:
-        stats[out["decision"].rule] += 1
-        if "no_survey" in out:
-            _dump(OUT / "no_survey" / f"{out['no_survey']['insight_id']}.json", out["no_survey"])
-
-    # Send order = by window open time, so the cap sees surveys in the order they'd go out.
-    handoffs = sorted((o["handoff"] for o in runs if "handoff" in o),
-                      key=lambda h: h["send_window"]["not_before"])
-    for h in handoffs:
-        admit = ledger.admit(h, opt_out=opt_out)
-        admit_stats[admit.decision] += 1
-        if admit.decision in ("opted_out", "skipped"):
-            continue
-        h = admit.handoff  # may be moved/merged
-        for lang, s in {h["survey"]["language"]: h["survey"]}.items():
-            _dump(OUT / "surveys" / f"{s['survey_id']}.{lang}.json", clean(s))
-        _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
-        if a.simulate:
-            ch = h["channel_order"][0]["channel"]
-            r = simulate(h["survey"], ch, "completed")
-            opt_out.record(r)  # feed opt-outs back so later surveys are blocked
-            _dump(OUT / "responses" / f"{r['response_key']}.json", r)
-    print("decisions by rule:", dict(sorted(stats.items())),
-          "| cap:", dict(sorted(admit_stats.items())), "->", OUT)
+result = run_pipeline(insights, limit=a.limit, farmer=a.farmer, farmers=farmers)
+by_handoff = {}
+for ins, out in zip(result.insights, result.outputs):
+    if "no_survey" in out:
+        _dump(OUT / "no_survey" / f"{ins.get('insight_id', 'unknown')}.json", out["no_survey"])
+    else:
+        by_handoff[out["handoff"]["handoff_id"]] = out
+batch = run_batch(
+    [o["handoff"] for o in by_handoff.values()],
+    relevance_threshold=RELEVANCE_THRESHOLD,  # P4's published value
+    simulate=a.simulate,
+    reachability=FarmerReachability(farmers),
+    ranker=FrequencyScheduler.from_insights(insights),
+)
+for h in batch.handoffs_to_send:  # sent + moved; merged ride on the host
+    ids = h["survey"]["source_insight_ids"]
+    for lang, s in by_handoff[h["handoff_id"]]["surveys"].items():
+        _dump(
+            OUT / "surveys" / f"{s['survey_id']}.{lang}.json",
+            {**clean(s), "source_insight_ids": ids, "send_window": h["send_window"]},
+        )
+    _dump(OUT / "handoffs" / f"{h['handoff_id']}.json", h)
+for r in batch.responses:
+    _dump(OUT / "responses" / f"{r['response_key']}.json", r)
 ```
-
+and add to `summary` (before `_dump(OUT / "run_summary.json", summary)`):
+```python
+        "schedule": batch.counts,   # sent/moved/merged/skipped/opted_out/rejected/duplicates/prevented/cap_violations
+```
 Notes:
-- The survey files still come from `run_insight` (unchanged). The snippet above writes the
-  farmer-language copy; if you prefer to keep writing both languages, loop `out["surveys"]`
-  as today and only gate the hand-off/simulate through the ledger.
-- No behaviour changes for P1's other commands (`eval`, `validate`).
+- `surveys` in `summary` stays "hand-offs the pipeline planned"; `schedule.sent + schedule.moved`
+  is how many go out. P5's "cap violations" should read `schedule.cap_violations`
+  (prevented surveys are `schedule.prevented`, not violations).
+- A moved hand-off's survey files get the moved `send_window`, so survey and hand-off agree.
+- `--simulate` now walks each hand-off's channels (fallback, waits, send hours) instead of one
+  `completed` record on the first channel, so there can be several response files per hand-off.
+- P3 checked this patch in a scratch copy of the repo: `run --simulate --clean` then `validate`
+  gives 0 invalid files on the mock data and the full pack.
 
-## Alternative: a thin P3 helper, no cli.py edit
-If you would rather not touch `cmd_run`, P3 can expose `mel.schedule.run_batch(handoffs,
-simulate=False)` that returns the admit decisions and (optionally) records, and `cli.py`
-calls that one function. Say which you prefer and P3 will land the helper on the P3 side.
+## Blocked on P4
+`RELEVANCE_THRESHOLD` must be P4's published value. P4 has not published one; the app uses a
+provisional 0.5 (`SEASON_THRESHOLD`). Until P4 does, P1 can pass the same provisional 0.5 and
+label it as such in `run_summary.json`.

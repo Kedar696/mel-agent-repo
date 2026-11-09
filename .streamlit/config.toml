@@ -1,34 +1,34 @@
-# Fasal Pulse theme (see docs/uiux-design.md). Wheat-straw ivory page, deep leaf green, marigold and clay
-# accents; Mukta for Hindi and English with system Devanagari fallbacks. app/theme.py carries the CSS half.
+# FarmerChat-aligned theme (farmer.chat, 4 Nov): mint page, white cards, deep green actions, bright green
+# accents, zinc grays, Inter with system Devanagari fallbacks. app/theme.py carries the CSS half.
 [theme]
 base = "light"
-primaryColor = "#2A6B4A"
-backgroundColor = "#F7F3E8"
-secondaryBackgroundColor = "#EEE7D7"
-textColor = "#1E2A22"
-linkColor = "#2A6B4A"
-borderColor = "#DED6C3"
-dataframeBorderColor = "#DED6C3"
-dataframeHeaderBackgroundColor = "#EEE7D7"
-codeBackgroundColor = "#EEE7D7"
-codeTextColor = "#1E2A22"
-redColor = "#A4422E"
-orangeColor = "#C27D1A"
-yellowColor = "#D9A826"
-greenColor = "#2A6B4A"
-blueColor = "#3B6E85"
-grayColor = "#8A8F86"
-font = "Mukta:https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700&display=swap, 'Kohinoor Devanagari', 'Devanagari Sangam MN', 'Nirmala UI', 'Noto Sans Devanagari', sans-serif"
+primaryColor = "#008236"
+backgroundColor = "#F1F7F2"
+secondaryBackgroundColor = "#E6EFE8"
+textColor = "#18181B"
+linkColor = "#008236"
+borderColor = "#E4E4E7"
+dataframeBorderColor = "#E4E4E7"
+dataframeHeaderBackgroundColor = "#E6EFE8"
+codeBackgroundColor = "#F4F4F5"
+codeTextColor = "#18181B"
+redColor = "#E5533D"
+orangeColor = "#F59E0B"
+yellowColor = "#FFC400"
+greenColor = "#008236"
+blueColor = "#00BCFF"
+grayColor = "#52525C"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, 'Noto Sans Devanagari', 'Kohinoor Devanagari', 'Devanagari Sangam MN', 'Nirmala UI', sans-serif"
 baseFontSize = 17
 headingFontSizes = ["1.9rem", "1.45rem", "1.2rem", "1.05rem", "1rem", "0.95rem"]
-headingFontWeights = [600, 600, 600, 600, 600, 600]
+headingFontWeights = [700, 700, 600, 600, 600, 600]
 metricValueFontSize = "1.7rem"
-metricValueFontWeight = 600
-baseRadius = "0.75rem"
-buttonRadius = "0.6rem"
+metricValueFontWeight = 700
+baseRadius = "1.1rem"
+buttonRadius = "full"
 paddingTop = "1rem"
 paddingBottom = "4rem"
-chartCategoricalColors = ["#2A6B4A", "#D9A826", "#A4422E", "#3B6E85", "#8A8F86"]
+chartCategoricalColors = ["#008236", "#00C950", "#FFC400", "#E5533D", "#00BCFF", "#52525C"]
 
 [browser]
 gatherUsageStats = false

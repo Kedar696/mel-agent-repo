@@ -3,6 +3,7 @@
 Metrics: decision accuracy (survey yes/no), rule match, channel match (expected.channel vs our
 first channel), send-window exact match, per-rule confusion matrix, item similarity vs expected.items.
 """
+
 import re
 from collections import Counter
 
@@ -55,17 +56,34 @@ def score_golden(golden: list[dict] | None = None, memory=None) -> dict:
             h = out["handoff"]
             hits["channel"] += h["channel_order"][0]["channel"] == exp.get("channel")
             ew = exp.get("send_window") or {}
-            hits["window"] += (h["send_window"]["not_before"], h["send_window"]["not_after"]) == (ew.get("start"), ew.get("end"))
+            hits["window"] += (h["send_window"]["not_before"], h["send_window"]["not_after"]) == (
+                ew.get("start"),
+                ew.get("end"),
+            )
             if exp.get("items"):
                 our = clean(out.get("surveys", {}).get("en-IN") or out.get("surveys", {}).get("hi-IN", {}))
                 if our.get("items"):
                     item_sims.append({"golden_id": g["golden_id"], "score": item_similarity(our, exp["items"])})
         if not ok_dec or d.rule != exp.get("rule"):
-            misses.append({"golden_id": g["golden_id"], "insight_id": g["insight_id"],
-                           "expected": exp.get("rule"), "got": d.rule, "reason": exp.get("reason_code")})
+            misses.append(
+                {
+                    "golden_id": g["golden_id"],
+                    "insight_id": g["insight_id"],
+                    "expected": exp.get("rule"),
+                    "got": d.rule,
+                    "reason": exp.get("reason_code"),
+                }
+            )
     sr = max(hits["survey_rows"], 1)
     sim_avg = round(sum(s["score"] for s in item_sims) / len(item_sims), 2) if item_sims else 0.0
-    return {"n": n, "decision_acc": hits["decision"] / n, "rule_acc": hits["rule"] / n,
-            "channel_acc": hits["channel"] / sr, "window_acc": hits["window"] / sr,
-            "confusion": confusion, "item_similarities": item_sims,
-            "item_similarity_avg": sim_avg, "misses": misses}
+    return {
+        "n": n,
+        "decision_acc": hits["decision"] / n,
+        "rule_acc": hits["rule"] / n,
+        "channel_acc": hits["channel"] / sr,
+        "window_acc": hits["window"] / sr,
+        "confusion": confusion,
+        "item_similarities": item_sims,
+        "item_similarity_avg": sim_avg,
+        "misses": misses,
+    }

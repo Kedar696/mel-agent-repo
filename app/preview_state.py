@@ -7,6 +7,7 @@ picker, Telegram inline keyboards, the app/web bottom sheet, the voice keypad) a
 mel/simulator/simulate.py (cases, timestamps, raw events). Nothing here invents a farmer answer: a
 record only ever carries what was tapped or typed on the screen.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -21,29 +22,39 @@ OPENING = ("whatsapp", "voice")  # a Start / Not now moment before question 1 (t
 STOP_WORD = {"whatsapp": "STOP", "telegram": "/stop"}  # typed by the farmer to opt out (outcome_codes.json)
 WA_MAX_BUTTONS = 3  # WhatsApp allows 3 reply buttons; longer lists open a picker (render._whatsapp)
 OPEN_MIN, LAST_MIN = 20, 25  # P3's timeline: opened 20 min after the send, last answer at 25 min
-ENDINGS = ("finished", "closed", "dismissed", "declined", "opted_out", "free_text", "dropped")
+ENDINGS = ("finished", "closed", "dismissed", "declined", "opted_out", "free_text", "dropped", "missed")
+
+
+def first_stage(channel: str) -> str:
+    """Where an attempt begins: the phone rings (voice), the template waits for Start (WhatsApp), or
+    question 1 is already on screen (Telegram, app, web)."""
+    return "ringing" if channel == "voice" else "invite" if channel == "whatsapp" else "question"
 
 
 @dataclass
 class PreviewState:
     """Where the farmer is in one survey attempt on one channel."""
+
     channel: str
-    ids: tuple                      # item ids in survey order
-    values: dict                    # item id -> the values its buttons carry
-    stage: str = "question"         # invite | question | picker | ended
-    step: int = 0                   # index of the question on screen
+    ids: tuple  # item ids in survey order
+    values: dict  # item id -> the values its buttons carry
+    stage: str = "question"  # invite | question | picker | ended
+    step: int = 0  # index of the question on screen
     taps: dict = field(default_factory=dict)  # item id -> value, in tap order (never a default)
-    ending: str | None = None       # one of ENDINGS once stage == "ended"
-    ended_from: str | None = None   # the stage the farmer was in when it ended
-    typed: str | None = None        # the message the farmer typed instead of tapping
-    rev: int = 0                    # bumps on every change, so the screen can animate only what is new
+    ending: str | None = None  # one of ENDINGS once stage == "ended"
+    ended_from: str | None = None  # the stage the farmer was in when it ended
+    typed: str | None = None  # the message the farmer typed instead of tapping
+    rev: int = 0  # bumps on every change, so the screen can animate only what is new
 
     @classmethod
     def new(cls, survey: dict, channel: str) -> "PreviewState":
         items = survey["items"]
-        return cls(channel, tuple(it["item_id"] for it in items),
-                   {it["item_id"]: tuple(v for _, v in choices(it)) for it in items},
-                   stage="invite" if channel in OPENING else "question")
+        return cls(
+            channel,
+            tuple(it["item_id"] for it in items),
+            {it["item_id"]: tuple(v for _, v in choices(it)) for it in items},
+            stage=first_stage(channel),
+        )
 
     @property
     def n(self) -> int:
@@ -61,7 +72,7 @@ class PreviewState:
     @property
     def started(self) -> bool:
         """Anything to start over from."""
-        return self.done or bool(self.taps) or self.stage != ("invite" if self.channel in OPENING else "question")
+        return self.done or bool(self.taps) or self.step > 0 or self.stage != first_stage(self.channel)
 
     # ---- transitions. Each one ignores a tap that no longer fits the screen (a double click, or a click
     # from before a rerun), so one tap advances exactly one question.
@@ -71,6 +82,16 @@ class PreviewState:
     def _end(self, how: str):
         self.ending, self.ended_from = how, self.stage
         self._go("ended")
+
+    def pick_up(self):
+        """The farmer answers the ringing phone: the greeting starts."""
+        if self.stage == "ringing":
+            self._go("invite")
+
+    def miss(self):
+        """The farmer lets the phone ring out (or declines the call): P3's voice_no_answer."""
+        if self.stage == "ringing":
+            self._end("missed")
 
     def start(self):
         """WhatsApp Start; the IVR greeting ends."""
@@ -96,13 +117,23 @@ class PreviewState:
         if self.stage == "picker":
             self._go("question")
 
+    def skip(self):
+        """Skip on the app/web sheet: the question on screen stays unanswered and the next one shows.
+        Skipping the last one ends the sheet: the answers given are sent; with none, nothing is."""
+        if self.channel in SHEET and self.stage == "question":
+            if self.step + 1 < self.n or self.taps:
+                self.step += 1
+                self._end("finished") if self.step >= self.n else self._go("question")
+            else:
+                self._end("dismissed")
+
     def close(self):
         """Close or swipe the sheet down: the answers so far are sent (brief: submit once)."""
         if not self.done:
             self._end("closed" if self.taps else "dismissed")
 
     def opt_out(self):
-        """Do not ask me again, STOP, /stop, key 9: no more surveys for this farmer."""
+        """STOP, /stop, key 9: no more surveys for this farmer."""
         if not self.done:
             self._end("opted_out")
 
@@ -124,7 +155,7 @@ class PreviewState:
 
     def reset(self):
         self.step, self.taps, self.ending, self.ended_from, self.typed = 0, {}, None, None, None
-        self._go("invite" if self.channel in OPENING else "question")
+        self._go(first_stage(self.channel))
 
 
 # ------------------------------------------------------------------------------------------ time
@@ -162,19 +193,42 @@ def build_record(survey: dict, channel: str, state: PreviewState, send_at: str |
     # finished record itself, and the source of the answered entries for every partial ending.
     full = simulate(survey, channel, "completed", answers=taps, send_at=at)
     how = state.ending
-    if how == "finished":
+    if how == "finished" and len(taps) == state.n:
         return full
-    if how == "closed":  # P3's submit-once sheet: keeps the given answers, marks the step shown as skipped
-        rec = simulate_sheet(survey, channel, list(taps), closed=True, answers=taps)
-        rec.update(timestamps=full["timestamps"], recorded_at=full["recorded_at"],
-                   raw_event=f"Close tapped at step {len(taps) + 1} of {state.n}")
-        return rec
-    case = {"dismissed": "sheet_dismissed", "declined": "farmer_declined", "opted_out": "farmer_opted_out",
-            "free_text": "free_text_instead_of_choice", "dropped": "voice_call_dropped"}[how]
+    if how in ("finished", "closed"):  # P3's submit-once sheet keeps the given answers (some steps skipped)
+        closed = how == "closed"
+        rec = simulate_sheet(survey, channel, list(taps), closed=closed, answers=taps)
+        rec.update(
+            timestamps=full["timestamps"],
+            recorded_at=full["recorded_at"],
+            raw_event=f"Close tapped at step {state.step + 1} of {state.n}" if closed else None,
+        )
+        return _skips(rec, state)
+    case = {
+        "dismissed": "sheet_dismissed",
+        "declined": "farmer_declined",
+        "opted_out": "farmer_opted_out",
+        "free_text": "free_text_instead_of_choice",
+        "dropped": "voice_call_dropped",
+        "missed": "voice_no_answer",
+    }[how]
     base = simulate(survey, channel, case, send_at=at)
-    if how in ("dismissed", "declined"):  # nothing was answered: P3's record is already exact
+    if how == "dismissed" and state.step:  # skipped to here, then closed or skipped again: nothing answered
+        base["raw_event"] = f"sheet closed at step {state.step + 1} of {state.n}, nothing answered"
+        return _skips(base, state)
+    if how in ("dismissed", "declined", "missed"):  # nothing was answered: P3's record is already exact
         return base
     return _reseat(base, full, survey, state)
+
+
+def _skips(rec: dict, state: PreviewState) -> dict:
+    """Sheet steps the farmer skipped, and the one on screen when the sheet closed, were shown but not
+    answered: `skipped` (P3's convention). Later steps stay not_reached."""
+    end = state.step + (state.ending in ("closed", "dismissed"))
+    for k, e in enumerate(rec["items"]):
+        if k < end and state.ids[k] not in state.taps:
+            e.update(result="skipped", value=None, raw_input=None, input_kind=None, attempts=1)
+    return rec
 
 
 def _reseat(base: dict, full: dict, survey: dict, state: PreviewState) -> dict:
@@ -199,18 +253,26 @@ def _reseat(base: dict, full: dict, survey: dict, state: PreviewState) -> dict:
             elif shown == "skipped":
                 e["attempts"] = 1
         items.append(e)
-    rec = {**base, "items": items, "answers": {i: taps[i] for i in state.ids if i in taps}, "complete": False,
-           "needs_follow_up": full["needs_follow_up"], "follow_up_reasons": full["follow_up_reasons"],
-           # FarmerChat's store answers once answers are submitted and the attempt is over (simulate.py).
-           "farmerchat_reply": ({"http_status": 201, "outcome": "accepted"}
-                                if taps and base["retry_decision"] in ("none", "give_up") else None)}
+    rec = {
+        **base,
+        "items": items,
+        "answers": {i: taps[i] for i in state.ids if i in taps},
+        "complete": False,
+        "needs_follow_up": full["needs_follow_up"],
+        "follow_up_reasons": full["follow_up_reasons"],
+        # FarmerChat's store answers once answers are submitted and the attempt is over (simulate.py).
+        "farmerchat_reply": (
+            {"http_status": 201, "outcome": "accepted"}
+            if taps and base["retry_decision"] in ("none", "give_up")
+            else None
+        ),
+    }
     if how == "dropped":  # a cut call has an answer event only if something was answered before the cut
         ts = {**base["timestamps"], "answered": full["timestamps"]["answered"] if taps else None}
         # Nothing answered: the cut is logged two minutes after the farmer picked up (`opened`), never
         # before it (the reference record stamps sent+2, which predates its own opened time).
         cut = fmt_ist(parse_ist(ts["opened"] or ts["sent"]) + timedelta(minutes=2))
-        rec.update(timestamps=ts, answered_by=survey["farmer_id"] if taps else None,
-                   recorded_at=ts["answered"] or cut)
+        rec.update(timestamps=ts, answered_by=survey["farmer_id"] if taps else None, recorded_at=ts["answered"] or cut)
     return rec
 
 
@@ -219,8 +281,9 @@ def _msg(who, text, at, **extra):
     return {"who": who, "text": text, "at": at, **extra}
 
 
-def chat_log(survey: dict, channel: str, state: PreviewState, t0: datetime,
-             follow_up: bool = False) -> tuple[list[dict], dict | None]:
+def chat_log(
+    survey: dict, channel: str, state: PreviewState, t0: datetime, follow_up: bool = False
+) -> tuple[list[dict], dict | None]:
     """WhatsApp / Telegram: the messages so far (oldest first) and the question on screen now, each
     with its IST time. Bot messages keep the buttons the farmer saw (`buttons`, or `picker` for a
     WhatsApp list). A WhatsApp tap comes back as the farmer's message; a Telegram tap edits the

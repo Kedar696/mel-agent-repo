@@ -1,0 +1,13 @@
+Fasal Pulse - MEL Survey Agent
+Copyright 2026 Fasal Pulse team contributors
+
+This product is licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+The Apache-2.0 license above does NOT cover the Digital Green participant pack or any data
+derived from it. The following belong to Digital Green and are included only as a read-only
+reference / synthetic fixtures for this hackathon, under Digital Green's own terms:
+
+  - mel-survey-agent-participant-pack/   (the organisers' participant pack, verbatim)
+  - data/mock/                           (a synthetic subset derived from the pack)
+
+Do not redistribute the participant pack or pack-derived data under the Apache-2.0 license.

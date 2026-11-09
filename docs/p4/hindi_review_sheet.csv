@@ -437,3 +437,6 @@ prompt,wait_and_monitor/weather_climate/mustard,Do you need more help?,क्य
 prompt,wait_and_monitor/weather_climate/mustard,Have you seen the problem get worse in your mustard?,क्या आपकी सरसों में समस्या बढ़ी?,,
 prompt,wait_and_monitor/weather_climate/wheat,Do you need more help?,क्या आपको और मदद चाहिए?,,
 prompt,wait_and_monitor/weather_climate/wheat,Have you seen the problem get worse in your wheat?,क्या आपके गेहूँ में समस्या बढ़ी?,,
+prompt,plan_created/first_step/cow,Is the plan working for your cow so far?,क्या आपकी गाय के लिए योजना अब तक काम कर रही है?,,
+prompt,plan_created/first_step/mustard,Is the plan working for your mustard so far?,क्या आपकी सरसों के लिए योजना अब तक काम कर रही है?,,
+prompt,plan_created/first_step/wheat,Is the plan working for your wheat so far?,क्या आपके गेहूँ के लिए योजना अब तक काम कर रही है?,,

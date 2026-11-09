@@ -16,6 +16,7 @@ Identifier policy: by default NOTHING is ignored — the simulator is fully dete
 field; it is empty by default and must never be used to hide a non-ID field difference. Any
 ignored field is listed explicitly in the report so it is never silent.
 """
+
 import json
 from pathlib import Path
 
@@ -31,8 +32,7 @@ DEFAULT_IGNORE_FIELDS: tuple[str, ...] = ()
 
 def _anchor_surveys() -> dict:
     """survey (hi-IN) per question type, from the grid's anchor scenarios."""
-    return {q: load_scenario(a["scenario"])["surveys"]["hi-IN"]
-            for q, a in outcome_codes()["grid_anchor"].items()}
+    return {q: load_scenario(a["scenario"])["surveys"]["hi-IN"] for q, a in outcome_codes()["grid_anchor"].items()}
 
 
 def _field_diffs(ref: dict, got: dict, ignore_fields) -> list[str]:
@@ -70,22 +70,22 @@ def compare(outcomes_dir: Path | None = None, ignore_fields=DEFAULT_IGNORE_FIELD
         got = simulate(surveys[qtype], channel, case)
         diffs = _field_diffs(ref, got, ignore_fields)
         if diffs:
-            mismatches.append({"channel": channel, "qtype": qtype, "case": case,
-                               "file": str(p.relative_to(root)), "diffs": diffs})
+            mismatches.append(
+                {"channel": channel, "qtype": qtype, "case": case, "file": str(p.relative_to(root)), "diffs": diffs}
+            )
         else:
             matched += 1
-    return {"total": len(files), "matched": matched, "mismatches": mismatches,
-            "ignored_fields": list(ignore_fields)}
+    return {"total": len(files), "matched": matched, "mismatches": mismatches, "ignored_fields": list(ignore_fields)}
 
 
 def format_report(report: dict) -> str:
-    lines = [f"Reference grid: {report['matched']}/{report['total']} records match "
-             f"field-for-field."]
+    lines = [f"Reference grid: {report['matched']}/{report['total']} records match field-for-field."]
     if report["ignored_fields"]:
         lines.append(f"Intentionally ignored id fields: {', '.join(report['ignored_fields'])}")
     else:
-        lines.append("Intentionally ignored id fields: none "
-                     "(simulator is fully deterministic; every field is compared).")
+        lines.append(
+            "Intentionally ignored id fields: none (simulator is fully deterministic; every field is compared)."
+        )
     for m in report["mismatches"]:
         lines.append(f"\nMISMATCH {m['channel']}/{m['qtype']}/{m['case']} ({m['file']}):")
         for d in m["diffs"]:

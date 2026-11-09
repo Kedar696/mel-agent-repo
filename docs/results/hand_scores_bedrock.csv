@@ -1,0 +1,34 @@
+sample,insight_id,crop_or_animal,resolution,farmer_asked,advice_given,questions,score_1_to_5,scorer,notes
+1,I-000473,wheat,direct_action,Farmer follows up on uneven emergence in wheat after trying earlier advice.,Advised to fill the gaps quickly with fresh treated seed or seedlings.,"Q1. You were advised to fill the gaps in your wheat field with fresh treated seed or seedlings. Did you do this?  [Yes / No]
+Q2. After filling the gaps, how is the new seed or seedling coming up?  [Coming up well / Coming slowly / Not come up / Too early to say]
+Q3. Overall, how much has the unevenness in your wheat field improved after following the advice?  [scale 1-5]",,,
+2,I-000153,potato,plan_created,Farmer asks what options exist for late sowing in potato.,"Gave a plan in stages: first pick a variety suited to late sowing and raise the seed rate as advised, then watch for how the late crop comes up and take the next step if needed.","Q1. Did you pick a potato variety that is suited for late sowing as advised?  [Yes / No]
+Q2. How well is your late-sown potato crop coming up so far?  [scale 1-5]",,,
+3,I-000002,maize,do_not_act,Farmer asks how to handle water logging in maize (seedling).,"Advised not to irrigate again soon after rain for now, because it would not help at this stage.","Q1. Did you hold off as advised?  [Yes / No]
+Q2. How is your maize now?  [Better / Same / Worse]",,,
+4,I-000002,maize,do_not_act,Farmer asks how to handle water logging in maize (seedling).,"Advised not to irrigate again soon after rain for now, because it would not help at this stage.","Q1. You were advised not to irrigate your maize seedlings soon after rain. Did you follow this advice?  [Yes / No]
+Q2. After skipping irrigation following the rain, how are your maize seedlings looking now? (1 = very poor, 5 = very good)  [scale 1-5]",,,
+5,I-000473,wheat,direct_action,Farmer follows up on uneven emergence in wheat after trying earlier advice.,Advised to fill the gaps quickly with fresh treated seed or seedlings.,"Q1. Did you fill the gaps in the field?  [Yes / Not yet / No]
+Q2. How is your wheat now?  [Better / Same / Worse]
+Q3. If not, what stopped you?  [Too costly / Not available nearby / No time / Did not understand]",,,
+6,I-000153,potato,plan_created,Farmer asks what options exist for late sowing in potato.,"Gave a plan in stages: first pick a variety suited to late sowing and raise the seed rate as advised, then watch for how the late crop comes up and take the next step if needed.","Q1. You were advised to pick a potato variety suited for late sowing and use a higher seed rate. Did you follow this plan?  [Yes, I did / No, I did not]
+Q2. How well is your late-sown potato crop coming up at germination stage so far?  [scale 1-5]",,,
+7,I-000330,wheat,direct_action,Farmer asks about choosing a variety in wheat.,Advised to choose a variety recommended for Bihar by the state agriculture university and buy certified seed.,"Q1. Did you buy certified seed?  [Yes / Not yet / No]
+Q2. How is your wheat now?  [Better / Same / Worse]",,,
+8,I-000002,maize,do_not_act,Farmer asks how to handle water logging in maize (seedling).,"Advised not to irrigate again soon after rain for now, because it would not help at this stage.","Q1. After the recent rain, did you avoid irrigating your maize seedlings as advised?  [Yes / No]
+Q2. How much did avoiding extra irrigation help your maize seedlings recover from water stress?  [scale 1-5]",,,
+9,I-000153,potato,plan_created,Farmer asks what options exist for late sowing in potato.,"Gave a plan in stages: first pick a variety suited to late sowing and raise the seed rate as advised, then watch for how the late crop comes up and take the next step if needed.","Q1. Did you choose a late-sowing variety?  [Yes / Not yet / No]
+Q2. Is the plan working for your potato so far?  [Yes / Too early to say / No]",,,
+10,I-000608,mustard,direct_action,Farmer adds mustard to their profile and asks about first irrigation timing.,"Advised to give the first irrigation at the critical stage advised for mustard, not earlier.","Q1. Did you give the first irrigation at the right stage?  [Yes / Not yet / No]
+Q2. How is your mustard now?  [Better / Same / Worse]",,,
+11,I-000473,wheat,direct_action,Farmer follows up on uneven emergence in wheat after trying earlier advice.,Advised to fill the gaps quickly with fresh treated seed or seedlings.,"Q1. Did you fill the gaps in your wheat field with fresh treated seed or seedlings?  [Yes / No]
+Q2. After filling the gaps, how is the emergence looking now?  [Much more even / Slightly better / No change / Worse]
+Q3. How satisfied are you with the result of filling the gaps?  [scale 1-5]",,,
+12,I-000608,mustard,direct_action,Farmer adds mustard to their profile and asks about first irrigation timing.,"Advised to give the first irrigation at the critical stage advised for mustard, not earlier.","Q1. Did you give the first irrigation to your mustard at the critical stage like you were advised?  [Yes / No]
+Q2. How much did the first irrigation at the right time help your mustard seedlings?  [scale 1-5]",,,
+13,I-000330,wheat,direct_action,Farmer asks about choosing a variety in wheat.,Advised to choose a variety recommended for Bihar by the state agriculture university and buy certified seed.,"Q1. Did you choose a wheat variety recommended for Bihar by the state agriculture university?  [Yes / No]
+Q2. Did you buy certified seed for your wheat?  [Yes / No]",,,
+14,I-000608,mustard,direct_action,Farmer adds mustard to their profile and asks about first irrigation timing.,"Advised to give the first irrigation at the critical stage advised for mustard, not earlier.","Q1. You were advised to wait for the right stage before giving the first irrigation to your mustard crop. Did you follow this advice?  [Yes, I waited / No, I did not wait]
+Q2. After giving the first irrigation at the right stage, how well is your mustard seedling crop doing now?  [scale 1-5]",,,
+15,I-000330,wheat,direct_action,Farmer asks about choosing a variety in wheat.,Advised to choose a variety recommended for Bihar by the state agriculture university and buy certified seed.,"Q1. You were advised to choose a wheat variety recommended for Bihar by the state agriculture university and buy certified seed. Did you follow this advice?  [Yes / No]
+Q2. How satisfied are you with the certified wheat seed you bought — did it meet your expectations so far?  [scale 1-5]",,,

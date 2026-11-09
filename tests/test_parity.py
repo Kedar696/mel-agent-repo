@@ -1,16 +1,22 @@
 """P1: Excel loaders, parity check, compare_golden, lazy openpyxl (items 4, 11, 12, 13)."""
+
 import json
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
 from mel.config import PACK, ROOT
 from mel.data import (
-    load_golden, load_farmers, load_crop_calendar, load_insights,
-    load_golden_xlsx, load_farmers_xlsx, load_crop_calendar_xlsx, load_insights_xlsx,
+    load_golden,
+    load_farmers,
+    load_crop_calendar,
+    load_insights,
+    load_golden_xlsx,
+    load_farmers_xlsx,
+    load_crop_calendar_xlsx,
+    load_insights_xlsx,
 )
 from mel.data.excel import check_all_parity, check_insights_parity, check_dir_parity, diff_records
 
@@ -24,11 +30,11 @@ def norm(x):
 
 
 def run(*args, **kw):
-    return subprocess.run([sys.executable, *args], cwd=ROOT, capture_output=True, text=True,
-                          encoding="utf-8", **kw)
+    return subprocess.run([sys.executable, *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", **kw)
 
 
 # --- openpyxl is lazy (4) ---------------------------------------------------------------
+
 
 def test_importing_the_package_does_not_load_openpyxl():
     r = run("-c", "import sys, mel.cli, mel.pipeline, mel.data; print('openpyxl' in sys.modules)")
@@ -37,16 +43,19 @@ def test_importing_the_package_does_not_load_openpyxl():
 
 
 def test_a_normal_run_does_not_load_openpyxl(tmp_path):
-    code = ("import sys, argparse, mel.cli as c; "
-            "c.OUT = __import__('pathlib').Path(sys.argv[1]); "
-            "c.cmd_run(argparse.Namespace(insights=None, simulate=False, limit=3, farmer=None, clean=False)); "
-            "print('LOADED' if 'openpyxl' in sys.modules else 'NOT-LOADED')")
+    code = (
+        "import sys, argparse, mel.cli as c; "
+        "c.OUT = __import__('pathlib').Path(sys.argv[1]); "
+        "c.cmd_run(argparse.Namespace(insights=None, simulate=False, limit=3, farmer=None, clean=False)); "
+        "print('LOADED' if 'openpyxl' in sys.modules else 'NOT-LOADED')"
+    )
     r = run("-c", code, str(tmp_path))
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip().endswith("NOT-LOADED")
 
 
 # --- loaders return what the JSON/CSV loaders return (11) --------------------------------
+
 
 @needs_pack
 def test_golden_xlsx_equals_golden_jsonl():
@@ -60,8 +69,11 @@ def test_golden_xlsx_rebuilds_items_and_send_window():
     g = {r["golden_id"]: r for r in load_golden_xlsx(SHEETS / "golden_set.xlsx")}
     e = g["G-0002"]["expected"]
     assert e["send_window"] == {"start": "2026-11-13T09:00:00+05:30", "end": "2026-11-20T19:00:00+05:30"}
-    assert e["items"][0] == {"id": "q1", "text": "How much of the plan have you done?",
-                             "options": ["All steps", "Some steps", "Not started"]}
+    assert e["items"][0] == {
+        "id": "q1",
+        "text": "How much of the plan have you done?",
+        "options": ["All steps", "Some steps", "Not started"],
+    }
     assert g["G-0002"]["insight"]["location"]["district"] == "Bhojpur"
     three = g["G-0008"]["expected"]["items"][2]
     assert three["show_if"] == "q1 != Yes" and len(three["options"]) == 4
@@ -71,8 +83,9 @@ def test_golden_xlsx_rebuilds_items_and_send_window():
 @needs_pack
 def test_farmers_and_calendar_xlsx_equal_csv():
     assert load_farmers_xlsx(SHEETS / "farmers.xlsx") == load_farmers(DATA / "farmers.csv")
-    assert (load_crop_calendar_xlsx(SHEETS / "crop_calendar.xlsx")
-            == load_crop_calendar(DATA / "crop_calendar_bihar_rabi.csv"))
+    assert load_crop_calendar_xlsx(SHEETS / "crop_calendar.xlsx") == load_crop_calendar(
+        DATA / "crop_calendar_bihar_rabi.csv"
+    )
 
 
 @needs_pack
@@ -82,6 +95,7 @@ def test_insights_xlsx_equals_jsonl():
 
 
 # --- parity (12) ------------------------------------------------------------------------
+
 
 @needs_pack
 def test_parity_default_passes_on_the_committed_pack():
@@ -104,7 +118,7 @@ def test_parity_names_row_and_field_and_missing_rows(tmp_path):
     first = json.loads(rows[0])
     first["severity"] = "changed-on-purpose"
     first["extra_key"] = "x"
-    edited = [json.dumps(first, ensure_ascii=False)] + rows[2:]      # also drop row 2
+    edited = [json.dumps(first, ensure_ascii=False)] + rows[2:]  # also drop row 2
     j = tmp_path / "insights.jsonl"
     j.write_text("\n".join(edited) + "\n", encoding="utf-8")
     diffs = check_insights_parity(SHEETS / "insights.xlsx", j)
@@ -128,7 +142,8 @@ def test_cli_parity_exits_nonzero_on_a_difference(tmp_path):
 
 def test_dir_parity_by_file_name(tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
-    (a / "x").mkdir(parents=True); (b / "x").mkdir(parents=True)
+    (a / "x").mkdir(parents=True)
+    (b / "x").mkdir(parents=True)
     (a / "x" / "same.json").write_text('{"k": 1}', encoding="utf-8")
     (b / "x" / "same.json").write_text('{ "k": 1 }', encoding="utf-8")
     (a / "only_a.json").write_text("{}", encoding="utf-8")
@@ -138,6 +153,7 @@ def test_dir_parity_by_file_name(tmp_path):
 
 
 # --- compare_golden (13) ----------------------------------------------------------------
+
 
 @needs_pack
 def test_compare_golden_identical_files_print_no_ids():
@@ -151,15 +167,19 @@ def test_compare_golden_identical_files_print_no_ids():
 
 
 def test_compare_golden_reports_added_removed_changed(tmp_path):
-    rows = [json.loads(l) for l in (ROOT / "data" / "mock" / "golden_set.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = [
+        json.loads(l) for l in (ROOT / "data" / "mock" / "golden_set.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     old, new = tmp_path / "old.jsonl", tmp_path / "new.jsonl"
     old.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
-    changed = json.loads(json.dumps(rows[1])); changed["expected"]["rule"] = "R3"
-    added = json.loads(json.dumps(rows[0])); added["golden_id"] = "G-9999"
-    new_rows = [changed] + rows[2:] + [added]                      # rows[0] removed, rows[1] changed
+    changed = json.loads(json.dumps(rows[1]))
+    changed["expected"]["rule"] = "R3"
+    added = json.loads(json.dumps(rows[0]))
+    added["golden_id"] = "G-9999"
+    new_rows = [changed] + rows[2:] + [added]  # rows[0] removed, rows[1] changed
     new.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in new_rows) + "\n", encoding="utf-8")
     r = run("scripts/compare_golden.py", str(old), str(new))
     assert r.returncode == 0, r.stderr
-    assert f"added:   1  G-9999" in r.stdout
+    assert "added:   1  G-9999" in r.stdout
     assert f"removed: 1  {rows[0]['golden_id']}" in r.stdout
     assert f"{rows[1]['golden_id']}: expected.rule" in r.stdout

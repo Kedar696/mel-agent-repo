@@ -1,0 +1,549 @@
+{
+ "insight_id": "I-001996",
+ "recorded": "2026-11-05 23:48",
+ "where": "agentcore",
+ "writer": null,
+ "checker": null,
+ "judge": null,
+ "guardrail": "8dw1s0ayihkz",
+ "events": [
+  {
+   "step": "evidence",
+   "status": "ok",
+   "title": "Evidence Extractor",
+   "detail": "wheat · pest disease · plan created",
+   "ms": 0.0,
+   "data": {
+    "crop_or_animal": "wheat",
+    "growth_stage": "tillering",
+    "concern": "pest_disease",
+    "severity": "high",
+    "advice_type": "plan_created",
+    "farmer_asked": "Farmer reports plants drying in patches and pulling out easily in wheat (tillering) and asks what is wrong.",
+    "advice_given": "Gave a plan in stages: first give a light irrigation and apply a recommended soil insecticide as per the label in the affected patches, then watch for new drying patches and take the next step if needed.",
+    "district": null,
+    "preferred_channel": "whatsapp",
+    "chat_hours_known": 0,
+    "history_rules": [],
+    "attention": null
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst decides: survey (rule R8)",
+   "detail": "A plan was created. Ask whether the first step was followed. Window 2026-12-22T07:00:00+05:30 to 2026-12-24T19:00:00+05:30.",
+   "ms": 3.4,
+   "data": {
+    "decision": {
+     "survey": true,
+     "rule": "R8",
+     "reason_code": null,
+     "send_window": {
+      "not_before": "2026-12-22T07:00:00+05:30",
+      "not_after": "2026-12-24T19:00:00+05:30"
+     },
+     "send_time": {
+      "send_at": "2026-12-22T07:00:00+05:30",
+      "slot": null,
+      "rule": "high_severity",
+      "assumption": false,
+      "reason": "High severity: send as soon as the window opens."
+     },
+     "attention": null,
+     "notes": []
+    }
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst drafts [en-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 914.9,
+   "data": {
+    "lang": "en-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "Did you give light irrigation to the affected wheat patches?",
+     "Did you apply the soil insecticide as recommended on the label?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [en-IN]",
+   "detail": "passed every check",
+   "ms": 815.0,
+   "data": {
+    "lang": "en-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 1.0,
+    "judge": 5
+   }
+  },
+  {
+   "step": "analyst",
+   "status": "ok",
+   "title": "Analyst translates the English survey [hi-IN]",
+   "detail": "2 questions from Bedrock",
+   "ms": 865.0,
+   "data": {
+    "lang": "hi-IN",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "questions": [
+     "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+     "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?"
+    ]
+   }
+  },
+  {
+   "step": "verifier",
+   "status": "ok",
+   "title": "Verifier [hi-IN]",
+   "detail": "passed every check",
+   "ms": 953.0,
+   "data": {
+    "lang": "hi-IN",
+    "ok": true,
+    "problems": [],
+    "relevance": 0.5,
+    "judge": 5
+   }
+  },
+  {
+   "step": "synthesizer",
+   "status": "ok",
+   "title": "Synthesizer",
+   "detail": "2 survey files, hand-off (high priority, first channel whatsapp), 2 channel renders; all schema-valid",
+   "ms": 5.0,
+   "data": {
+    "schema_errors": {}
+   }
+  },
+  {
+   "step": "result",
+   "status": "ok",
+   "title": "Result",
+   "insight_id": "I-001996",
+   "decision": {
+    "survey": true,
+    "rule": "R8",
+    "reason_code": null,
+    "send_window": {
+     "not_before": "2026-12-22T07:00:00+05:30",
+     "not_after": "2026-12-24T19:00:00+05:30"
+    },
+    "send_time": {
+     "send_at": "2026-12-22T07:00:00+05:30",
+     "slot": null,
+     "rule": "high_severity",
+     "assumption": false,
+     "reason": "High severity: send as soon as the window opens."
+    },
+    "attention": null,
+    "notes": []
+   },
+   "surveys": {
+    "en-IN": {
+     "survey_id": "S-01996",
+     "farmer_id": "F-000208",
+     "source_insight_ids": [
+      "I-001996"
+     ],
+     "language": "en-IN",
+     "send_window": {
+      "not_before": "2026-12-22T07:00:00+05:30",
+      "not_after": "2026-12-24T19:00:00+05:30"
+     },
+     "rationale": "A plan was created. Ask whether the first step was followed.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "Did you give light irrigation to the affected wheat patches?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "Did you apply the soil insecticide as recommended on the label?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "Yes"
+        },
+        {
+         "value": "no",
+         "label": "No",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 1.0
+     },
+     "_source": "bedrock",
+     "_revisions": 0,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 1.0,
+      "judge": 5
+     },
+     "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+     "_history": []
+    },
+    "hi-IN": {
+     "survey_id": "S-01996",
+     "farmer_id": "F-000208",
+     "source_insight_ids": [
+      "I-001996"
+     ],
+     "language": "hi-IN",
+     "send_window": {
+      "not_before": "2026-12-22T07:00:00+05:30",
+      "not_after": "2026-12-24T19:00:00+05:30"
+     },
+     "rationale": "A plan was created. Ask whether the first step was followed.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.5
+     },
+     "_source": "bedrock",
+     "_revisions": 0,
+     "_verifier": {
+      "ok": true,
+      "problems": [],
+      "relevance": 0.5,
+      "judge": 5
+     },
+     "_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+     "_history": []
+    }
+   },
+   "handoff": {
+    "handoff_id": "H-01996",
+    "created_at": "2026-12-12T23:00:00+05:30",
+    "survey": {
+     "survey_id": "S-01996",
+     "farmer_id": "F-000208",
+     "source_insight_ids": [
+      "I-001996"
+     ],
+     "language": "hi-IN",
+     "send_window": {
+      "not_before": "2026-12-22T07:00:00+05:30",
+      "not_after": "2026-12-24T19:00:00+05:30"
+     },
+     "rationale": "A plan was created. Ask whether the first step was followed.",
+     "items": [
+      {
+       "item_id": "q1",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं"
+        }
+       ]
+      },
+      {
+       "item_id": "q2",
+       "type": "survey-confirm",
+       "prompt": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?",
+       "options": [
+        {
+         "value": "yes",
+         "label": "हाँ"
+        },
+        {
+         "value": "no",
+         "label": "नहीं",
+         "follow_up": "could_not_get_input"
+        }
+       ]
+      }
+     ],
+     "self_eval": {
+      "schema_valid": true,
+      "gives_new_advice": false,
+      "asks_personal_info": false,
+      "relevance_score": 0.5
+     }
+    },
+    "send_window": {
+     "not_before": "2026-12-22T07:00:00+05:30",
+     "not_after": "2026-12-24T19:00:00+05:30"
+    },
+    "send_hours": {
+     "from": "07:00",
+     "to": "19:00"
+    },
+    "channel_order": [
+     {
+      "channel": "whatsapp",
+      "wait_hours": 6
+     },
+     {
+      "channel": "voice",
+      "wait_hours": null
+     }
+    ],
+    "frequency_cap": {
+     "key": "mel:farmer:F-000208",
+     "max_surveys": 1,
+     "window_days": 7,
+     "exempt": true
+    },
+    "priority": "high",
+    "expires_at": "2026-12-26T19:00:00+05:30",
+    "farmerchat_flow": {
+     "org_id": "org.farmerchat",
+     "flow_key": "mel_s_01996",
+     "version": 1,
+     "campaign_id": "77c323ff-ec89-5c34-8db1-bde86cee258c",
+     "flow_id": "d56513d2-2006-54f6-9ee3-2841bb5f81cd"
+    }
+   },
+   "renders": {
+    "whatsapp": {
+     "channel": "whatsapp",
+     "how_it_arrives": "Days after the chat, so outside WhatsApp's 24-hour reply window. The first message must be an approved template; the questions follow once the farmer taps Start.",
+     "opening_template": {
+      "messaging_product": "whatsapp",
+      "to": "<farmer WhatsApp number>",
+      "type": "template",
+      "template": {
+       "name": "mel_survey_invite",
+       "language": {
+        "code": "hi"
+       },
+       "components": [
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "0",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-01996|start"
+          }
+         ]
+        },
+        {
+         "type": "button",
+         "sub_type": "quick_reply",
+         "index": "1",
+         "parameters": [
+          {
+           "type": "payload",
+           "payload": "S-01996|later"
+          }
+         ]
+        }
+       ]
+      }
+     },
+     "template_text_for_approval": {
+      "body": "आपको मिली सलाह के बारे में FarmerChat से एक छोटा सवाल। बस एक मिनट लगेगा।",
+      "quick_replies": [
+       "शुरू करें",
+       "अभी नहीं"
+      ]
+     },
+     "messages": [
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q1|yes",
+            "title": "हाँ"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q1|no",
+            "title": "नहीं"
+           }
+          }
+         ]
+        }
+       }
+      },
+      {
+       "messaging_product": "whatsapp",
+       "to": "<farmer WhatsApp number>",
+       "type": "interactive",
+       "interactive": {
+        "type": "button",
+        "body": {
+         "text": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया?"
+        },
+        "action": {
+         "buttons": [
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q2|yes",
+            "title": "हाँ"
+           }
+          },
+          {
+           "type": "reply",
+           "reply": {
+            "id": "S-01996|q2|no",
+            "title": "नहीं"
+           }
+          }
+         ]
+        }
+       }
+      }
+     ]
+    },
+    "voice": {
+     "channel": "voice",
+     "how_it_arrives": "An outbound call from FarmerChat's number inside send hours. Two silent prompts in a row end the call and the answers so far are saved as partial.",
+     "opening": "नमस्ते, यह FarmerChat की ओर से कॉल है। आपको मिली सलाह के बारे में दो छोटे सवाल हैं। आप बटन दबाकर या बोलकर जवाब दे सकते हैं।",
+     "items": [
+      {
+       "item_id": "q1",
+       "say": "क्या आपने प्रभावित गेहूं के पैच को हल्की सिंचाई दी? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
+       "keypad": {
+        "1": "yes",
+        "2": "no"
+       },
+       "speech": {
+        "yes": [
+         "हाँ",
+         "हाँ",
+         "हां",
+         "जी हाँ",
+         "haan"
+        ],
+        "no": [
+         "नहीं",
+         "नहीं",
+         "नही",
+         "nahin"
+        ]
+       },
+       "timeout_seconds": 8,
+       "repeat_if_no_input": 1
+      },
+      {
+       "item_id": "q2",
+       "say": "क्या आपने लेबल पर सुझाए अनुसार मिट्टी कीटनाशक लगाया? हाँ के लिए 1 दबाएँ। नहीं के लिए 2 दबाएँ।",
+       "keypad": {
+        "1": "yes",
+        "2": "no"
+       },
+       "speech": {
+        "yes": [
+         "हाँ",
+         "हाँ",
+         "हां",
+         "जी हाँ",
+         "haan"
+        ],
+        "no": [
+         "नहीं",
+         "नहीं",
+         "नही",
+         "nahin"
+        ]
+       },
+       "timeout_seconds": 8,
+       "repeat_if_no_input": 1
+      }
+     ],
+     "closing": "धन्यवाद। आपके जवाब से हम और अच्छी सलाह दे पाएँगे।",
+     "closing_if_follow_up": "धन्यवाद। हमने यह नोट कर लिया है। FarmerChat आपसे इस बारे में फिर बात करेगा।"
+    }
+   },
+   "no_survey": null,
+   "metrics": {
+    "calls": 4,
+    "cached": 0,
+    "failed": 0,
+    "input_tokens": 1318,
+    "output_tokens": 233,
+    "cost_usd": 0.001355,
+    "seconds": 3.56,
+    "revisions": 0,
+    "sources": {
+     "en-IN": "bedrock",
+     "hi-IN": "bedrock"
+    }
+   },
+   "saved_to": "s3://fasal-pulse-data-a8460baa13e0ea0aa889c01a2a/results/I-001996/20261106T044823.json"
+  }
+ ]
+}

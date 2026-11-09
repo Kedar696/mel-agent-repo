@@ -5,9 +5,12 @@ builds the scheduler hand-off → simulates farmer answers across app, web, What
 Built for the Digital Green MEL hackathon pack (synthetic data only).
 
 ## Quick start
-Run these from the repo root. Python 3.11 or newer.
+Run these from the repo root. Python 3.12.
 ```bash
-python -m venv .venv
+# Windows
+py -3.12 -m venv .venv
+# macOS / Linux
+python3.12 -m venv .venv
 ```
 Activate the virtual environment (pick your OS):
 ```bash
@@ -17,7 +20,7 @@ Activate the virtual environment (pick your OS):
 source .venv/bin/activate
 ```
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 pytest -q
 python -m mel.cli run --simulate --clean   # writes out/{surveys,handoffs,no_survey,responses} + run_summary.json + junk_report.csv
 python -m mel.cli validate                 # schema-checks everything in out/ (fails if there is nothing to check)
@@ -61,7 +64,73 @@ python -m mel.cli eval
 | `MEL_DATA_DIR` | folder with `insights.jsonl`, `golden_set.jsonl`, `farmers.csv`, `crop_calendar_bihar_rabi.csv` | `data/mock` |
 | `MEL_OUT_DIR` | where `run` writes (and `validate` reads) | `./out` |
 
-`validate` on the full pack checks about 14,650 files (a few seconds to a few minutes, depending on the machine).
+`validate` on the full pack checks about 12,500 files (a few seconds to a few minutes, depending on the machine).
+
+## Weekly limit
+The brief caps how often a farmer is surveyed: at most **one non-urgent survey per farmer per 7 days**, across
+every channel, and an opted-out farmer gets nothing after that. High-priority (urgent) surveys are exempt but
+still count toward the window for later ones.
+
+`python -m mel.cli run` applies this. The pipeline plans a hand-off for each survey; then the weekly cap, the
+opt-out list and the survey quality gate decide what actually goes out. A capped survey is **moved** to the next
+free date inside its window, **merged** into an earlier survey to the same farmer if it cannot move, or **skipped**
+if it can do neither. So on the full pack, `run` writes fewer hand-off, survey and response files than the number
+of surveys the pipeline planned, while the R1–R8 decision counts are unchanged. `run_summary.json` records the
+breakdown under `schedule` (`sent`, `moved`, `merged`, `skipped`, `opted_out`, `rejected`, and `cap_violations`,
+which should be 0).
+
+The full policy, with the exact move/merge/skip rules, is in [docs/cap_policy.md](docs/cap_policy.md).
+
+## REST API
+A thin FastAPI front in `mel/api/`. `POST /surveys` runs the same agent as the CLI and AgentCore
+(`mel.agent.run_agent`: decide, write with Bedrock or the templates, verify, hand off) and admits the
+result with P3's opt-out, quality and weekly-cap rules unchanged. Everything that must outlive a process
+(surveys, hand-offs, answers, opt-outs) is in one SQLite file, so a restart loses nothing.
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `MEL_API_TOKEN` | the bearer token every call but `/healthz` must send. The API refuses to start without one. | none |
+| `MEL_DATABASE_URL` | `sqlite:///path` (a file) or `sqlite://` (in memory) | `sqlite:///<MEL_OUT_DIR>/mel.sqlite3` |
+
+```bash
+pip install -e ".[api]"
+MEL_API_TOKEN=change-me uvicorn --factory mel.api.app:create_app
+```
+It listens on `http://127.0.0.1:8000`. The interactive API reference is at `http://127.0.0.1:8000/docs`.
+
+| Method & path | What it does |
+|---|---|
+| `GET /healthz` | liveness check for the container (no token) |
+| `POST /surveys` | run one insight. A survey returns `201` and is admitted (opt-outs, the quality gate, then the weekly cap decided from that farmer's stored hand-offs); no survey returns `200`; junk input returns the R1 no-survey result (not an error); a body that is not a JSON object returns `422`. The same insight again returns its first admission and takes no second weekly slot. |
+| `GET /surveys/due` | read-only list of the hand-offs a sender should send at an instant, each a full schema-valid `schedule_handoff`. Optional `at` (ISO 8601 with a timezone offset; default: now) and `limit`. |
+| `GET /v1/surveys/{flow_id}` | the survey registered under a FarmerChat flow id (`farmerchat_flow.flow_id` on the hand-off). Static registration: the id is derived from the survey id, not requested from FarmerChat yet. |
+| `POST /v1/surveys/{flow_id}/responses` | FarmerChat's answer path. One `response` record (checked against `response.schema.json`) in; `201` when new, `200` when the same `response_key` was seen before. A `farmer_opted_out` record puts the farmer on the opt-out list; `needs_follow_up` puts the record in the follow-up queue. |
+| `GET /follow-ups` | answer records that need a person, oldest first. Optional `limit`. |
+
+> **Windows PowerShell users:** `curl` is an alias for `Invoke-WebRequest` there, which takes
+> different arguments. Type `curl.exe` instead to use the real curl shown below.
+
+Health (no token):
+```bash
+curl http://127.0.0.1:8000/healthz
+```
+Submit an insight (here, the first mock insight; swap in your own JSON object):
+```bash
+curl -X POST http://127.0.0.1:8000/surveys \
+  -H "authorization: Bearer $MEL_API_TOKEN" -H 'content-type: application/json' \
+  -d "$(head -n 1 data/mock/insights.jsonl)"
+```
+List what is due at a given instant. A literal `+` in the offset works, as does the percent-encoded `%2B`:
+```bash
+curl -H "authorization: Bearer $MEL_API_TOKEN" "http://127.0.0.1:8000/surveys/due?at=2027-01-22T09:00:00+05:30"
+```
+Send an answer back (the flow id is `handoff.farmerchat_flow.flow_id` in the `POST /surveys` reply; the record is
+one of the pack's answer records with the survey's ids):
+```bash
+curl -X POST "http://127.0.0.1:8000/v1/surveys/$FLOW_ID/responses" \
+  -H "authorization: Bearer $MEL_API_TOKEN" -H 'content-type: application/json' -d @answer.json
+curl -H "authorization: Bearer $MEL_API_TOKEN" http://127.0.0.1:8000/follow-ups
+```
 
 ## Command reference
 | Command | What it does |
@@ -99,7 +168,8 @@ insight ─► decision (R1–R8) ─► timing (window, expiry) ─► writer (
 | `mel/evaluation/`, `app/` | golden scoring, Streamlit demo | P5 Evaluation & Demo |
 
 The signed Team Contracts document is the source of truth. `docs/TEAM.md` is the short version;
-`docs/h4_interface_decisions.md` lists the function names to settle at H+4; `docs/prompts/` holds reusable prompts.
+`docs/h4_interface_decisions.md` records the function names settled at H+4; the hackathon-time prompts, demo script and
+plans are kept in `docs/archive/`.
 
 ## Results
 Digital Green's brief and its answer key disagree on send times (brief: 07:00, after the farmer's action
@@ -128,9 +198,9 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | Safety (no new advice, no personal info) | 100.0% | 100.0% |
 | Timeliness (after the action window, 07:00–19:00, in season, before harvest) | 100.0% | 26.5% |
 | Failing surveys handed to the scheduler | 0 | 0 |
-| Relevance (P4's score, 0–1) | 0.69 | 0.69 |
-| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | 4.82 | 4.81 |
-| Speed | 3.7 ms per survey · 10 s for all | 3.8 ms per survey · 10 s for all |
+| Relevance (P4's score, 0–1) | 0.81 | 0.81 |
+| Relevance (AI judge on Bedrock, 1–5; see the rubric below) | 4.48 | 4.47 |
+| Speed | 3.1 ms per survey · 8 s for all | 3.1 ms per survey · 8 s for all |
 
 **Rules we changed** (each recorded run vs the last run under the same send-time rule)
 
@@ -142,6 +212,8 @@ scored below, and we have asked Digital Green which is right (see `mel/timing/RE
 | 5 (vs 3) | P4 templates in answer-key wording (writer_style=golden) + stricter relevance v2 | Answer-key setting | 100.0% | 100.0% | 100.0% | 26.5% | 0.50 → 0.99 | 0.83 → 0.69 | 0 |
 | 6 (vs 4) | History rules H1-H4 on (P4's, moved into the team writer) | Brief rules (default) + history on | 99.3% | 99.3% | 0.0% | 100.0% | 0.99 → 0.93 | 0.69 → 0.73 | 1 |
 | 7 (vs 5) | History rules H1-H4 on (P4's, moved into the team writer) | Answer-key setting + history on | 100.0% | 100.0% | 100.0% | 26.5% | 0.99 → 0.93 | 0.69 → 0.73 | 0 |
+| 8 (vs 4) | Judge: best-value model; plan questions name the first step and crop; send bar 0.3 | Brief rules (default) | 99.3% | 99.3% | 0.0% | 100.0% | 0.99 | 0.69 → 0.81 | 1 |
+| 9 (vs 5) | Judge: best-value model; plan questions name the first step and crop; send bar 0.3 | Answer-key setting | 100.0% | 100.0% | 100.0% | 26.5% | 0.99 | 0.69 → 0.81 | 0 |
 
 Misses under brief rules (default): G-0145 (expected R8, got R6)
 
